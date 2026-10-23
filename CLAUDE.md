@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-This directory is **pre-implementation**. There is no source code, build system, test suite, linter, or git history yet, so there are no build/lint/test commands to document. Update this file once code lands.
+This directory is **pre-implementation**. There is no source code, build system, test suite or linter yet, so there are no build/lint/test commands to document. Update this file once code lands.
+
+Git remote: public repo https://github.com/Mohaned178/agent-handoff-protocol (default branch `main`). Line endings are normalized to LF via `.gitattributes`.
 
 - `docs/design/ahp-v2-direction.md` is the **current agreed direction** (2026-10-24) and the input to grilling → spec → tickets → implementation. Read it first. It is not frozen; its §9 lists decisions still open.
 - `GLOSSARY.md` holds the domain terms and `docs/adr/` the hard-to-reverse decisions; use their vocabulary.
