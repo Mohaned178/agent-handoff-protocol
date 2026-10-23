@@ -1,0 +1,3 @@
+# Send-back is the only backward edge in a linear workflow
+
+Release-1 workflows are linear (no parallel steps). The one exception is send-back: a review step's "changes requested" verdict, or a human rejecting at an approval gate, returns the immediately preceding agent step as a `verification_failed` retry with the findings or rejection reason attached as evidence, spending that step's retry budget; when the budget is exhausted the run fails. We chose this over purely linear flows because a review whose findings go nowhere is decoration, and over general loops because send-back reuses the existing retry machinery and stays bounded.

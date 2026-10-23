@@ -1,0 +1,57 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Current state
+
+This directory is **pre-implementation**. There is no source code, build system, test suite, linter, or git history yet, so there are no build/lint/test commands to document. Update this file once code lands.
+
+- `docs/design/ahp-v2-direction.md` is the **current agreed direction** (2026-10-24) and the input to grilling → spec → tickets → implementation. Read it first. It is not frozen; its §9 lists decisions still open.
+- `GLOSSARY.md` holds the domain terms and `docs/adr/` the hard-to-reverse decisions; use their vocabulary.
+- `docs/diagrams/ahp-user-workflow.excalidraw` shows the **old deck** design and is superseded; it will be redrawn from the spec.
+- `AHP-presentation.pdf` is the original 15-slide design deck. Where it conflicts with the v2 direction, v2 wins. To read it as text: `pdftotext -layout AHP-presentation.pdf -` (the Read tool's PDF rendering needs `pdftoppm`, which is not installed here).
+
+## Direction in brief
+
+AHP (Agent Handoff Protocol and LLM Evaluation) makes handoffs between AI **coding agents** explicit, verifiable and measurable, and evaluates whether that improves real task outcomes.
+
+- Release 1 targets four coding-agent CLIs: **Claude Code, Codex CLI, Gemini CLI, OpenCode**, combinable in one workflow, each via a dedicated adapter. Core has no provider-specific logic.
+- **TypeScript + Node.js**, cross-platform (Windows, macOS, Linux). Publish a support matrix; never claim an adapter works on an OS it was not tested on.
+- Components: protocol (versioned spec), SDK, adapters, runtime, append-only event-sourced ledger, evaluation engine, `ahp` CLI.
+- Out of scope for release 1: web platform, visual editor, serving/downloading models, inference-engine benchmarking (Ollama/vLLM/SGLang/TensorRT-LLM), reflection/simulation, direct model-provider connections.
+- Positioning: ACP is a candidate transport for driving agents; AHP data shapes map to A2A where semantics match, with AHP-specific semantics as an A2A extension profile. Do not invent a competing general-purpose protocol.
+
+## Rules the design depends on
+
+- **Core hypothesis:** structured validated handoffs (with runtime-checked acceptance) beat a single agent and a plain-text pipeline on verified success and context loss. Evaluation conditions C0–C3 (see design doc §7). A negative result is legitimate.
+- **Never fabricate results.** Mock adapter output is never evidence. Report usage/cost only where an integration reports it, labelled with its source. Report models as requested vs reported; never claim to discover subscription entitlements.
+- **Success = verification passes**, never an agent's self-report.
+- **Keep the four concerns separate:** run/step state, handoff validation, attempt state, result verification.
+- **`unknown` attempt outcomes are never retried automatically**; they go to `needs_recovery` under an explicit recovery policy: `manual` (default), `adopt` or `abort`. In evaluation they are harness incidents.
+- **Verification runs in a fresh verification worktree**, never the agent's live worktree; there is no "Tester" agent.
+- **Only AHP performs external actions** (push/PR/merge); no deploy in release 1.
+- **A git worktree is workspace isolation, not a security boundary.** Each applied capability carries an enforcement level (`enforced_by_tool` / `cooperative` / `none`). Never describe prompt instructions or ACP permission requests as enforcement.
+- AHP never stores provider credentials; adapters use each tool's own login.
+
+## Open decisions (do not silently resolve)
+
+See `docs/design/ahp-v2-direction.md` §9 and `docs/adr/`; §9 is settled except the pilot budget and available keys (open until rollout step 5). Ask the user before picking anything new.
+
+## Platform facts
+
+- The maintainer develops on **Windows only**. Adapter suites run on Windows native and Linux via WSL2; macOS adapter cells stay untested. Node ≥ 24. License Apache-2.0.
+- Steps 1–4 of the rollout must not require paid API access; the mock adapter covers development, and real tools are tested under the maintainer's own logins.
+
+## Reference scenario
+
+"Add a password-reset endpoint": plan (Claude Code) → implement (Codex; hidden tests verify, a failure triggers bounded retry) → review (OpenCode; "changes requested" sends implement back) → approval gate → AHP pushes or opens a PR. Use it as the basis for fixtures and demos.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs are local markdown files under `.scratch/<feature-slug>/`. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
