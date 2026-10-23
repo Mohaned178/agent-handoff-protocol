@@ -4,11 +4,11 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** implemented; awaiting first CI run (Windows verified locally; macOS and Linux not yet)
+**Status:** done
 
 **Model:** Opus 5.5 · high
 
-- [ ] Single package scaffold with Vitest; CI runs the test suite on Windows, macOS and Linux runners with no credentials (scaffold and `.github/workflows/ci.yml` done; CI has not run yet)
+- [x] Single package scaffold with Vitest; CI runs the test suite on Windows, macOS and Linux runners with no credentials (first green run: GitHub Actions run 40036895588, 22/22 tests on each OS)
 - [x] Apache-2.0 LICENSE present (added when the repo was created)
 - [x] CLAUDE.md and README updated with build/test commands
 - [x] `ahp` refuses to start on Node below 24 with a clear message
