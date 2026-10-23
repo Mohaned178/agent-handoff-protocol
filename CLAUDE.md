@@ -4,7 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-This directory is **pre-implementation**. There is no source code, build system, test suite or linter yet, so there are no build/lint/test commands to document. Update this file once code lands.
+Ticket 01 (tracer bullet) has landed: a one-step workflow runs with the mock adapter. No linter is configured.
+
+## Commands
+
+- `npm run typecheck`: `tsc` over `src/` and `test/`, no emit
+- `npm test`: the whole Vitest suite; `npx vitest run test/<file>.test.ts` for one file
+- `npm run build`: compile `src/` to `dist/` (needed only for `bin/ahp.mjs`)
+- `node src/cli/bin.ts <command>`: run the CLI from source without building
+
+## Code layout
+
+One package, ESM, Node ≥ 24 type stripping: imports use `.ts` extensions, and `tsc` rewrites them on build, so use only erasable TypeScript syntax (no enums, namespaces or parameter properties). Modules under `src/`: `protocol` (types, closed state unions), `ledger` (append-only JSONL, replay), `adapters` (contract, mock), `runtime` (worktrees, snapshots, verification, run executor), `sdk` (public run API), `evaluation` (empty until ticket 20), `cli`. `src/index.ts` is the public SDK entry. `bin/ahp.mjs` checks the Node version, then loads `dist/cli/bin.js`.
+
+Ledgers live at `<git common dir>/ahp/runs/<run>/ledger.jsonl`; snapshots are pinned under `refs/ahp/snapshots/<run>/<attempt>`. Worktrees live outside every repository at `<AHP_HOME>/worktrees/<run>/<attempt|verification>` (per-user state dir by default, see `src/runtime/paths.ts`) so Node resolution and config lookups from a worktree can never reach the user's checkout. Tests set `AHP_HOME` to a temp dir in `test/helpers/setup.ts`.
+
+Tests are at seam 1 (SDK run API + mock adapter against real temporary git repos, `test/run.test.ts`) and a few CLI child-process tests (`test/cli.test.ts`). Assert only on observable behaviour.
 
 Git remote: public repo https://github.com/Mohaned178/agent-handoff-protocol (default branch `main`). Line endings are normalized to LF via `.gitattributes`.
 

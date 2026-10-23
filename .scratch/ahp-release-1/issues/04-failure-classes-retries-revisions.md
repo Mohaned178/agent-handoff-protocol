@@ -24,3 +24,7 @@
 - Write one test per failure class using a mock script that produces it, asserting the resulting attempt count, revisions and final step state from the ledger.
 - Classification is a pure function from an ended attempt (exit code, stop reason, adapter-reported error kind, verdict) to a failure class; test it as a table.
 - Budgets are counted from ledger events by replay, never from in-memory counters, so a restart sees the same remaining budget.
+
+## Comments
+
+2026-10-24, from ticket 01: as a placeholder, `src/runtime/run.ts` ends the step as `failed` / `agent_error` when the agent exits non-zero and skips verification (the snapshot is still committed). Your notes include `verdict` as a classification input, so decide deliberately whether a non-zero exit still gets verified, and replace the placeholder rather than inheriting it.

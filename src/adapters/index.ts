@@ -1,0 +1,8 @@
+import type { Adapter } from "./contract.ts";
+import { mockAdapter } from "./mock/index.ts";
+
+export type { Adapter, AdapterDeclaration, AttemptExit, AttemptInput, StartedAttempt } from "./contract.ts";
+export { mock, type MockAttemptScript, type MockEdit, type MockOptions } from "./mock/index.ts";
+
+/** The adapters a workflow step can name, by name. */
+export const adapters: ReadonlyMap<string, Adapter> = new Map([[mockAdapter.declaration.name, mockAdapter]]);
