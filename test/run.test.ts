@@ -7,10 +7,11 @@ import { createTempRepo, git, removeTempRepos, VERIFY_GREETING } from "./helpers
 
 afterEach(removeTempRepos);
 
+/** These tests are about one attempt, so the step is given no retries; retries are tested in `retry.test.ts`. */
 function workflowWith(script: MockAttemptScript, command = "node verify.mjs") {
   return defineWorkflow({
     name: "greeting",
-    steps: [{ id: "implement", agent: mock({ attempts: [script] }), verification: { command } }],
+    steps: [{ id: "implement", agent: mock({ attempts: [script] }), verification: { command }, retry: { budget: 0 } }],
   });
 }
 

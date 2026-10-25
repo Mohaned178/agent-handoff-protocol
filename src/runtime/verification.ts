@@ -73,7 +73,8 @@ type Verdict = Exclude<VerificationState, "pending">;
  */
 const VALIDATOR_BROKEN_EXIT_CODES = [126, 127];
 
-function evidenceVerdict(item: EvidenceItem): Verdict {
+/** What one evidence item says about the attempt. */
+export function evidenceVerdict(item: EvidenceItem): Verdict {
   switch (item.kind) {
     case "test_output":
       if (item.exitCode === 0) return "pass";

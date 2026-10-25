@@ -11,8 +11,10 @@ export class WorkflowValidationError extends Error {
 }
 
 const WORKFLOW_KEYS = ["name", "steps"];
-const STEP_KEYS = ["id", "agent", "verification", "artifacts", "instructions"];
+const STEP_KEYS = ["id", "agent", "verification", "artifacts", "instructions", "retry", "reroute"];
 const AGENT_KEYS = ["adapter", "model", "options"];
+const RETRY_KEYS = ["budget", "transientBudget", "backoff"];
+const BACKOFF_KEYS = ["initialMs", "factor", "maxTotalMs"];
 const VERIFICATION_KEYS = ["command", "requiredOutputFields", "protectedPaths", "hiddenTests", "install"];
 /** Properties authors reach for to run steps side by side or out of order; release 1 workflows are linear (ADR 0004). */
 const BRANCHING_KEYS = ["parallel", "dependsOn", "needs", "after"];
@@ -48,6 +50,50 @@ function checkRepoPaths(paths: unknown[], noun: string): string[] {
   });
 }
 
+const isCount = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
+/** Checks a step's `agent`, or its `reroute`, which names an alternative under the same rules. */
+function validateAgent(agent: unknown, key: "agent" | "reroute", problem: (message: string) => void): void {
+  const prefix = key === "reroute" ? "reroute: " : "";
+  if (!isRecord(agent)) {
+    problem(key === "agent" ? "needs an `agent` object naming its `adapter`" : "`reroute` must be an object naming its `adapter`");
+    return;
+  }
+  for (const name of Object.keys(agent)) if (!AGENT_KEYS.includes(name)) problem(`unknown property \`${key}.${name}\``);
+  const adapter = typeof agent.adapter === "string" ? adapters.get(agent.adapter) : undefined;
+  if (!adapter) {
+    const known = [...adapters.keys()].join(", ");
+    problem(`${prefix}unknown adapter ${JSON.stringify(agent.adapter)} (known: ${known})`);
+  } else {
+    for (const message of adapter.validateOptions(agent.options)) problem(`${prefix}${message}`);
+  }
+  if (agent.model !== undefined && typeof agent.model !== "string") problem(`\`${key}.model\` must be a string`);
+}
+
+/** Checks a step's retry budgets and backoff. */
+function validateRetry(retry: Record<string, unknown>, problem: (message: string) => void): void {
+  for (const name of Object.keys(retry)) if (!RETRY_KEYS.includes(name)) problem(`unknown property \`retry.${name}\``);
+  for (const name of ["budget", "transientBudget"]) {
+    if (retry[name] !== undefined && !isCount(retry[name])) problem(`\`retry.${name}\` must be a non-negative integer`);
+  }
+  const backoff = retry.backoff;
+  if (backoff === undefined) return;
+  if (!isRecord(backoff)) {
+    problem("`retry.backoff` must be an object");
+    return;
+  }
+  for (const name of Object.keys(backoff)) if (!BACKOFF_KEYS.includes(name)) problem(`unknown property \`retry.backoff.${name}\``);
+  for (const name of ["initialMs", "maxTotalMs"]) {
+    if (backoff[name] !== undefined && !isCount(backoff[name])) {
+      problem(`\`retry.backoff.${name}\` must be a non-negative integer number of milliseconds`);
+    }
+  }
+  const { factor } = backoff;
+  if (factor !== undefined && !(typeof factor === "number" && Number.isFinite(factor) && factor >= 1)) {
+    problem("`retry.backoff.factor` must be a number of at least 1");
+  }
+}
+
 function validateStep(step: unknown, index: number, seen: Set<string>): string[] {
   if (!isRecord(step)) return [`step ${index + 1}: must be an object`];
   const problems: string[] = [];
@@ -69,19 +115,11 @@ function validateStep(step: unknown, index: number, seen: Set<string>): string[]
     }
   }
 
-  const agent = step.agent;
-  if (!isRecord(agent)) {
-    problem("needs an `agent` object naming its `adapter`");
-  } else {
-    for (const key of Object.keys(agent)) if (!AGENT_KEYS.includes(key)) problem(`unknown property \`agent.${key}\``);
-    const adapter = typeof agent.adapter === "string" ? adapters.get(agent.adapter) : undefined;
-    if (!adapter) {
-      const known = [...adapters.keys()].join(", ");
-      problem(`unknown adapter ${JSON.stringify(agent.adapter)} (known: ${known})`);
-    } else {
-      for (const message of adapter.validateOptions(agent.options)) problem(message);
-    }
-    if (agent.model !== undefined && typeof agent.model !== "string") problem("`agent.model` must be a string");
+  validateAgent(step.agent, "agent", problem);
+  if (step.reroute !== undefined) validateAgent(step.reroute, "reroute", problem);
+  if (step.retry !== undefined) {
+    if (isRecord(step.retry)) validateRetry(step.retry, problem);
+    else problem("`retry` must be an object");
   }
 
   const verification = step.verification;

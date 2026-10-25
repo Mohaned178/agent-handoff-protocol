@@ -43,6 +43,8 @@ if (script.commit) {
   console.error("mock agent: committed");
 }
 
-process.stdout.write(JSON.stringify({ outputFields: script.outputFields ?? {} }));
+process.stdout.write(
+  JSON.stringify({ outputFields: script.outputFields ?? {}, stopReason: script.stopReason ?? null, error: script.error ?? null }),
+);
 // Not process.exit(): it may cut off output still buffered for a pipe.
 process.exitCode = script.exitCode ?? 0;

@@ -10,21 +10,23 @@ export { applyEvent, findAttempt, findHandoff, findVerification, LedgerInconsist
  */
 export class LedgerWriter {
   #handle: FileHandle;
+  #now: () => Date;
   #seq = 0;
 
-  private constructor(handle: FileHandle) {
+  private constructor(handle: FileHandle, now: () => Date) {
     this.#handle = handle;
+    this.#now = now;
   }
 
-  /** Creates a new ledger file; fails if one already exists at `path`. */
-  static async create(path: string): Promise<LedgerWriter> {
+  /** Creates a new ledger file; fails if one already exists at `path`. Events are stamped with `now()`. */
+  static async create(path: string, now: () => Date = () => new Date()): Promise<LedgerWriter> {
     await mkdir(dirname(path), { recursive: true });
-    return new LedgerWriter(await open(path, "ax"));
+    return new LedgerWriter(await open(path, "ax"), now);
   }
 
   /** Records `body` durably and returns the event as written. */
   async append(body: LedgerEventBody): Promise<LedgerEvent> {
-    const event: LedgerEvent = { seq: this.#seq + 1, time: new Date().toISOString(), ...body };
+    const event: LedgerEvent = { seq: this.#seq + 1, time: this.#now().toISOString(), ...body };
     await this.#handle.write(`${JSON.stringify(event)}\n`);
     await this.#handle.datasync();
     this.#seq = event.seq;

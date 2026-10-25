@@ -3,6 +3,8 @@ import {
   parseHandoffRevision,
   PROTOCOL_VERSION,
   type ArtifactReference,
+  type EvidenceItem,
+  type HandoffEvidence,
   type HandoffRevision,
   type OutputFieldValue,
   type RejectionReason,
@@ -10,6 +12,7 @@ import {
 } from "../protocol/index.ts";
 import { hashCommittedFile } from "./artifacts.ts";
 import { git } from "./git.ts";
+import { evidenceVerdict } from "./verification.ts";
 
 /** The verified attempt of the step before the recipient: the result being handed on. */
 export interface HandoffSender {
@@ -69,8 +72,66 @@ export async function buildHandoff(input: BuildHandoffInput): Promise<HandoffRev
     },
     context: { fields },
     artifacts,
+    evidence: [],
     requires: { fields: [...handedOnFields], artifacts: [...handedOnArtifacts] },
   };
+}
+
+/** How much of a command's output a retry shows the agent: the end, where failures are reported. */
+const MAX_RETRY_OUTPUT_CHARS = 8 * 1024;
+
+/**
+ * What a retry shows the coding agent of a verification that failed: its failing parts only, since a part that
+ * passed, or that could not run, gives the agent nothing to fix. The output of a command that runs hidden tests
+ * is withheld (the agent gets the exit code), and only the changed paths that violated a protected path are named,
+ * never the list of protected paths, which holds the hidden tests' paths. The ledger keeps the full evidence.
+ */
+export function retryEvidence(evidence: readonly EvidenceItem[], options: { hiddenTests: boolean }): HandoffEvidence[] {
+  const shown: HandoffEvidence[] = [];
+  for (const item of evidence) {
+    if (evidenceVerdict(item) !== "fail") continue;
+    switch (item.kind) {
+      case "test_output": {
+        const tail = item.output.slice(-MAX_RETRY_OUTPUT_CHARS);
+        shown.push({
+          kind: "test_output",
+          command: item.command,
+          exitCode: item.exitCode,
+          signal: item.signal,
+          output: options.hiddenTests ? null : tail,
+          truncated: !options.hiddenTests && (item.truncated || tail.length < item.output.length),
+        });
+        break;
+      }
+      case "required_output_fields":
+        shown.push({ kind: "required_output_fields", missing: [...item.missing] });
+        break;
+      case "protected_paths":
+        shown.push({ kind: "protected_paths", violations: item.violations.map((v) => ({ ...v })), truncated: item.truncated });
+        break;
+      default:
+        // The other kinds are never failing evidence.
+        break;
+    }
+  }
+  return shown;
+}
+
+/**
+ * The next revision of a handoff: the same document with its input changed. It keeps the handoff's ID, base commit,
+ * contract, context and artifacts, supersedes the revision before it, and carries `evidence`; a reroute also names
+ * the alternative coding agent as the recipient's.
+ */
+export function reviseHandoff(
+  previous: HandoffRevision,
+  change: { evidence: HandoffEvidence[]; to?: { adapter: string; requestedModel: string | null } },
+): HandoffRevision {
+  const next = structuredClone(previous);
+  next.revision = previous.revision + 1;
+  next.supersedes = previous.revision;
+  next.evidence = change.evidence;
+  if (change.to) next.to = { ...next.to, ...change.to };
+  return next;
 }
 
 export type HandoffValidation =

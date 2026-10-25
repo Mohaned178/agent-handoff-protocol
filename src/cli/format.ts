@@ -1,4 +1,13 @@
-import type { AttemptView, ChangedPath, EvidenceItem, HandoffView, LedgerEvent, RunView, StepView } from "../protocol/index.ts";
+import type {
+  AttemptView,
+  ChangedPath,
+  EvidenceItem,
+  HandoffView,
+  LedgerEvent,
+  RunView,
+  StepView,
+  VerificationView,
+} from "../protocol/index.ts";
 import { findAttempt, findHandoff, findVerification } from "../sdk/index.ts";
 
 export const MOCK_NOTE = "note: this run used the mock adapter; its results are labelled [mock] and are not evidence.";
@@ -85,7 +94,40 @@ function describeEvidence(item: EvidenceItem): string[] {
 const describeChange = ({ path, change }: ChangedPath) => `${change} ${path}`;
 
 function describeAttempt(attempt: AttemptView): string {
-  return attempt.state === "exited" ? `exited ${attempt.outcome} (${describeExit(attempt)})` : attempt.state;
+  if (attempt.state !== "exited") return attempt.state;
+  const stopped = attempt.stopReason ? `, stop reason ${attempt.stopReason}` : "";
+  return `exited ${attempt.outcome} (${describeExit(attempt)}${stopped})`;
+}
+
+/** Why a failed step stopped, as one line: the failure class says what happened, this says what was done about it. */
+function describeStop(step: StepView): string | null {
+  const last = step.attempts.at(-1);
+  switch (step.failureClass) {
+    case "config_auth":
+      return `not retried: ${last?.error?.message ?? "the coding agent's login or configuration is wrong"}. This needs your attention: fix the tool's login or configuration, then run again.`;
+    case "inconclusive":
+      return "escalated: the validator could not run twice, which says nothing about the work. Fix the validator or its environment, then run again.";
+    case "agent_error":
+    case "verification_failed":
+    case "transient":
+      return `retry budget spent${step.retryUsage.rerouted ? ", after a reroute" : ""}`;
+    case "unknown":
+      return "not retried: the attempt's outcome is unknown";
+    default:
+      return null;
+  }
+}
+
+function describeVerification(label: string, verification: VerificationView): string[] {
+  const lines = [
+    `    ${label}: ${verification.state}`,
+    verification.command === null
+      ? `      structural verification: ${STRUCTURAL_NOTE}`
+      : `      command: ${verification.command}`,
+  ];
+  if (verification.worktree !== null) lines.push(`      worktree: ${verification.worktree}`);
+  for (const item of verification.evidence) lines.push(...describeEvidence(item));
+  return lines;
 }
 
 /** One progress line for a recorded event, given the state derived after it. */
@@ -120,18 +162,41 @@ export function formatEvent(event: LedgerEvent, state: Readonly<RunView>): strin
     case "workspace_snapshot_committed":
       return attemptLine(event.attemptId, `snapshot ${short(event.commit)}`);
     case "verification_started": {
-      const { step } = stepOfAttempt(state, event.attemptId);
+      const { step, attempt } = stepOfAttempt(state, event.attemptId);
       // A command with no worktree was not run: a protected path changed, or the check could not be made.
-      const kind = event.command === null ? "structural verification" : event.worktree === null ? "verification (command not run)" : "verifying";
+      const kind =
+        event.command === null
+          ? "structural verification"
+          : event.worktree === null
+            ? "verification (command not run)"
+            : attempt.earlierVerifications.length > 0
+              ? "verifying again"
+              : "verifying";
       return `step ${step.id}: ${kind}${mockTag(step.mock)}: ${event.command ?? STRUCTURAL_NOTE}`;
     }
     case "verification_verdict": {
       const step = stepOfVerification(state, event.verificationId);
       return `step ${step.id}: verification ${event.verdict}${mockTag(step.mock)}`;
     }
+    case "attempt_failed":
+      return attemptLine(event.attemptId, `failed: ${event.failureClass}`);
+    case "retry_scheduled": {
+      const { stepId, attemptId, failureClass, change, delayMs } = event;
+      const what = {
+        none: "a new attempt under the same handoff revision",
+        evidence: "a new handoff revision carries the evidence",
+        reroute: "the alternative agent takes over under a new handoff revision",
+      }[change];
+      // Printed when the retry is scheduled, before the wait is taken.
+      const wait = delayMs > 0 ? `, waiting ${delayMs} ms first` : "";
+      return `step ${stepId}: ${change === "reroute" ? "rerouting" : "retrying"} after attempt ${attemptId} (${failureClass}): ${what}${wait}`;
+    }
     case "step_terminal": {
       const step = state.steps.find((s) => s.id === event.stepId)!;
-      return `step ${step.id}: ${describeStep(step)}${mockTag(step.mock)}`;
+      const line = `step ${step.id}: ${describeStep(step)}${mockTag(step.mock)}`;
+      const stop = step.state === "failed" ? describeStop(step) : null;
+      return stop ? `${line}
+  ${stop}` : line;
     }
     case "run_terminal":
       return `run ${state.runId}: ${state.state}${mockTag(state.mock)}`;
@@ -152,6 +217,14 @@ export function formatRun(state: Readonly<RunView>): string {
   if (state.mock) lines.push(`  ${MOCK_NOTE}`);
   for (const step of state.steps) {
     lines.push("", `step ${step.id}: ${describeStep(step)}${mockTag(step.mock)}`);
+    const { retries, transientRetries, transientWaitMs, rerouted } = step.retryUsage;
+    if (retries + transientRetries > 0 || rerouted) {
+      lines.push(
+        `  retries used: ${retries} (agent error and failed verification), ${transientRetries} (transient, ${transientWaitMs} ms waited), rerouted: ${rerouted ? "yes" : "no"}`,
+      );
+    }
+    const stop = step.state === "failed" ? describeStop(step) : null;
+    if (stop) lines.push(`  ${stop}`);
     for (const handoff of step.handoffs) lines.push(...describeHandoff(handoff));
     for (const attempt of step.attempts) {
       const reported = Object.keys(attempt.reportedOutput);
@@ -166,19 +239,17 @@ export function formatRun(state: Readonly<RunView>): string {
         `    reported output fields: ${reported.length > 0 ? reported.join(", ") : "(none)"}`,
         `    snapshot: ${attempt.snapshot ? `${attempt.snapshot.commit} (${attempt.snapshot.ref})` : "-"}`,
       );
-      const verification = attempt.verification;
-      if (!verification) {
+      if (attempt.failureClass) lines.push(`    failure class: ${attempt.failureClass}`);
+      if (attempt.stopReason) lines.push(`    stop reason: ${attempt.stopReason}`);
+      if (attempt.error) lines.push(`    error (${attempt.error.kind}): ${attempt.error.message}`);
+      for (const earlier of attempt.earlierVerifications) {
+        lines.push(...describeVerification("earlier verification", earlier).map((line, i) => (i === 0 ? `${line} (the validator could not run; verified again)` : line)));
+      }
+      if (!attempt.verification) {
         lines.push("    verification: not run");
         continue;
       }
-      lines.push(
-        `    verification: ${verification.state}`,
-        verification.command === null
-          ? `      structural verification: ${STRUCTURAL_NOTE}`
-          : `      command: ${verification.command}`,
-      );
-      if (verification.worktree !== null) lines.push(`      worktree: ${verification.worktree}`);
-      for (const item of verification.evidence) lines.push(...describeEvidence(item));
+      lines.push(...describeVerification("verification", attempt.verification));
     }
   }
   return lines.join("\n");

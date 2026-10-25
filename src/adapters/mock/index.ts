@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentRef, OutputFieldValue } from "../../protocol/index.ts";
+import { ADAPTER_ERROR_KINDS, STOP_REASONS } from "../../protocol/index.ts";
+import type { AgentRef, AttemptError, OutputFieldValue, StopReason } from "../../protocol/index.ts";
 import type { Adapter, AttemptExit } from "../contract.ts";
 
 export interface MockEdit {
@@ -21,6 +22,10 @@ export interface MockAttemptScript {
   outputFields?: Record<string, OutputFieldValue>;
   /** Defaults to 0. */
   exitCode?: number;
+  /** Why the agent's turn ended, as an adapter would report it. Defaults to none. */
+  stopReason?: StopReason;
+  /** An error the adapter saw, as it would report it: a rate limit is `transient`, a missing login `config_auth`. Defaults to none. */
+  error?: AttemptError;
 }
 
 export interface MockOptions {
@@ -64,6 +69,15 @@ export const mockAdapter: Adapter = {
       if (script?.exitCode !== undefined && !Number.isInteger(script.exitCode)) {
         problems.push(`mock attempt ${index + 1}: \`exitCode\` must be an integer`);
       }
+      if (script?.stopReason !== undefined && !STOP_REASONS.includes(script.stopReason)) {
+        problems.push(`mock attempt ${index + 1}: \`stopReason\` must be one of ${STOP_REASONS.join(", ")}`);
+      }
+      if (script?.error !== undefined) {
+        const { kind, message } = script.error as Partial<AttemptError>;
+        if (!ADAPTER_ERROR_KINDS.includes(kind as AttemptError["kind"]) || typeof message !== "string") {
+          problems.push(`mock attempt ${index + 1}: \`error\` needs a \`kind\` (${ADAPTER_ERROR_KINDS.join(", ")}) and a string \`message\``);
+        }
+      }
     });
     return problems;
   },
@@ -85,8 +99,17 @@ export const mockAdapter: Adapter = {
         // A crashed agent may have printed nothing: it reported no output.
         const report = Buffer.concat(stdout).toString("utf8");
         try {
-          const outputFields = report === "" ? {} : (JSON.parse(report) as { outputFields: AttemptExit["reportedOutput"] }).outputFields;
-          resolve({ exitCode, signal, reportedOutput: outputFields });
+          const parsed =
+            report === ""
+              ? undefined
+              : (JSON.parse(report) as Pick<AttemptExit, "stopReason" | "error"> & { outputFields: AttemptExit["reportedOutput"] });
+          resolve({
+            exitCode,
+            signal,
+            reportedOutput: parsed?.outputFields ?? {},
+            stopReason: parsed?.stopReason ?? null,
+            error: parsed?.error ?? null,
+          });
         } catch (error) {
           reject(new Error(`mock agent printed an unreadable report: ${report.slice(0, 200)}`, { cause: error }));
         }

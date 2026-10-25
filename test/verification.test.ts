@@ -7,11 +7,14 @@ import { createTempRepo, git, removeTempRepos, VERIFY_OK } from "./helpers/repo.
 
 afterEach(removeTempRepos);
 
-/** A one-step workflow whose mock agent runs `script` and whose verification is `verification`. */
+/**
+ * A one-step workflow whose mock agent runs `script` and whose verification is `verification`. These tests are
+ * about one attempt, so the step has no retries; retries are tested in `retry.test.ts`.
+ */
 function stepWorkflow(script: MockAttemptScript, verification: VerificationDefinition) {
   return defineWorkflow({
     name: "scoped",
-    steps: [{ id: "implement", agent: mock({ attempts: [script] }), verification }],
+    steps: [{ id: "implement", agent: mock({ attempts: [script] }), verification, retry: { budget: 0 } }],
   });
 }
 

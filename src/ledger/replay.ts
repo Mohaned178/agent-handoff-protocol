@@ -2,6 +2,7 @@ import type {
   AttemptView,
   HandoffView,
   LedgerEvent,
+  RetryChange,
   RunView,
   StepView,
   VerificationView,
@@ -82,6 +83,7 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
         id: step.id,
         state: "blocked",
         failureClass: null,
+        retryUsage: { retries: 0, transientRetries: 0, transientWaitMs: 0, rerouted: false },
         mock: false,
         handoffs: [],
         attempts: [],
@@ -162,6 +164,14 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
           `attempt "${event.attemptId}" runs under handoff ${event.handoffId} revision ${event.handoffRevision}, which is not accepted`,
         );
       }
+      // The idempotency key is (handoff, revision, attempt): an attempt ID is never used twice, and a step starts
+      // an attempt only when it is ready for one, which a retry makes it again.
+      if (findAttempt(run, event.attemptId)) {
+        throw new LedgerInconsistentError(event, `attempt "${event.attemptId}" already exists`);
+      }
+      if (s.state !== "ready") {
+        throw new LedgerInconsistentError(event, `step "${s.id}" is ${s.state}, not ready for an attempt`);
+      }
       s.state = "in_progress";
       s.mock ||= event.mock;
       run.mock ||= event.mock;
@@ -174,6 +184,9 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
         exitCode: null,
         signal: null,
         reportedOutput: {},
+        stopReason: null,
+        error: null,
+        failureClass: null,
         pid: null,
         adapter: event.adapter,
         mock: event.mock,
@@ -182,6 +195,7 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
         workspace: event.workspace,
         snapshot: null,
         verification: null,
+        earlierVerifications: [],
       });
       break;
     }
@@ -201,6 +215,56 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       a.exitCode = event.exitCode;
       a.signal = event.signal;
       a.reportedOutput = event.reportedOutput;
+      a.stopReason = event.stopReason ?? null;
+      a.error = event.error ?? null;
+      break;
+    }
+    case "attempt_failed": {
+      const a = attempt(event.attemptId);
+      if (a.state !== "exited") throw new LedgerInconsistentError(event, `attempt "${a.id}" has not exited`);
+      if (a.failureClass !== null) throw new LedgerInconsistentError(event, `attempt "${a.id}" is already classified ${a.failureClass}`);
+      // The class must follow from what the ledger says happened to the attempt, so it cannot claim otherwise.
+      const expected: Record<string, () => boolean> = {
+        agent_error: () => a.outcome === "error",
+        transient: () => a.outcome === "error",
+        config_auth: () => a.outcome === "error",
+        verification_failed: () => a.verification?.state === "fail",
+        inconclusive: () => a.verification?.state === "inconclusive",
+      };
+      if (!expected[event.failureClass]?.()) {
+        throw new LedgerInconsistentError(event, `attempt "${a.id}" cannot have failed as ${event.failureClass}`);
+      }
+      a.failureClass = event.failureClass;
+      break;
+    }
+    case "retry_scheduled": {
+      const s = step(event.stepId);
+      const failed = s.attempts.at(-1);
+      if (s.state === "succeeded" || s.state === "failed") {
+        throw new LedgerInconsistentError(event, `step "${s.id}" is already ${s.state}`);
+      }
+      if (failed?.id !== event.attemptId || failed.failureClass !== event.failureClass) {
+        throw new LedgerInconsistentError(event, `attempt "${event.attemptId}" is not the failed last attempt of step "${s.id}"`);
+      }
+      const retriable: Record<string, RetryChange[]> = {
+        agent_error: ["none", "reroute"],
+        transient: ["none", "reroute"],
+        verification_failed: ["evidence", "reroute"],
+      };
+      if (!retriable[event.failureClass]?.includes(event.change)) {
+        throw new LedgerInconsistentError(event, `a ${event.failureClass} failure is not retried with change "${event.change}"`);
+      }
+      const usage = s.retryUsage;
+      if (event.change === "reroute") {
+        if (usage.rerouted) throw new LedgerInconsistentError(event, `step "${s.id}" was already rerouted`);
+        s.retryUsage = { retries: 0, transientRetries: 0, transientWaitMs: 0, rerouted: true };
+      } else if (event.failureClass === "transient") {
+        usage.transientRetries += 1;
+        usage.transientWaitMs += event.delayMs;
+      } else {
+        usage.retries += 1;
+      }
+      s.state = "ready";
       break;
     }
     case "workspace_snapshot_committed":
@@ -208,6 +272,13 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       break;
     case "verification_started": {
       const { step: s, attempt: a } = attemptWithStep(event.attemptId);
+      // A verification that could not run is re-run once; any other verdict is final.
+      if (a.verification) {
+        if (a.verification.state !== "inconclusive" || a.earlierVerifications.length > 0) {
+          throw new LedgerInconsistentError(event, `attempt "${a.id}" is already verified (${a.verification.state})`);
+        }
+        a.earlierVerifications.push(a.verification);
+      }
       a.verification = {
         id: event.verificationId,
         state: "pending",

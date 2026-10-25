@@ -2,7 +2,7 @@ import { access } from "node:fs/promises";
 import { adapters } from "../adapters/index.ts";
 import { readLedger, replay } from "../ledger/index.ts";
 import type { LedgerEvent, RunView, WorkflowDefinition } from "../protocol/index.ts";
-import { executeRun, isRunId, ledgerPath, locateRepo, type RunResult } from "../runtime/index.ts";
+import { executeRun, isRunId, ledgerPath, locateRepo, type Clock, type RunResult } from "../runtime/index.ts";
 import { defineWorkflow } from "./workflow.ts";
 
 export interface RunWorkflowOptions {
@@ -10,6 +10,8 @@ export interface RunWorkflowOptions {
   repo: string;
   /** Called after each event is durably recorded in the ledger, with the state derived so far. */
   onEvent?: (event: LedgerEvent, state: Readonly<RunView>) => void;
+  /** Stamps ledger events and waits out a retry's backoff; defaults to the system clock. Tests pass one that never waits. */
+  clock?: Clock;
 }
 
 /** Validates and runs a workflow to a terminal state; resolves with the run ID and its derived state. */

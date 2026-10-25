@@ -9,7 +9,8 @@ import {
   protocolJsonSchemas,
   runWorkflow,
 } from "../src/index.ts";
-import { createTempRepo, removeTempRepos, VERIFY_OK } from "./helpers/repo.ts";
+import { fakeClock } from "./helpers/clock.ts";
+import { createTempRepo, removeTempRepos, VERIFY_GREETING, VERIFY_OK } from "./helpers/repo.ts";
 
 afterEach(removeTempRepos);
 
@@ -53,6 +54,44 @@ describe("the published protocol schemas", () => {
     expect(validate({ ...handoff, context: { fields: { "bad name": "x" } } })).toBe(false);
     const { revision: _revision, ...withoutRevision } = handoff;
     expect(validate(withoutRevision)).toBe(false);
+  });
+
+  it("describe the evidence a retry's handoff revision carries, and real revisions conform", async () => {
+    const validate = new Ajv2020({ strict: true }).compile(protocolJsonSchemas()["handoff-revision.schema.json"]!);
+    const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING });
+    const retried = defineWorkflow({
+      name: "evidence",
+      steps: [
+        {
+          id: "implement",
+          agent: mock({
+            attempts: [
+              { edits: [{ path: "greeting.txt", content: "no\n" }] },
+              { edits: [{ path: "greeting.txt", content: "hello\n" }], outputFields: { summary: "done" } },
+            ],
+          }),
+          verification: { command: "node verify.mjs", requiredOutputFields: ["summary"] },
+        },
+      ],
+    });
+    const { state } = await runWorkflow(retried, { repo, clock: fakeClock() });
+    const second = JSON.parse(JSON.stringify(state.steps[0]?.handoffs[1]?.handoff)) as { evidence: unknown[] };
+
+    expect(second.evidence.length).toBeGreaterThan(0);
+    expect(validate(second), JSON.stringify(validate.errors)).toBe(true);
+
+    const withEvidence = (evidence: unknown[]) => ({ ...second, evidence });
+    const output = { kind: "test_output", command: "node verify.mjs", exitCode: 1, signal: null, output: null, truncated: false };
+    expect(validate(withEvidence([output]))).toBe(true);
+    expect(validate(withEvidence([{ ...output, kind: "hunch" }]))).toBe(false);
+    expect(validate(withEvidence([{ ...output, note: "extra" }]))).toBe(false);
+    expect(validate(withEvidence([{ ...output, output: 5 }]))).toBe(false);
+    expect(validate(withEvidence([{ kind: "required_output_fields", missing: [] }]))).toBe(false);
+    expect(validate(withEvidence([{ kind: "protected_paths", violations: [{ path: "a:b", change: "renamed" }], truncated: false }]))).toBe(false);
+    // The agent's own file names are not held to the repository-path rules: a legal name must not reject a retry.
+    expect(validate(withEvidence([{ kind: "protected_paths", violations: [{ path: "weird:name?.txt", change: "added" }], truncated: false }]))).toBe(true);
+    const { evidence: _evidence, ...withoutEvidence } = second;
+    expect(validate(withoutEvidence)).toBe(false);
   });
 
   it("carry the repository-path rules, so a third-party validator rejects paths the SDK rejects", async () => {

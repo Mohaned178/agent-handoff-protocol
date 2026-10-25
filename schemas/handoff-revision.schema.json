@@ -217,6 +217,134 @@
       },
       "description": "Files from the previous step, passed by reference."
     },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "test_output"
+              },
+              "command": {
+                "type": "string",
+                "minLength": 1
+              },
+              "exitCode": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "signal": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "output": {
+                "description": "The end of the command's output, or null when it is withheld because the command runs hidden tests, whose output must not reach the agent.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "truncated": {
+                "type": "boolean",
+                "description": "True when `output` holds only the end of a longer output."
+              }
+            },
+            "required": [
+              "kind",
+              "command",
+              "exitCode",
+              "signal",
+              "output",
+              "truncated"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "required_output_fields"
+              },
+              "missing": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+                },
+                "description": "The required output fields the attempt did not report, or reported blank."
+              }
+            },
+            "required": [
+              "kind",
+              "missing"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "protected_paths"
+              },
+              "violations": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "change": {
+                      "type": "string",
+                      "enum": [
+                        "added",
+                        "modified",
+                        "deleted"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "change"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "The paths the attempt changed that it must not change. The other protected paths are not listed."
+              },
+              "truncated": {
+                "type": "boolean",
+                "description": "True when `violations` lists only the first of more."
+              }
+            },
+            "required": [
+              "kind",
+              "violations",
+              "truncated"
+            ],
+            "additionalProperties": false
+          }
+        ],
+        "description": "One failing part of the verification of the attempt this revision follows."
+      },
+      "description": "Why the step's last attempt failed, attached by a retry; empty for revision 1. AHP extension."
+    },
     "requires": {
       "type": "object",
       "properties": {
@@ -257,9 +385,10 @@
     "contract",
     "context",
     "artifacts",
+    "evidence",
     "requires"
   ],
   "additionalProperties": false,
   "title": "AHP handoff revision",
-  "description": "An immutable revision of a handoff. Rules JSON Schema cannot express: `supersedes` is null for revision 1 and revision - 1 otherwise; paths and field names listed in one array are unique."
+  "description": "An immutable revision of a handoff. Rules JSON Schema cannot express: `supersedes` is null for revision 1 and revision - 1 otherwise; revision 1 carries no evidence; paths and field names listed in one array are unique."
 }

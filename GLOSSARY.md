@@ -99,10 +99,39 @@ Evidence of what an attempt changed: the paths that differ between the step's ba
 The result of verification: `pass`, `fail` or `inconclusive`, each with evidence. Any failing evidence item fails it; otherwise any inconclusive item makes it inconclusive.
 
 **Inconclusive**:
-A verdict meaning the validator could not run to a result, so it says nothing about the attempt: the command ended on a signal or exited 126 or 127, or AHP could not set verification up (the worktree, the install, the hidden tests). Never counted as pass or fail.
+A verdict meaning the validator could not run to a result, so it says nothing about the attempt: the command ended on a signal or exited 126 or 127, or AHP could not set verification up (the worktree, the install, the hidden tests). Never counted as pass or fail; re-run once on the same snapshot, then escalated.
 
 **Structural verification**:
 Verification of a step that declares no command, which checks only that its required output fields are present, as for a review step outside evaluation; it says nothing about quality.
+
+## Failures and retries
+
+**Failure class**:
+One of a closed set of codes saying why an attempt, or the step it belongs to, failed, which decides how the failure is handled: `rejected`, `config_auth`, `transient`, `agent_error`, `verification_failed`, `inconclusive` or `unknown`. An attempt whose coding agent did not end cleanly (non-zero exit, a stop reason of `refusal`, `max_tokens` or `max_turn_requests`, or an error its adapter reported) is classified before verification and is not verified.
+
+**Adapter error**:
+What an adapter observed go wrong with its tool, with the failure class it belongs to (`config_auth`, `transient` or `agent_error`) and a message for the user. It outranks the exit code and the stop reason when an attempt is classified.
+
+**Stop reason**:
+Why a coding agent's turn ended, as its adapter normalizes it (`end_turn`, `max_tokens`, `max_turn_requests`, `refusal`). Outcome detail, never proof that the process exited.
+
+**Retry**:
+A new attempt for a step after a failed one, always in a new workspace made from the step's base commit. Same-input retries run under the same handoff revision; a retry whose input changed (evidence, a reroute) runs under a new one.
+
+**Retry budget**:
+How many retries a step may spend, counted from the ledger so a restart sees what is left: one budget shared by `agent_error` and `verification_failed` (default 2), and one for `transient` (default 5). An inconclusive verification and a `config_auth` failure spend nothing.
+
+**Backoff**:
+The wait before a transient retry: exponential, and capped in total for the step, so a rate limit does not burn a whole quota. A retry that would pass the cap is not made.
+
+**Retry evidence**:
+The failing parts of a verification, trimmed to what the coding agent may see, carried by the next handoff revision: a failing command's exit code and the end of its output, the required output fields it left out, the changed paths that violated a protected path. The output of a command that runs hidden tests is withheld, and the list of protected paths is never shown, since it holds the hidden tests' paths; the ledger keeps the full evidence.
+
+**Reroute**:
+Handing a step whose retry budget is spent to its alternative coding agent, under the same contract, in a new handoff revision. Off by default; a step is rerouted at most once, and the alternative starts on budgets of its own. Never offered for `rejected`, `config_auth`, `inconclusive` or `unknown`.
+
+**Escalation**:
+What an inconclusive verification comes to when its one re-run is inconclusive too: the step fails as `inconclusive` and is surfaced to the user, who must fix the validator or its environment. Never retried and never counted.
 
 ## Isolation, capabilities and side effects
 

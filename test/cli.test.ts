@@ -4,18 +4,13 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RunView } from "../src/index.ts";
+import { ahp } from "./helpers/cli.ts";
 import { appendLedgerEvent } from "./helpers/ledger.ts";
 import { createTempRepo, removeTempRepos, VERIFY_GREETING, VERIFY_OK } from "./helpers/repo.ts";
 
 afterEach(removeTempRepos);
 
-const cliEntry = fileURLToPath(new URL("../src/cli/bin.ts", import.meta.url));
 const binEntry = fileURLToPath(new URL("../bin/ahp.mjs", import.meta.url));
-
-function ahp(args: string[], cwd: string) {
-  const result = spawnSync(process.execPath, [cliEntry, ...args], { cwd, encoding: "utf8", windowsHide: true });
-  return { code: result.status, stdout: result.stdout, stderr: result.stderr };
-}
 
 function workflowFile(content: string): string {
   return `export default {
@@ -25,6 +20,7 @@ function workflowFile(content: string): string {
       id: "implement",
       agent: { adapter: "mock", options: { attempts: [{ edits: [{ path: "greeting.txt", content: ${JSON.stringify(content)} }] }] } },
       verification: { command: "node verify.mjs" },
+      retry: { budget: 0 },
     },
   ],
 };
@@ -44,6 +40,7 @@ describe("ahp inspect with protected paths and hidden tests", () => {
         protectedPaths: ["runner.config.mjs"],
         hiddenTests: [{ path: "hidden/check.mjs", content: "process.exit(0);\\n" }],
       },
+      retry: { budget: 0 },
     },
   ],
 };

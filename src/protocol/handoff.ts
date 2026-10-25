@@ -93,6 +93,49 @@ export const ArtifactReferenceSchema = z
     "A file passed by reference, read from the handoff's base commit. AHP extension: A2A artifacts carry no content hash.",
   );
 
+/**
+ * What a retry tells the coding agent about why the step's last attempt failed: the failing parts of its
+ * verification, trimmed to what the agent may see. AHP extension: no A2A counterpart. A new kind (for example
+ * review findings, with ticket 08) is a protocol change.
+ */
+export const HandoffEvidenceSchema = z
+  .discriminatedUnion("kind", [
+    z.strictObject({
+      kind: z.literal("test_output"),
+      command: z.string().min(1),
+      exitCode: z.int().nullable(),
+      signal: z.string().nullable(),
+      output: z
+        .string()
+        .nullable()
+        .describe(
+          "The end of the command's output, or null when it is withheld because the command runs hidden tests, whose " +
+            "output must not reach the agent.",
+        ),
+      truncated: z.boolean().describe("True when `output` holds only the end of a longer output."),
+    }),
+    z.strictObject({
+      kind: z.literal("required_output_fields"),
+      missing: z.array(fieldNameSchema).min(1).describe("The required output fields the attempt did not report, or reported blank."),
+    }),
+    z.strictObject({
+      kind: z.literal("protected_paths"),
+      violations: z
+        .array(
+          z.strictObject({
+            // Paths the agent itself changed, not checked against the repository-path rules: a file name that is
+            // legal on the agent's OS must not turn a retry into a rejected handoff.
+            path: z.string(),
+            change: z.enum(["added", "modified", "deleted"]),
+          }),
+        )
+        .min(1)
+        .describe("The paths the attempt changed that it must not change. The other protected paths are not listed."),
+      truncated: z.boolean().describe("True when `violations` lists only the first of more."),
+    }),
+  ])
+  .describe("One failing part of the verification of the attempt this revision follows.");
+
 export const HandoffRevisionSchema = z
   .strictObject({
     schemaVersion: z.literal(PROTOCOL_VERSION).describe("Version of this schema."),
@@ -138,6 +181,9 @@ export const HandoffRevisionSchema = z
       })
       .describe("What earlier steps decided and learned."),
     artifacts: z.array(ArtifactReferenceSchema).describe("Files from the previous step, passed by reference."),
+    evidence: z
+      .array(HandoffEvidenceSchema)
+      .describe("Why the step's last attempt failed, attached by a retry; empty for revision 1. AHP extension."),
     requires: z
       .strictObject({
         fields: z.array(fieldNameSchema),
@@ -155,6 +201,9 @@ export const HandoffRevisionSchema = z
         message: `revision ${handoff.revision} must supersede ${expected === null ? "nothing (null)" : `revision ${expected}`}`,
       });
     }
+    if (handoff.revision === 1 && handoff.evidence.length > 0) {
+      ctx.addIssue({ code: "custom", path: ["evidence"], message: "revision 1 carries no evidence: evidence is attached by a retry" });
+    }
     const duplicates = (path: (string | number)[], values: string[]) => {
       const seen = new Set<string>();
       values.forEach((value, index) => {
@@ -171,11 +220,12 @@ export const HandoffRevisionSchema = z
     title: "AHP handoff revision",
     description:
       "An immutable revision of a handoff. Rules JSON Schema cannot express: `supersedes` is null for revision 1 " +
-      "and revision - 1 otherwise; paths and field names listed in one array are unique.",
+      "and revision - 1 otherwise; revision 1 carries no evidence; paths and field names listed in one array are unique.",
   });
 
 export type ArtifactReference = z.infer<typeof ArtifactReferenceSchema>;
 export type HandoffRevision = z.infer<typeof HandoffRevisionSchema>;
+export type HandoffEvidence = z.infer<typeof HandoffEvidenceSchema>;
 
 // ---------------------------------------------------------------------------
 // Rejection

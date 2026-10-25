@@ -20,8 +20,9 @@ afterEach(removeTempRepos);
 
 const VERIFY = { command: "node ok.mjs" };
 
+/** A step that makes one attempt: these tests are about handoffs, not retries, so it has none. */
 function step(id: string, script: MockAttemptScript = {}, verification: StepDefinition["verification"] = VERIFY) {
-  return { id, agent: mock({ attempts: [script] }), verification };
+  return { id, agent: mock({ attempts: [script] }), verification, retry: { budget: 0 } };
 }
 
 describe("handoffs between steps", () => {
@@ -456,6 +457,20 @@ describe("validating a handoff on the recipient's behalf", () => {
 
     const baseWithoutTheFile = await rejectedWith({ ...handoff, base: { commit: git(repo, "rev-parse", "HEAD") } });
     expect(baseWithoutTheFile).toEqual([expect.objectContaining({ code: "unmet_dependency", pointer: "/artifacts/0" })]);
+  });
+
+  it("accepts a later revision that carries evidence, and rejects evidence on revision 1", async () => {
+    const { repo, handoff } = await issuedHandoff();
+    const evidence = [{ kind: "required_output_fields" as const, missing: ["summary"] }];
+
+    const retried = await validateHandoff({ ...handoff, revision: 2, supersedes: 1, evidence }, { repo });
+    const premature = await validateHandoff({ ...handoff, evidence }, { repo });
+
+    expect(retried.accepted).toBe(true);
+    expect(premature).toEqual({
+      accepted: false,
+      reasons: [expect.objectContaining({ code: "schema_invalid", pointer: "/evidence" })],
+    });
   });
 
   it("reports every problem at once", async () => {
