@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Model:** Sonnet 5.5 · high
 
@@ -30,3 +30,4 @@
 - **Mock adapter:** scripts gained `deletes` (removed before `edits`) and `commit` (the agent commits its work).
 - **For ticket 04:** the evidence recorded here (test output of hidden tests, protected-path violations) is what a retry attaches to the next handoff revision. Hidden-test output reaches the agent that way, so decide there what a retry may show.
 - **Not done:** hidden test files are not hashed into the ledger (ticket 20 freezes tasks with hashes); no timeout on the verification command (ticket 07); a leftover verification worktree after an AHP crash is not cleaned (ticket 06).
+- First green CI run: GitHub Actions run 40199865993, 79 tests on Linux and macOS and 78 (1 skipped: the signal test) on Windows; the signal-kill case is therefore confirmed on macOS and Linux.
