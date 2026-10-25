@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** implemented; awaiting first CI run (Windows verified locally; macOS and Linux not yet)
+**Status:** done
 
 **Model:** Sonnet 5.5 · xhigh
 
@@ -46,3 +46,4 @@
 - **Limits:** validation checks a handoff document against the repository, not against a run: it does not check that `contextId`, `to` or `from` match a run, because the runtime builds the handoff itself. Inside a run only `unmet_dependency` is reachable, so `schema_invalid` and `artifact_hash_mismatch` are tested through `validateHandoff`. With `core.worktree` set, long paths apply to the checkout only.
 - Not done: no size cap on field values (a very long reported field goes into the ledger and the next handoff); artifact lists do not include deleted files; deriving artifacts from the diff was rejected because a step that installs dependencies would hand on thousands of files.
 - **Old ledgers no longer replay.** Ledgers written by ticket 01 lack the handoff fields on `attempt_created` and `reportedOutput` on `attempt_exited`, and `protocolVersion` stayed `0.1.0`, so `ahp inspect` on a ticket-01 run fails with a ledger-inconsistency message that does not say why. Those runs are mock-only and the protocol is 0.x, so no compatibility shim was added; ticket 05 (hardened ledger) is the place to give the ledger a format version that can say "written by an older AHP".
+- First green CI run: GitHub Actions run 40195700755, 57/57 tests on Windows, macOS and Linux.
