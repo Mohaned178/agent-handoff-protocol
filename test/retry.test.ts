@@ -145,6 +145,19 @@ describe("workflow definition", () => {
     expect(problems).toHaveLength(9);
   });
 
+  it("rejects a wait too long for a timer, which would fire at once instead", () => {
+    const longest = 2 ** 31 - 1;
+    const problemsFor = (backoff: object) => validateWorkflow({ name: "waits", steps: [{ ...plain, retry: { backoff } }] });
+
+    expect(problemsFor({ initialMs: longest, maxTotalMs: longest })).toEqual([]);
+    expect(problemsFor({ initialMs: longest + 1 })).toEqual([
+      expect.stringContaining("`retry.backoff.initialMs` must be a non-negative integer number of milliseconds, at most 2147483647"),
+    ]);
+    expect(problemsFor({ maxTotalMs: longest + 1 })).toEqual([
+      expect.stringContaining("`retry.backoff.maxTotalMs` must be a non-negative integer number of milliseconds, at most 2147483647"),
+    ]);
+  });
+
   it("rejects a mock script that reports a stop reason or an error the protocol does not know", () => {
     const attempts = (script: object) => ({ adapter: "mock", options: { attempts: [script] } });
     const problems = validateWorkflow({

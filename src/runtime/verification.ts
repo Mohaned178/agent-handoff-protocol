@@ -6,7 +6,7 @@ import {
   type TestOutputEvidence,
   type ValidatorErrorEvidence,
   type ValidatorStage,
-  type VerificationState,
+  type Verdict,
 } from "../protocol/index.ts";
 
 /** Keeps the ledger bounded: only the tail of a longer output is recorded. */
@@ -61,8 +61,6 @@ export function checkRequiredOutputFields(
     missing: required.filter((name) => !isPresentOutputField(reported[name])),
   };
 }
-
-type Verdict = Exclude<VerificationState, "pending">;
 
 /**
  * Exit codes by which the shell, or a validator that knows it is broken, says the command could not be run:

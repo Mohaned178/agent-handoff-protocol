@@ -51,6 +51,9 @@ function checkRepoPaths(paths: unknown[], noun: string): string[] {
 }
 
 const isCount = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+/** The longest wait a timer takes: a longer one fires at once. */
+const MAX_WAIT_MS = 2 ** 31 - 1;
+const isWaitMs = (value: unknown) => isCount(value) && (value as number) <= MAX_WAIT_MS;
 
 /** Checks a step's `agent`, or its `reroute`, which names an alternative under the same rules. */
 function validateAgent(agent: unknown, key: "agent" | "reroute", problem: (message: string) => void): void {
@@ -84,8 +87,8 @@ function validateRetry(retry: Record<string, unknown>, problem: (message: string
   }
   for (const name of Object.keys(backoff)) if (!BACKOFF_KEYS.includes(name)) problem(`unknown property \`retry.backoff.${name}\``);
   for (const name of ["initialMs", "maxTotalMs"]) {
-    if (backoff[name] !== undefined && !isCount(backoff[name])) {
-      problem(`\`retry.backoff.${name}\` must be a non-negative integer number of milliseconds`);
+    if (backoff[name] !== undefined && !isWaitMs(backoff[name])) {
+      problem(`\`retry.backoff.${name}\` must be a non-negative integer number of milliseconds, at most ${MAX_WAIT_MS}`);
     }
   }
   const { factor } = backoff;

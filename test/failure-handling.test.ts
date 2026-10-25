@@ -6,7 +6,7 @@ import { defineWorkflow, mock, readRunEvents, runWorkflow } from "../src/index.t
 import type { MockAttemptScript } from "../src/index.ts";
 import { fakeClock } from "./helpers/clock.ts";
 import { createTempRepo, git, removeTempRepos, VERIFY_GREETING, VERIFY_OK } from "./helpers/repo.ts";
-import { failing, goodbye, hello, implementOf, retryWorkflow } from "./helpers/retry.ts";
+import { failing, goodbye, hello, implementOf, rateLimited, retryWorkflow } from "./helpers/retry.ts";
 
 const scratch: string[] = [];
 afterEach(() => {
@@ -14,7 +14,6 @@ afterEach(() => {
   for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-const rateLimited: MockAttemptScript = { exitCode: 1, error: { kind: "transient", message: "429: rate limited" } };
 const notLoggedIn: MockAttemptScript = { exitCode: 1, error: { kind: "config_auth", message: "not logged in: run `claude login`" } };
 
 describe("a transient failure", () => {

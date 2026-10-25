@@ -1,8 +1,10 @@
 import type {
   AttemptView,
+  FailureClass,
   HandoffView,
   LedgerEvent,
   RetryChange,
+  RetryUsage,
   RunView,
   StepView,
   VerificationView,
@@ -46,6 +48,33 @@ export function findHandoff(
   return undefined;
 }
 
+const noRetriesSpent = (): RetryUsage => ({ retries: 0, transientRetries: 0, transientWaitMs: 0, rerouted: false });
+
+/**
+ * What an exited attempt's record must show for it to have failed as each class. `rejected` has no attempt, and
+ * `unknown` is not recorded for an attempt that exited; keyed by every class so a new one cannot be forgotten.
+ */
+const ATTEMPT_SHOWS: Record<FailureClass, (attempt: AttemptView) => boolean> = {
+  rejected: () => false,
+  config_auth: (a) => a.outcome === "error",
+  transient: (a) => a.outcome === "error",
+  agent_error: (a) => a.outcome === "error",
+  verification_failed: (a) => a.verification?.state === "fail",
+  inconclusive: (a) => a.verification?.state === "inconclusive",
+  unknown: () => false,
+};
+
+/** How a failure of each class may be retried; a class with none is never retried. */
+const RETRIED_WITH: Record<FailureClass, readonly RetryChange[]> = {
+  rejected: [],
+  config_auth: [],
+  transient: ["none", "reroute"],
+  agent_error: ["none", "reroute"],
+  verification_failed: ["evidence", "reroute"],
+  inconclusive: [],
+  unknown: [],
+};
+
 /** The ledger's events do not describe a valid run. */
 export class LedgerInconsistentError extends Error {
   override name = "LedgerInconsistentError";
@@ -83,7 +112,7 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
         id: step.id,
         state: "blocked",
         failureClass: null,
-        retryUsage: { retries: 0, transientRetries: 0, transientWaitMs: 0, rerouted: false },
+        retryUsage: noRetriesSpent(),
         mock: false,
         handoffs: [],
         attempts: [],
@@ -224,14 +253,7 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       if (a.state !== "exited") throw new LedgerInconsistentError(event, `attempt "${a.id}" has not exited`);
       if (a.failureClass !== null) throw new LedgerInconsistentError(event, `attempt "${a.id}" is already classified ${a.failureClass}`);
       // The class must follow from what the ledger says happened to the attempt, so it cannot claim otherwise.
-      const expected: Record<string, () => boolean> = {
-        agent_error: () => a.outcome === "error",
-        transient: () => a.outcome === "error",
-        config_auth: () => a.outcome === "error",
-        verification_failed: () => a.verification?.state === "fail",
-        inconclusive: () => a.verification?.state === "inconclusive",
-      };
-      if (!expected[event.failureClass]?.()) {
+      if (!ATTEMPT_SHOWS[event.failureClass](a)) {
         throw new LedgerInconsistentError(event, `attempt "${a.id}" cannot have failed as ${event.failureClass}`);
       }
       a.failureClass = event.failureClass;
@@ -246,18 +268,13 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       if (failed?.id !== event.attemptId || failed.failureClass !== event.failureClass) {
         throw new LedgerInconsistentError(event, `attempt "${event.attemptId}" is not the failed last attempt of step "${s.id}"`);
       }
-      const retriable: Record<string, RetryChange[]> = {
-        agent_error: ["none", "reroute"],
-        transient: ["none", "reroute"],
-        verification_failed: ["evidence", "reroute"],
-      };
-      if (!retriable[event.failureClass]?.includes(event.change)) {
-        throw new LedgerInconsistentError(event, `a ${event.failureClass} failure is not retried with change "${event.change}"`);
+      if (!RETRIED_WITH[event.failureClass].includes(event.change)) {
+        throw new LedgerInconsistentError(event, `${event.failureClass} failures are not retried with change "${event.change}"`);
       }
       const usage = s.retryUsage;
       if (event.change === "reroute") {
         if (usage.rerouted) throw new LedgerInconsistentError(event, `step "${s.id}" was already rerouted`);
-        s.retryUsage = { retries: 0, transientRetries: 0, transientWaitMs: 0, rerouted: true };
+        s.retryUsage = { ...noRetriesSpent(), rerouted: true };
       } else if (event.failureClass === "transient") {
         usage.transientRetries += 1;
         usage.transientWaitMs += event.delayMs;

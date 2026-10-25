@@ -1,14 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { readRun, runWorkflow } from "../src/index.ts";
-import type { MockAttemptScript } from "../src/index.ts";
 import { fakeClock } from "./helpers/clock.ts";
-import { appendLedgerEvent } from "./helpers/ledger.ts";
+import { appendLedgerEvent, truncateLedgerAfter } from "./helpers/ledger.ts";
 import { createTempRepo, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
-import { failing, goodbye, hello, implementOf, retryWorkflow } from "./helpers/retry.ts";
+import { failing, goodbye, hello, implementOf, rateLimited, retryWorkflow } from "./helpers/retry.ts";
 
 afterEach(removeTempRepos);
 
-const rateLimited: MockAttemptScript = { exitCode: 1, error: { kind: "transient", message: "429" } };
 
 describe("replaying retries from the ledger", () => {
   /** A finished run whose step failed once as an agent error and then passed. */
@@ -130,5 +128,70 @@ describe("replaying retries from the ledger", () => {
     });
 
     await expect(readRun({ repo, runId })).rejects.toThrow(/already verified \(inconclusive\)/);
+  });
+});
+
+describe("replaying a step that is still open", () => {
+  const notLoggedIn = { exitCode: 1, error: { kind: "config_auth" as const, message: "not logged in" } };
+
+  /** A one-step run cut right after its `nth` failed attempt, as if the runtime had stopped there. */
+  async function cutAfterFailure(attempts: Parameters<typeof retryWorkflow>[0], step: Parameters<typeof retryWorkflow>[1], nth = 1) {
+    const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING });
+    const { runId, state } = await runWorkflow(retryWorkflow(attempts, step), { repo, clock: fakeClock() });
+    truncateLedgerAfter(repo, runId, "attempt_failed", nth);
+    return { repo, runId, failed: implementOf(state).attempts[nth - 1]! };
+  }
+  const retry = (attemptId: string, failureClass: string, change: string) => ({
+    type: "retry_scheduled",
+    stepId: "implement",
+    attemptId,
+    failureClass,
+    change,
+    delayMs: 0,
+  });
+
+  it("accepts a retry the failure class allows, which makes the step ready again and counts what it spent", async () => {
+    const { repo, runId, failed } = await cutAfterFailure([failing], { retry: { budget: 0 } });
+    expect(implementOf(await readRun({ repo, runId }))).toMatchObject({ state: "in_progress" });
+
+    appendLedgerEvent(repo, runId, retry(failed.id, "agent_error", "none"));
+
+    expect(implementOf(await readRun({ repo, runId }))).toMatchObject({ state: "ready", retryUsage: { retries: 1 } });
+  });
+
+  it("refuses a retry a config/auth failure never gets", async () => {
+    const { repo, runId, failed } = await cutAfterFailure([notLoggedIn], { retry: { budget: 0 } });
+
+    appendLedgerEvent(repo, runId, retry(failed.id, "config_auth", "none"));
+
+    await expect(readRun({ repo, runId })).rejects.toThrow(/config_auth failures are not retried/);
+  });
+
+  it("refuses a failed verification retried without its evidence, and an agent error retried with some", async () => {
+    const verification = await cutAfterFailure([goodbye], { retry: { budget: 0 } });
+    appendLedgerEvent(verification.repo, verification.runId, retry(verification.failed.id, "verification_failed", "none"));
+    await expect(readRun(verification)).rejects.toThrow(/verification_failed failures are not retried with change "none"/);
+
+    const agent = await cutAfterFailure([failing], { retry: { budget: 0 } });
+    appendLedgerEvent(agent.repo, agent.runId, retry(agent.failed.id, "agent_error", "evidence"));
+    await expect(readRun(agent)).rejects.toThrow(/agent_error failures are not retried with change "evidence"/);
+  });
+
+  it("refuses a retry scheduled for an attempt other than the failed last one", async () => {
+    const { repo, runId } = await cutAfterFailure([failing], { retry: { budget: 0 } });
+
+    appendLedgerEvent(repo, runId, retry("att_other", "agent_error", "none"));
+
+    await expect(readRun({ repo, runId })).rejects.toThrow(/not the failed last attempt/);
+  });
+
+  it("refuses to reroute a step that was already rerouted", async () => {
+    const alternative = { adapter: "mock", options: { attempts: [{}, failing] } };
+    const { repo, runId, failed } = await cutAfterFailure([failing], { retry: { budget: 0 }, reroute: alternative }, 2);
+    expect(implementOf(await readRun({ repo, runId })).retryUsage.rerouted).toBe(true);
+
+    appendLedgerEvent(repo, runId, retry(failed.id, "agent_error", "reroute"));
+
+    await expect(readRun({ repo, runId })).rejects.toThrow(/already rerouted/);
   });
 });

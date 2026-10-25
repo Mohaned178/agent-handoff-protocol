@@ -3,7 +3,7 @@ import { mock, readRunEvents, runWorkflow } from "../src/index.ts";
 import type { MockAttemptScript } from "../src/index.ts";
 import { fakeClock } from "./helpers/clock.ts";
 import { createTempRepo, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
-import { failing, goodbye, hello, implementOf, retryWorkflow } from "./helpers/retry.ts";
+import { failing, goodbye, hello, implementOf, rateLimited, retryWorkflow } from "./helpers/retry.ts";
 
 afterEach(removeTempRepos);
 
@@ -82,7 +82,6 @@ describe("a reroute", () => {
 
   it("is also what a spent transient budget leads to", async () => {
     const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING });
-    const rateLimited: MockAttemptScript = { exitCode: 1, error: { kind: "transient", message: "429" } };
     const step = { retry: { transientBudget: 1 }, reroute: backup(after(2, hello)) };
 
     const { state } = await runWorkflow(retryWorkflow([rateLimited, rateLimited], step), { repo, clock: fakeClock() });

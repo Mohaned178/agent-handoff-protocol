@@ -125,7 +125,7 @@ How many retries a step may spend, counted from the ledger so a restart sees wha
 The wait before a transient retry: exponential, and capped in total for the step, so a rate limit does not burn a whole quota. A retry that would pass the cap is not made.
 
 **Retry evidence**:
-The failing parts of a verification, trimmed to what the coding agent may see, carried by the next handoff revision: a failing command's exit code and the end of its output, the required output fields it left out, the changed paths that violated a protected path. The output of a command that runs hidden tests is withheld, and the list of protected paths is never shown, since it holds the hidden tests' paths; the ledger keeps the full evidence.
+The failing parts of a verification, trimmed to what the coding agent may see, carried in the `evidence` of the next handoff revision (empty for revision 1): a failing command's exit code and the end of its output, the required output fields it left out, the changed paths that violated a protected path. The output of a command that runs hidden tests is withheld, and the list of protected paths is never shown, since it holds the hidden tests' paths; the ledger keeps the full evidence.
 
 **Reroute**:
 Handing a step whose retry budget is spent to its alternative coding agent, under the same contract, in a new handoff revision. Off by default; a step is rerouted at most once, and the alternative starts on budgets of its own. Never offered for `rejected`, `config_auth`, `inconclusive` or `unknown`.

@@ -1,11 +1,4 @@
-import type {
-  AttemptError,
-  FailureClass,
-  RetryPolicy,
-  RetryUsage,
-  StopReason,
-  VerificationState,
-} from "../protocol/index.ts";
+import type { AttemptError, FailureClass, RetryPolicy, RetryUsage, StopReason, Verdict } from "../protocol/index.ts";
 
 /** What is known about an attempt once its process has ended, and its verdict if it was verified. */
 export interface AttemptEnd {
@@ -15,7 +8,7 @@ export interface AttemptEnd {
   /** What the adapter observed go wrong; its classification outranks everything else here. */
   error: AttemptError | null;
   /** Null when the attempt was not verified: verification is for attempts whose agent ended cleanly. */
-  verdict: Exclude<VerificationState, "pending"> | null;
+  verdict: Verdict | null;
 }
 
 /** Stop reasons that mean the agent did not complete the work, even if its process exited 0. */
@@ -51,7 +44,7 @@ export interface ResolvedRetryPolicy {
   backoff: { initialMs: number; factor: number; maxTotalMs: number };
 }
 
-export const DEFAULT_RETRY_POLICY: ResolvedRetryPolicy = {
+const DEFAULT_RETRY_POLICY: ResolvedRetryPolicy = {
   budget: 2,
   transientBudget: 5,
   // 2 + 4 + 8 + 16 + 32 seconds for the five default retries: a rate limit is waited out, not hammered.

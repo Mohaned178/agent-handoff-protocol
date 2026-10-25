@@ -1,7 +1,7 @@
 // AHP protocol: workflow definitions, ledger events and the state derived from them.
 // State names and failure classes are closed enumerations; adding a value is a protocol change.
 
-import type { HandoffRevision, HandoffState, OutputFieldValue, RejectionReason } from "./handoff.ts";
+import type { HandoffRevision, HandoffState, OutputFieldValue, PathChange, RejectionReason } from "./handoff.ts";
 
 export * from "./handoff.ts";
 export { protocolJsonSchemas } from "./schemas.ts";
@@ -32,6 +32,9 @@ export type AttemptState = "created" | "dispatching" | "running" | "exited" | "u
 export type AttemptOutcome = "ok" | "error" | "timed_out" | "cancelled";
 
 export type VerificationState = "pending" | "pass" | "fail" | "inconclusive";
+
+/** A verification's result once it is decided: `pending` is not a verdict. */
+export type Verdict = Exclude<VerificationState, "pending">;
 
 /**
  * Why an attempt, or the step it belongs to, failed; each class has its own handling (`docs/design`, §4). A
@@ -192,9 +195,6 @@ export interface RequiredOutputFieldsEvidence {
   missing: string[];
 }
 
-/** How an attempt changed a path, from the step's base commit to the attempt's snapshot. */
-export type PathChange = "added" | "modified" | "deleted";
-
 export interface ChangedPath {
   path: string;
   change: PathChange;
@@ -244,7 +244,8 @@ export type EvidenceItem =
  * evidence of a failed verification (a new revision that carries it), or the coding agent (a reroute: a new
  * revision that names the alternative).
  */
-export type RetryChange = "none" | "evidence" | "reroute";
+export const RETRY_CHANGES = ["none", "evidence", "reroute"] as const;
+export type RetryChange = (typeof RETRY_CHANGES)[number];
 
 export type LedgerEventBody =
   | {
@@ -318,7 +319,7 @@ export type LedgerEventBody =
   | {
       type: "verification_verdict";
       verificationId: string;
-      verdict: Exclude<VerificationState, "pending">;
+      verdict: Verdict;
       evidence: EvidenceItem[];
     }
   | {

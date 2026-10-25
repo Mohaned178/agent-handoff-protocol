@@ -21,6 +21,10 @@ export type HandoffState = (typeof HANDOFF_STATES)[number];
 export const HANDOFF_REJECTION_REASONS = ["schema_invalid", "artifact_hash_mismatch", "unmet_dependency"] as const;
 export type HandoffRejectionReason = (typeof HANDOFF_REJECTION_REASONS)[number];
 
+/** How an attempt changed a path, from the step's base commit to the attempt's snapshot. */
+export const PATH_CHANGES = ["added", "modified", "deleted"] as const;
+export type PathChange = (typeof PATH_CHANGES)[number];
+
 // ---------------------------------------------------------------------------
 // Identifiers and value rules shared by the workflow definition and the handoff
 
@@ -126,7 +130,7 @@ export const HandoffEvidenceSchema = z
             // Paths the agent itself changed, not checked against the repository-path rules: a file name that is
             // legal on the agent's OS must not turn a retry into a rejected handoff.
             path: z.string(),
-            change: z.enum(["added", "modified", "deleted"]),
+            change: z.enum(PATH_CHANGES),
           }),
         )
         .min(1)

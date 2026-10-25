@@ -4,19 +4,21 @@ import { applyEvent, LedgerWriter } from "../ledger/index.ts";
 import {
   PROTOCOL_VERSION,
   type AgentRef,
+  type AttemptView,
   type EvidenceItem,
   type FailureClass,
   type HandoffRevision,
   type LedgerEvent,
   type LedgerEventBody,
+  type RetryChange,
   type RunView,
   type StepDefinition,
   type ValidatorStage,
-  type VerificationState,
+  type Verdict,
   type WorkflowDefinition,
 } from "../protocol/index.ts";
 import { systemClock, type Clock } from "./clock.ts";
-import { classifyAttempt, decideAfterFailure, resolveRetryPolicy } from "./failure.ts";
+import { classifyAttempt, decideAfterFailure, resolveRetryPolicy, type FailureDecision } from "./failure.ts";
 import { git } from "./git.ts";
 import { introduceHiddenTests } from "./hidden-tests.ts";
 import { buildHandoff, retryEvidence, reviseHandoff, validateHandoffRevision } from "./handoff.ts";
@@ -114,11 +116,17 @@ interface StepContext {
   record: (body: LedgerEventBody) => Promise<void>;
 }
 
+/** What the failure policy decides after a failure of the given class, given how often its verification ran. */
+type Decide = (failureClass: FailureClass, validatorRuns: number) => FailureDecision;
+
 function adapterFor(step: StepDefinition, agent: AgentRef, context: StepContext): Adapter {
   const adapter = context.adapters.get(agent.adapter);
   if (!adapter) throw new Error(`step "${step.id}" names unknown adapter "${agent.adapter}"`);
   return adapter;
 }
+
+/** How many times an attempt's verification ran, as the ledger shows it. */
+const verificationRuns = (attempt: AttemptView) => attempt.earlierVerifications.length + (attempt.verification ? 1 : 0);
 
 /**
  * Runs a step to its end: issues its handoff and has it validated on the recipient's behalf, then runs attempts,
@@ -140,85 +148,71 @@ async function executeStep(step: StepDefinition, index: number, context: StepCon
   const senderAttempt = index > 0 ? context.state().steps[index - 1]?.attempts.at(-1) : undefined;
   // Every attempt of this step, retries included, starts from this commit, so a failed attempt's files never leak.
   const base = senderAttempt?.snapshot?.commit ?? runBaseCommit;
-  let issuing: HandoffRevision | null = await buildHandoff({
-    repo: location.repo,
-    runId,
-    handoffId: newId("hnd"),
+  let accepted = await issueHandoff(
     step,
-    sender: senderAttempt
-      ? { step: context.workflow.steps[index - 1]!, attemptId: senderAttempt.id, reportedOutput: senderAttempt.reportedOutput }
-      : null,
-    baseCommit: base,
-  });
-  let accepted: HandoffRevision | null = null;
+    await buildHandoff({
+      repo: location.repo,
+      runId,
+      handoffId: newId("hnd"),
+      step,
+      sender: senderAttempt
+        ? { step: context.workflow.steps[index - 1]!, attemptId: senderAttempt.id, reportedOutput: senderAttempt.reportedOutput }
+        : null,
+      baseCommit: base,
+    }),
+    context,
+  );
+  if (!accepted) return false;
+
   const policy = resolveRetryPolicy(step.retry);
+  const hiddenTests = (step.verification.hiddenTests ?? []).length > 0;
+  const lastAttempt = () => context.state().steps[index]!.attempts.at(-1)!;
+  const decide: Decide = (failureClass, validatorRuns) =>
+    decideAfterFailure({
+      failureClass,
+      policy,
+      usage: context.state().steps[index]!.retryUsage,
+      validatorRuns,
+      reroute: step.reroute !== undefined,
+    });
 
   for (;;) {
-    if (issuing) {
-      accepted = await issueHandoff(step, issuing, context);
-      if (!accepted) return false;
-      issuing = null;
-    }
-    const attempt = await executeAttempt(step, index, agent, accepted!, base, context);
-    if (attempt.failureClass === null) {
+    const { attemptId, failureClass } = await executeAttempt(step, index, agent, accepted, base, decide, context);
+    if (failureClass === null) {
       await record({ type: "step_terminal", stepId: step.id, state: "succeeded", failureClass: null });
       return true;
     }
 
-    const decision = decideAfterFailure({
-      failureClass: attempt.failureClass,
-      policy,
-      usage: context.state().steps[index]!.retryUsage,
-      validatorRuns: attempt.validatorRuns,
-      reroute: step.reroute !== undefined,
-    });
+    const decision = decide(failureClass, verificationRuns(lastAttempt()));
     switch (decision.action) {
       case "stop":
-        await record({ type: "step_terminal", stepId: step.id, state: "failed", failureClass: attempt.failureClass });
+        await record({ type: "step_terminal", stepId: step.id, state: "failed", failureClass });
         return false;
       case "rerun_validator":
         // The validator is re-run inside the attempt, so a failure that reaches here is already final.
         throw new Error(`step "${step.id}": a validator re-run was decided after its attempt ended`);
-      case "retry": {
-        await record({
-          type: "retry_scheduled",
-          stepId: step.id,
-          attemptId: attempt.attemptId,
-          failureClass: attempt.failureClass,
-          change: decision.input === "changed" ? "evidence" : "none",
-          delayMs: decision.delayMs,
-        });
-        if (decision.delayMs > 0) await context.clock.sleep(decision.delayMs);
-        if (decision.input === "changed") {
-          // The failed attempt's verification is new input for the next one: a new revision carries what failed.
-          const failed = context.state().steps[index]!.attempts.at(-1)!;
-          const evidence = retryEvidence(failed.verification?.evidence ?? [], {
-            hiddenTests: (step.verification.hiddenTests ?? []).length > 0,
-          });
-          issuing = reviseHandoff(accepted!, { evidence });
-        }
-        break;
-      }
+      case "retry":
       case "reroute": {
-        // The budget is spent: the alternative agent takes the step over under the same contract, on budgets of
-        // its own. What the failed verification showed goes with it; an attempt that taught nothing keeps the
-        // evidence the step already had.
-        const alternative = step.reroute!;
-        await record({
-          type: "retry_scheduled",
-          stepId: step.id,
-          attemptId: attempt.attemptId,
-          failureClass: attempt.failureClass,
-          change: "reroute",
-          delayMs: 0,
+        const delayMs = decision.action === "retry" ? decision.delayMs : 0;
+        const change: RetryChange =
+          decision.action === "reroute" ? "reroute" : decision.input === "changed" ? "evidence" : "none";
+        await record({ type: "retry_scheduled", stepId: step.id, attemptId, failureClass, change, delayMs });
+        if (delayMs > 0) await context.clock.sleep(delayMs);
+        if (change === "none") break;
+
+        // The input changed, so the next attempt runs under a new revision. It carries what the failed verification
+        // showed (an attempt that taught nothing leaves the evidence the step already had) and, on a reroute, names
+        // the alternative agent, which starts on budgets of its own.
+        const learned = retryEvidence(lastAttempt().verification?.evidence ?? [], { hiddenTests });
+        const alternative = change === "reroute" ? step.reroute! : null;
+        const revised = reviseHandoff(accepted, {
+          evidence: learned.length > 0 ? learned : accepted.evidence,
+          to: alternative ? { adapter: alternative.adapter, requestedModel: alternative.model ?? null } : undefined,
         });
-        const failed = context.state().steps[index]!.attempts.at(-1)!;
-        const learned = retryEvidence(failed.verification?.evidence ?? [], { hiddenTests: (step.verification.hiddenTests ?? []).length > 0 });
-        agent = alternative;
-        issuing = reviseHandoff(accepted!, {
-          evidence: learned.length > 0 ? learned : accepted!.evidence,
-          to: { adapter: alternative.adapter, requestedModel: alternative.model ?? null },
-        });
+        const next = await issueHandoff(step, revised, context);
+        if (!next) return false;
+        accepted = next;
+        if (alternative) agent = alternative;
         break;
       }
     }
@@ -248,8 +242,6 @@ interface AttemptResult {
   attemptId: string;
   /** Null when the attempt passed verification. */
   failureClass: FailureClass | null;
-  /** How many times the attempt's verification ran; 0 when its agent did not end cleanly. */
-  validatorRuns: number;
 }
 
 /**
@@ -265,6 +257,7 @@ async function executeAttempt(
   agent: AgentRef,
   handoff: HandoffRevision,
   base: string,
+  decide: Decide,
   context: StepContext,
 ): Promise<AttemptResult> {
   const { runId, worktreeRoot, location, record } = context;
@@ -296,34 +289,29 @@ async function executeAttempt(
   });
   await record({ type: "attempt_running", attemptId, pid: started.pid });
   const exit = await started.exited;
-  const exitClass = classifyAttempt({ ...exit, verdict: null });
-  await record({ type: "attempt_exited", attemptId, outcome: exitClass === null ? "ok" : "error", ...exit });
+  // The agent ended cleanly exactly when its exit alone shows no failure. The attempt's failure class is a
+  // separate record, made once the attempt is over, which may take its verification into account.
+  const exitFailure = classifyAttempt({ ...exit, verdict: null });
+  const endedCleanly = exitFailure === null;
+  await record({ type: "attempt_exited", attemptId, outcome: endedCleanly ? "ok" : "error", ...exit });
 
   const ref = snapshotRef(runId, attemptId);
   const snapshot = await snapshotWorktree(workspace, ref, `AHP snapshot of ${runId} step ${step.id} attempt ${attemptId}`);
   await record({ type: "workspace_snapshot_committed", attemptId, commit: snapshot, ref });
 
-  let failureClass = exitClass;
-  let validatorRuns = 0;
-  if (exitClass === null) {
+  let failureClass = exitFailure;
+  if (endedCleanly) {
     const verifyInput = { step, base, snapshot, attemptId, reportedOutput: exit.reportedOutput };
     for (;;) {
       const verdict = await verifyAttempt(verifyInput, context);
-      validatorRuns += 1;
       failureClass = classifyAttempt({ ...exit, verdict });
       if (failureClass !== "inconclusive") break;
-      const next = decideAfterFailure({
-        failureClass,
-        policy: resolveRetryPolicy(step.retry),
-        usage: context.state().steps[index]!.retryUsage,
-        validatorRuns,
-        reroute: false,
-      });
-      if (next.action !== "rerun_validator") break;
+      const runs = verificationRuns(context.state().steps[index]!.attempts.at(-1)!);
+      if (decide(failureClass, runs).action !== "rerun_validator") break;
     }
   }
   if (failureClass !== null) await record({ type: "attempt_failed", attemptId, failureClass });
-  return { attemptId, failureClass, validatorRuns };
+  return { attemptId, failureClass };
 }
 
 interface VerifyInput {
@@ -337,7 +325,7 @@ interface VerifyInput {
 }
 
 /** Runs one verification of an attempt's snapshot and records it and its verdict. */
-async function verifyAttempt(input: VerifyInput, context: StepContext): Promise<Exclude<VerificationState, "pending">> {
+async function verifyAttempt(input: VerifyInput, context: StepContext): Promise<Verdict> {
   const { step, base, snapshot, attemptId, reportedOutput } = input;
   const { runId, worktreeRoot, location, record } = context;
   const verificationId = newId("ver");

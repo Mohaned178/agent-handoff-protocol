@@ -18,3 +18,6 @@ export const failing: MockAttemptScript = { exitCode: 3 };
 
 /** The only step of a `retryWorkflow` run. */
 export const implementOf = (state: RunView) => state.steps[0]!;
+
+/** An attempt whose agent reports a rate limit. */
+export const rateLimited: MockAttemptScript = { exitCode: 1, error: { kind: "transient", message: "429: rate limited" } };

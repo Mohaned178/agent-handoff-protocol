@@ -118,9 +118,9 @@ function describeStop(step: StepView): string | null {
   }
 }
 
-function describeVerification(label: string, verification: VerificationView): string[] {
+function describeVerification(label: string, verification: VerificationView, note = ""): string[] {
   const lines = [
-    `    ${label}: ${verification.state}`,
+    `    ${label}: ${verification.state}${note}`,
     verification.command === null
       ? `      structural verification: ${STRUCTURAL_NOTE}`
       : `      command: ${verification.command}`,
@@ -195,8 +195,7 @@ export function formatEvent(event: LedgerEvent, state: Readonly<RunView>): strin
       const step = state.steps.find((s) => s.id === event.stepId)!;
       const line = `step ${step.id}: ${describeStep(step)}${mockTag(step.mock)}`;
       const stop = step.state === "failed" ? describeStop(step) : null;
-      return stop ? `${line}
-  ${stop}` : line;
+      return stop ? `${line}\n  ${stop}` : line;
     }
     case "run_terminal":
       return `run ${state.runId}: ${state.state}${mockTag(state.mock)}`;
@@ -243,7 +242,7 @@ export function formatRun(state: Readonly<RunView>): string {
       if (attempt.stopReason) lines.push(`    stop reason: ${attempt.stopReason}`);
       if (attempt.error) lines.push(`    error (${attempt.error.kind}): ${attempt.error.message}`);
       for (const earlier of attempt.earlierVerifications) {
-        lines.push(...describeVerification("earlier verification", earlier).map((line, i) => (i === 0 ? `${line} (the validator could not run; verified again)` : line)));
+        lines.push(...describeVerification("earlier verification", earlier, " (the validator could not run; verified again)"));
       }
       if (!attempt.verification) {
         lines.push("    verification: not run");
