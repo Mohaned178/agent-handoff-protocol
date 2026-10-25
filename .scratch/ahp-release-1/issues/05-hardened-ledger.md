@@ -29,7 +29,7 @@
 
 2026-10-26, implementation notes. The ticket left several shapes open; these are the choices made, so ticket 06 and later can build on them or reopen them. The last box stays open until the tests have passed on all three CI OSes.
 
-**Decisions the ticket left to me (awaiting the maintainer's confirmation):**
+**Seven decisions the ticket left to me. Confirmed by the maintainer on 2026-10-26, each kept as built; reopen one only with a new decision:**
 
 - **Only a writer truncates a torn tail.** "On startup" is read as the start of a process that opens an existing ledger to write it (`LedgerWriter.open`, holding the lock). Readers (`readRun`, `readRunEvents`, `inspectRun`, `ahp inspect`) never modify a ledger: they leave the torn line out of the derived state and report it. Truncating is a write and needs the single-writer lock, and a reader that truncated could cut off an event a live writer is still appending. Nothing in the runtime opens an existing ledger until ticket 06 (resume, `ahp recover`) and 09 (`ahp approve`/`reject`), so truncation is tested at the ledger module, a seam the maintainer agreed for this ticket.
 - **A corrupt ledger shows no state at all.** `readRun`, `readRunEvents` and `inspectRun` throw `LedgerCorruptError` naming the first bad line, and `ahp inspect` prints it to stderr and exits 1 with nothing on stdout, also with `--json`. The alternative, state derived from the events before the break with a warning, invites the trust the ticket says not to give.
