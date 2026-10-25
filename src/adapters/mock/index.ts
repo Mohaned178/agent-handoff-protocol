@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentRef } from "../../protocol/index.ts";
+import type { AgentRef, OutputFieldValue } from "../../protocol/index.ts";
 import type { Adapter, AttemptExit } from "../contract.ts";
 
 export interface MockEdit {
@@ -13,6 +13,8 @@ export interface MockEdit {
 /** What the mock coding agent does in one attempt. */
 export interface MockAttemptScript {
   edits?: MockEdit[];
+  /** The output fields the agent reports, by name. Defaults to none. */
+  outputFields?: Record<string, OutputFieldValue>;
   /** Defaults to 0. */
   exitCode?: number;
 }
@@ -45,6 +47,10 @@ export const mockAdapter: Adapter = {
           problems.push(`mock attempt ${index + 1}: each edit needs a string \`path\` and \`content\``);
         }
       }
+      for (const [name, value] of Object.entries(script?.outputFields ?? {})) {
+        const isText = typeof value === "string" || (Array.isArray(value) && value.every((v) => typeof v === "string"));
+        if (!isText) problems.push(`mock attempt ${index + 1}: output field "${name}" must be a string or an array of strings`);
+      }
       if (script?.exitCode !== undefined && !Number.isInteger(script.exitCode)) {
         problems.push(`mock attempt ${index + 1}: \`exitCode\` must be an integer`);
       }
@@ -58,12 +64,23 @@ export const mockAdapter: Adapter = {
 
     const child = spawn(process.execPath, [agentScript], {
       cwd: workspace,
-      stdio: ["pipe", "ignore", "ignore"],
+      stdio: ["pipe", "pipe", "ignore"],
       windowsHide: true,
     });
+    const stdout: Buffer[] = [];
+    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
     const exited = new Promise<AttemptExit>((resolve, reject) => {
       child.once("error", reject);
-      child.once("close", (exitCode, signal) => resolve({ exitCode, signal }));
+      child.once("close", (exitCode, signal) => {
+        // A crashed agent may have printed nothing: it reported no output.
+        const report = Buffer.concat(stdout).toString("utf8");
+        try {
+          const outputFields = report === "" ? {} : (JSON.parse(report) as { outputFields: AttemptExit["reportedOutput"] }).outputFields;
+          resolve({ exitCode, signal, reportedOutput: outputFields });
+        } catch (error) {
+          reject(new Error(`mock agent printed an unreadable report: ${report.slice(0, 200)}`, { cause: error }));
+        }
+      });
     });
     await new Promise<void>((resolve, reject) => {
       child.once("spawn", resolve);

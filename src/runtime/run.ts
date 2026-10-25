@@ -3,6 +3,7 @@ import type { Adapter } from "../adapters/index.ts";
 import { applyEvent, LedgerWriter } from "../ledger/index.ts";
 import {
   PROTOCOL_VERSION,
+  type EvidenceItem,
   type LedgerEvent,
   type LedgerEventBody,
   type RunView,
@@ -10,8 +11,9 @@ import {
   type WorkflowDefinition,
 } from "../protocol/index.ts";
 import { git } from "./git.ts";
+import { buildHandoff, validateHandoffRevision } from "./handoff.ts";
 import { ledgerPath, locateRepo, prepareWorktreeRoot, snapshotRef, worktreePath, type RepoLocation } from "./paths.ts";
-import { runVerificationCommand } from "./verification.ts";
+import { checkRequiredOutputFields, runVerificationCommand, verdictOf } from "./verification.ts";
 import { addWorktree, removeWorktree, snapshotWorktree } from "./workspace.ts";
 
 export interface ExecuteRunOptions {
@@ -63,13 +65,15 @@ export async function executeRun(workflow: WorkflowDefinition, options: ExecuteR
     await record({ type: "run_started" });
 
     let runSucceeded = true;
-    for (const step of workflow.steps) {
-      const stepSucceeded = await executeStep(step, {
+    for (const [index, step] of workflow.steps.entries()) {
+      const stepSucceeded = await executeStep(step, index, {
         runId,
         baseCommit,
         location,
         worktreeRoot,
         adapters: options.adapters,
+        workflow,
+        state: () => state!,
         record,
       });
       if (!stepSucceeded) {
@@ -90,16 +94,47 @@ interface StepContext {
   location: RepoLocation;
   worktreeRoot: string;
   adapters: ReadonlyMap<string, Adapter>;
+  workflow: WorkflowDefinition;
+  /** The state derived from the ledger so far. */
+  state: () => Readonly<RunView>;
   record: (body: LedgerEventBody) => Promise<void>;
 }
 
-/** Runs one attempt of `step` and verifies it; returns whether the step succeeded. */
-async function executeStep(step: StepDefinition, context: StepContext): Promise<boolean> {
-  const { runId, baseCommit, location, worktreeRoot, record } = context;
+/**
+ * Issues the step's handoff, has it validated on the recipient's behalf, and, once accepted, runs one attempt
+ * and verifies it. Returns whether the step succeeded.
+ */
+async function executeStep(step: StepDefinition, index: number, context: StepContext): Promise<boolean> {
+  const { runId, baseCommit: runBaseCommit, location, worktreeRoot, record } = context;
   const adapter = context.adapters.get(step.agent.adapter);
   if (!adapter) throw new Error(`step "${step.id}" names unknown adapter "${step.agent.adapter}"`);
 
   await record({ type: "step_ready", stepId: step.id });
+
+  // The previous step has succeeded, so its last attempt is the verified one whose result is handed on, and
+  // its snapshot is the recipient's starting point: the work so far, including every artifact it passes.
+  const senderAttempt = index > 0 ? context.state().steps[index - 1]?.attempts.at(-1) : undefined;
+  const base = senderAttempt?.snapshot?.commit ?? runBaseCommit;
+  const handoff = await buildHandoff({
+    repo: location.repo,
+    runId,
+    handoffId: newId("hnd"),
+    step,
+    sender: senderAttempt
+      ? { step: context.workflow.steps[index - 1]!, attemptId: senderAttempt.id, reportedOutput: senderAttempt.reportedOutput }
+      : null,
+    baseCommit: base,
+  });
+  await record({ type: "handoff_issued", handoff });
+  // Validate the document as a recipient would receive it, not the object the runtime built.
+  const validation = await validateHandoffRevision(JSON.parse(JSON.stringify(handoff)), location.repo);
+  if (!validation.accepted) {
+    const { handoffId, revision } = handoff;
+    await record({ type: "handoff_rejected", handoffId, revision, reasons: validation.reasons });
+    await record({ type: "step_terminal", stepId: step.id, state: "failed", failureClass: "rejected" });
+    return false;
+  }
+  await record({ type: "handoff_accepted", handoffId: handoff.handoffId, revision: handoff.revision });
 
   const attemptId = newId("att");
   const workspace = worktreePath(worktreeRoot, runId, attemptId);
@@ -107,12 +142,14 @@ async function executeStep(step: StepDefinition, context: StepContext): Promise<
     type: "attempt_created",
     stepId: step.id,
     attemptId,
+    handoffId: handoff.handoffId,
+    handoffRevision: handoff.revision,
     adapter: adapter.declaration.name,
     mock: adapter.declaration.mock,
     requestedModel: step.agent.model ?? null,
     workspace,
   });
-  await addWorktree(location.repo, workspace, baseCommit);
+  await addWorktree(location.repo, workspace, base);
 
   await record({ type: "attempt_dispatching", attemptId });
   const started = await adapter.startAttempt({
@@ -120,6 +157,7 @@ async function executeStep(step: StepDefinition, context: StepContext): Promise<
     attemptNumber: 1,
     workspace,
     requestedModel: step.agent.model ?? null,
+    handoff: validation.handoff,
     options: step.agent.options,
   });
   await record({ type: "attempt_running", attemptId, pid: started.pid });
@@ -137,24 +175,33 @@ async function executeStep(step: StepDefinition, context: StepContext): Promise<
   }
 
   const verificationId = newId("ver");
-  const verificationWorktree = worktreePath(worktreeRoot, runId, verificationId);
+  // A structural verification runs no command, so it needs no verification worktree.
+  const commandRun =
+    step.verification.command === undefined
+      ? null
+      : { command: step.verification.command, worktree: worktreePath(worktreeRoot, runId, verificationId) };
   await record({
     type: "verification_started",
     attemptId,
     verificationId,
-    command: step.verification.command,
-    worktree: verificationWorktree,
+    command: commandRun?.command ?? null,
+    worktree: commandRun?.worktree ?? null,
   });
-  await addWorktree(location.repo, verificationWorktree, snapshot);
-  let result;
-  try {
-    result = await runVerificationCommand(step.verification.command, verificationWorktree);
-  } finally {
-    await removeWorktree(location.repo, verificationWorktree);
+  const evidence: EvidenceItem[] = [];
+  if (commandRun) {
+    await addWorktree(location.repo, commandRun.worktree, snapshot);
+    try {
+      evidence.push(await runVerificationCommand(commandRun.command, commandRun.worktree));
+    } finally {
+      await removeWorktree(location.repo, commandRun.worktree);
+    }
   }
-  await record({ type: "verification_verdict", verificationId, verdict: result.verdict, evidence: [result.evidence] });
+  const requiredFields = step.verification.requiredOutputFields ?? [];
+  if (requiredFields.length > 0) evidence.push(checkRequiredOutputFields(requiredFields, exit.reportedOutput));
+  const verdict = verdictOf(evidence);
+  await record({ type: "verification_verdict", verificationId, verdict, evidence });
 
-  const passed = result.verdict === "pass";
+  const passed = verdict === "pass";
   await record({
     type: "step_terminal",
     stepId: step.id,

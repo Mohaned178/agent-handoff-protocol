@@ -1,19 +1,20 @@
 import { spawn } from "node:child_process";
-import type { TestOutputEvidence, VerificationState } from "../protocol/index.ts";
+import {
+  isPresentOutputField,
+  type EvidenceItem,
+  type RequiredOutputFieldsEvidence,
+  type TestOutputEvidence,
+  type VerificationState,
+} from "../protocol/index.ts";
 
 /** Keeps the ledger bounded: only the tail of a longer output is recorded. */
 const MAX_OUTPUT_CHARS = 64 * 1024;
 
-export interface VerificationResult {
-  verdict: Exclude<VerificationState, "pending">;
-  evidence: TestOutputEvidence;
-}
-
 /**
  * Runs the workflow's verification command through the system shell in `worktree`.
- * Exit code 0 is `pass`; anything else is `fail`.
+ * The evidence records the exit code; exit code 0 is a pass.
  */
-export async function runVerificationCommand(command: string, worktree: string): Promise<VerificationResult> {
+export async function runVerificationCommand(command: string, worktree: string): Promise<TestOutputEvidence> {
   const child = spawn(command, { cwd: worktree, shell: true, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   let output = "";
   let truncated = false;
@@ -33,8 +34,32 @@ export async function runVerificationCommand(command: string, worktree: string):
       child.once("close", (code, sig) => resolve({ exitCode: code, signal: sig }));
     },
   );
+  return { kind: "test_output", command, exitCode, signal, output, truncated };
+}
+
+/** Checks the attempt's reported output against the step's required output fields. */
+export function checkRequiredOutputFields(
+  required: readonly string[],
+  reported: Readonly<Record<string, unknown>>,
+): RequiredOutputFieldsEvidence {
   return {
-    verdict: exitCode === 0 ? "pass" : "fail",
-    evidence: { kind: "test_output", command, exitCode, signal, output, truncated },
+    kind: "required_output_fields",
+    required: [...required],
+    missing: required.filter((name) => !isPresentOutputField(reported[name])),
   };
+}
+
+function evidencePasses(item: EvidenceItem): boolean {
+  switch (item.kind) {
+    case "test_output":
+      return item.exitCode === 0;
+    case "required_output_fields":
+      return item.missing.length === 0;
+  }
+}
+
+/** Verification passes only if every evidence item passes; with no evidence there is nothing to pass on. */
+export function verdictOf(evidence: readonly EvidenceItem[]): Exclude<VerificationState, "pending"> {
+  if (evidence.length === 0) throw new Error("verification produced no evidence");
+  return evidence.every(evidencePasses) ? "pass" : "fail";
 }

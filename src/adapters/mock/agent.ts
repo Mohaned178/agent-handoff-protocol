@@ -1,5 +1,6 @@
 // The mock coding agent: one process per attempt. It reads its script as JSON on stdin,
-// applies the scripted edits inside its working directory, and exits with the scripted code.
+// applies the scripted edits inside its working directory, reports the scripted output fields as a
+// JSON document on stdout, and exits with the scripted code. Diagnostics go to stderr.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve, isAbsolute } from "node:path";
@@ -18,7 +19,9 @@ for (const edit of script.edits ?? []) {
   }
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, edit.content);
-  console.log(`mock agent: wrote ${edit.path}`);
+  console.error(`mock agent: wrote ${edit.path}`);
 }
 
-process.exit(script.exitCode ?? 0);
+process.stdout.write(JSON.stringify({ outputFields: script.outputFields ?? {} }));
+// Not process.exit(): it may cut off output still buffered for a pipe.
+process.exitCode = script.exitCode ?? 0;

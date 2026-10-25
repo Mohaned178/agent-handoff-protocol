@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "0.1.0",
+      "description": "Version of this schema."
+    },
+    "handoffId": {
+      "type": "string",
+      "pattern": "^hnd_[a-z0-9]+$",
+      "description": "Identifies the handoff across its revisions."
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "description": "1 for the first revision; a change is always a new revision."
+    },
+    "supersedes": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The revision this one replaces: null for revision 1, otherwise revision - 1."
+    },
+    "contextId": {
+      "type": "string",
+      "pattern": "^run_[a-z0-9]+$",
+      "description": "A2A `contextId`: the run the handoff belongs to."
+    },
+    "from": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "stepId": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]*$"
+            },
+            "attemptId": {
+              "type": "string",
+              "pattern": "^att_[a-z0-9]+$"
+            }
+          },
+          "required": [
+            "stepId",
+            "attemptId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The verified attempt whose result is handed on; null for the first step."
+    },
+    "to": {
+      "type": "object",
+      "properties": {
+        "stepId": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+        },
+        "adapter": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requestedModel": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "As requested; never what the tool reports."
+        }
+      },
+      "required": [
+        "stepId",
+        "adapter",
+        "requestedModel"
+      ],
+      "additionalProperties": false,
+      "description": "The recipient step and its coding agent."
+    },
+    "base": {
+      "type": "object",
+      "properties": {
+        "commit": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        }
+      },
+      "required": [
+        "commit"
+      ],
+      "additionalProperties": false,
+      "description": "The commit the recipient's workspace starts from, and the commit artifacts are read from."
+    },
+    "contract": {
+      "type": "object",
+      "properties": {
+        "instructions": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the step is to do, as the workflow states it."
+        },
+        "acceptance": {
+          "type": "object",
+          "properties": {
+            "verificationCommand": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "requiredOutputFields": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+              },
+              "description": "Fields the attempt must report to pass."
+            }
+          },
+          "required": [
+            "verificationCommand",
+            "requiredOutputFields"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "instructions",
+        "acceptance"
+      ],
+      "additionalProperties": false,
+      "description": "The recipient step's contract. AHP extension: acceptance criteria."
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "fields": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "description": "The previous step's required output fields (for example decisions, constraints, summary)."
+        }
+      },
+      "required": [
+        "fields"
+      ],
+      "additionalProperties": false,
+      "description": "What earlier steps decided and learned."
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "maxLength": 1024,
+            "pattern": "^(?!\\.[gG][iI][tT](?:\\/|$))(?!\\.{1,2}(?:\\/|$))[^/\\\\:*?\"<>|\\u0000-\\u001f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\:*?\"<>|\\u0000-\\u001f]+)*$",
+            "description": "Relative to the repository root, written with forward slashes: no leading or trailing slash, no `.` or `..` segments, nothing under `.git`, and none of the characters \\ : * ? \" < > | or control characters."
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 (lowercase hex) of the file's committed content, never of working-tree bytes (ADR 0005)."
+          }
+        },
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "description": "A file passed by reference, read from the handoff's base commit. AHP extension: A2A artifacts carry no content hash."
+      },
+      "description": "Files from the previous step, passed by reference."
+    },
+    "requires": {
+      "type": "object",
+      "properties": {
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+          }
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 1024,
+            "pattern": "^(?!\\.[gG][iI][tT](?:\\/|$))(?!\\.{1,2}(?:\\/|$))[^/\\\\:*?\"<>|\\u0000-\\u001f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\:*?\"<>|\\u0000-\\u001f]+)*$",
+            "description": "Relative to the repository root, written with forward slashes: no leading or trailing slash, no `.` or `..` segments, nothing under `.git`, and none of the characters \\ : * ? \" < > | or control characters."
+          }
+        }
+      },
+      "required": [
+        "fields",
+        "artifacts"
+      ],
+      "additionalProperties": false,
+      "description": "What the recipient cannot start without; `context` and `artifacts` must cover it."
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "handoffId",
+    "revision",
+    "supersedes",
+    "contextId",
+    "from",
+    "to",
+    "base",
+    "contract",
+    "context",
+    "artifacts",
+    "requires"
+  ],
+  "additionalProperties": false,
+  "title": "AHP handoff revision",
+  "description": "An immutable revision of a handoff. Rules JSON Schema cannot express: `supersedes` is null for revision 1 and revision - 1 otherwise; paths and field names listed in one array are unique."
+}

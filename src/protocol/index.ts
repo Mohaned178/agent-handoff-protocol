@@ -1,7 +1,11 @@
 // AHP protocol: workflow definitions, ledger events and the state derived from them.
 // State names and failure classes are closed enumerations; adding a value is a protocol change.
 
-export const PROTOCOL_VERSION = "0.1.0";
+import type { HandoffRevision, HandoffState, OutputFieldValue, RejectionReason } from "./handoff.ts";
+
+export * from "./handoff.ts";
+export { protocolJsonSchemas } from "./schemas.ts";
+export { PROTOCOL_VERSION } from "./version.ts";
 
 export type RunState =
   | "pending"
@@ -50,15 +54,33 @@ export interface AgentRef {
   options?: unknown;
 }
 
+/**
+ * A step's acceptance criteria. It needs a command, required output fields, or both: with only fields the
+ * verification is structural, checking that the output is complete and nothing about its quality.
+ */
 export interface VerificationDefinition {
   /** Run through the system shell in the verification worktree; exit code 0 is `pass`. */
-  command: string;
+  command?: string;
+  /**
+   * Fields the attempt must report. A missing or blank field fails verification, and the fields of a
+   * passing attempt are the context of the next step's handoff.
+   */
+  requiredOutputFields?: string[];
 }
 
 export interface StepDefinition {
   id: string;
   agent: AgentRef;
   verification: VerificationDefinition;
+  /** What the step is to do, in the words the coding agent receives it in; carried in the handoff's contract. */
+  instructions?: string;
+  /**
+   * Repository-relative paths of files this step hands to the next one. The next step's handoff references them
+   * with the SHA-256 of their committed content in this step's snapshot. A path that is not a file there makes
+   * that handoff unsatisfiable: the file may be one the step wrote or one already in the repository, but a file
+   * git ignores is not in the snapshot.
+   */
+  artifacts?: string[];
 }
 
 export interface WorkflowDefinition {
@@ -79,7 +101,14 @@ export interface TestOutputEvidence {
   truncated: boolean;
 }
 
-export type EvidenceItem = TestOutputEvidence;
+export interface RequiredOutputFieldsEvidence {
+  kind: "required_output_fields";
+  required: string[];
+  /** The required fields the attempt did not report, or reported blank. */
+  missing: string[];
+}
+
+export type EvidenceItem = TestOutputEvidence | RequiredOutputFieldsEvidence;
 
 export type LedgerEventBody =
   | {
@@ -92,10 +121,17 @@ export type LedgerEventBody =
     }
   | { type: "run_started" }
   | { type: "step_ready"; stepId: string }
+  /** The full, immutable revision as issued to the recipient step. */
+  | { type: "handoff_issued"; handoff: HandoffRevision }
+  | { type: "handoff_accepted"; handoffId: string; revision: number }
+  | { type: "handoff_rejected"; handoffId: string; revision: number; reasons: RejectionReason[] }
   | {
       type: "attempt_created";
       stepId: string;
       attemptId: string;
+      /** The accepted handoff revision this attempt runs under; with `attemptId` it is the idempotency key. */
+      handoffId: string;
+      handoffRevision: number;
       adapter: string;
       /** From the adapter's declaration; mock results are never evidence. */
       mock: boolean;
@@ -110,14 +146,18 @@ export type LedgerEventBody =
       outcome: AttemptOutcome;
       exitCode: number | null;
       signal: string | null;
+      /** What the coding agent claims to have produced. A claim, not a result: verification checks it. */
+      reportedOutput: Record<string, OutputFieldValue>;
     }
   | { type: "workspace_snapshot_committed"; attemptId: string; commit: string; ref: string }
   | {
       type: "verification_started";
       attemptId: string;
       verificationId: string;
-      command: string;
-      worktree: string;
+      /** Null for a structural verification, which runs no command. */
+      command: string | null;
+      /** Null when no command runs, so no verification worktree is built. */
+      worktree: string | null;
     }
   | {
       type: "verification_verdict";
@@ -144,8 +184,9 @@ export type LedgerEvent = { seq: number; time: string } & LedgerEventBody;
 export interface VerificationView {
   id: string;
   state: VerificationState;
-  command: string;
-  worktree: string;
+  /** Null for a structural verification, which runs no command. */
+  command: string | null;
+  worktree: string | null;
   evidence: EvidenceItem[];
 }
 
@@ -154,9 +195,13 @@ export interface AttemptView {
   /** 1 for a step's first attempt. */
   number: number;
   state: AttemptState;
+  /** The handoff revision this attempt runs under. */
+  handoff: { id: string; revision: number };
   outcome: AttemptOutcome | null;
   exitCode: number | null;
   signal: string | null;
+  /** The output fields the coding agent reported; empty until the attempt exits. */
+  reportedOutput: Record<string, OutputFieldValue>;
   pid: number | null;
   adapter: string;
   mock: boolean;
@@ -168,12 +213,25 @@ export interface AttemptView {
   verification: VerificationView | null;
 }
 
+export interface HandoffView {
+  handoffId: string;
+  revision: number;
+  supersedes: number | null;
+  state: HandoffState;
+  /** The revision exactly as issued. */
+  handoff: HandoffRevision;
+  /** Set when the revision was rejected. */
+  rejection: RejectionReason[] | null;
+}
+
 export interface StepView {
   id: string;
   state: StepState;
   failureClass: FailureClass | null;
   /** True when any attempt of this step ran on the mock adapter. */
   mock: boolean;
+  /** Every handoff revision issued to this step, in issue order. */
+  handoffs: HandoffView[];
   attempts: AttemptView[];
 }
 

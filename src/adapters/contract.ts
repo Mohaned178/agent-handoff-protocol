@@ -1,6 +1,8 @@
 // The contract every adapter implements. The runtime drives coding agents only through it,
 // so the core holds no provider-specific logic.
 
+import type { HandoffRevision, OutputFieldValue } from "../protocol/index.ts";
+
 export interface AdapterDeclaration {
   name: string;
   /** A mock adapter's results are labelled as mock in all output and never count as evidence. */
@@ -14,6 +16,8 @@ export interface AttemptInput {
   /** The attempt's git worktree; the coding agent's working directory. */
   workspace: string;
   requestedModel: string | null;
+  /** The handoff revision the recipient accepted: the contract, context and artifacts for this attempt. */
+  handoff: HandoffRevision;
   /** The step's adapter options, already accepted by `validateOptions`. */
   options: unknown;
 }
@@ -21,6 +25,11 @@ export interface AttemptInput {
 export interface AttemptExit {
   exitCode: number | null;
   signal: string | null;
+  /**
+   * The output fields the coding agent reported (for example `summary`, `decisions`, `constraints`), by name.
+   * The adapter normalizes whatever its tool produces into this shape; the runtime verifies the claim.
+   */
+  reportedOutput: Record<string, OutputFieldValue>;
 }
 
 export interface StartedAttempt {

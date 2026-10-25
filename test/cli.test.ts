@@ -1,8 +1,11 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { createTempRepo, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
+import type { RunView } from "../src/index.ts";
+import { appendLedgerEvent } from "./helpers/ledger.ts";
+import { createTempRepo, removeTempRepos, VERIFY_GREETING, VERIFY_OK } from "./helpers/repo.ts";
 
 afterEach(removeTempRepos);
 
@@ -100,6 +103,123 @@ describe("ahp run and ahp inspect", () => {
 
     expect(result.code).toBe(2);
     expect(result.stderr).toContain("Usage: ahp");
+  });
+});
+
+const PLAN = "# Plan\n- add the endpoint\n";
+
+/** A plan -> implement workflow file: plan hands on a summary and PLAN.md; `planWritesFile` false breaks the artifact. */
+function handoffWorkflowFile(planWritesFile: boolean): string {
+  const plan = {
+    id: "plan",
+    instructions: "Plan the endpoint.",
+    agent: {
+      adapter: "mock",
+      options: {
+        attempts: [{ edits: planWritesFile ? [{ path: "PLAN.md", content: PLAN }] : [], outputFields: { summary: "plan done" } }],
+      },
+    },
+    verification: { requiredOutputFields: ["summary"] },
+    artifacts: ["PLAN.md"],
+  };
+  const implement = {
+    id: "implement",
+    agent: { adapter: "mock", options: { attempts: [{}] } },
+    verification: { command: "node ok.mjs" },
+  };
+  return `export default ${JSON.stringify({ name: "plan-implement", steps: [plan, implement] }, null, 2)};\n`;
+}
+
+describe("ahp run and ahp inspect with handoffs", () => {
+  it("streams the handoffs and shows every handoff revision in full when inspecting", () => {
+    const repo = createTempRepo({ "ok.mjs": VERIFY_OK, "workflow.mjs": handoffWorkflowFile(true) });
+
+    const run = ahp(["run", "workflow.mjs"], repo);
+
+    expect(run.stderr).toBe("");
+    expect(run.code).toBe(0);
+    expect(run.stdout).toMatch(/step plan: handoff hnd_[a-z0-9]+ revision 1 issued/);
+    expect(run.stdout).toMatch(/step implement: handoff hnd_[a-z0-9]+ revision 1 accepted/);
+    expect(run.stdout).toMatch(/step plan: structural verification \[mock\]: checks only that/);
+    const runId = /run (run_[a-z0-9]+): succeeded/.exec(run.stdout)?.[1];
+
+    const inspect = ahp(["inspect", runId!, "--repo", repo], repo);
+
+    expect(inspect.code).toBe(0);
+    expect(inspect.stdout.match(/handoff hnd_[a-z0-9]+ revision 1: accepted/g)).toHaveLength(2);
+    expect(inspect.stdout).toContain('"schemaVersion": "0.1.0"');
+    expect(inspect.stdout).toContain(`"contextId": "${runId}"`);
+    expect(inspect.stdout).toContain('"instructions": "Plan the endpoint."');
+    expect(inspect.stdout).toContain('"summary": "plan done"');
+    expect(inspect.stdout).toContain('"path": "PLAN.md"');
+    expect(inspect.stdout).toContain(`"sha256": "${createHash("sha256").update(PLAN).digest("hex")}"`);
+    expect(inspect.stdout).toContain("reported output fields: summary");
+    expect(inspect.stdout).toContain("structural verification: checks only that");
+    expect(inspect.stdout).toContain("evidence: required output fields (summary): all present");
+
+    const json = JSON.parse(ahp(["inspect", runId!, "--json"], repo).stdout) as RunView;
+    expect(json.steps[1]?.handoffs[0]?.handoff.artifacts).toEqual([
+      { path: "PLAN.md", sha256: createHash("sha256").update(PLAN).digest("hex") },
+    ]);
+  });
+
+  it("shows every revision of a handoff in full, the superseded one as well as the current one", () => {
+    const repo = createTempRepo({ "ok.mjs": VERIFY_OK, "workflow.mjs": handoffWorkflowFile(true) });
+    const runId = /run (run_[a-z0-9]+): succeeded/.exec(ahp(["run", "workflow.mjs"], repo).stdout)?.[1]!;
+    const first = (JSON.parse(ahp(["inspect", runId, "--json"], repo).stdout) as RunView).steps[1]!.handoffs[0]!.handoff;
+    const second = { ...first, revision: 2, supersedes: 1, contract: { ...first.contract, instructions: "Revised instructions." } };
+    appendLedgerEvent(repo, runId, { type: "handoff_issued", handoff: second });
+
+    const inspect = ahp(["inspect", runId], repo);
+
+    expect(inspect.code).toBe(0);
+    expect(inspect.stdout).toContain(`handoff ${first.handoffId} revision 1: superseded`);
+    expect(inspect.stdout).toContain(`handoff ${first.handoffId} revision 2: issued`);
+    const implement = inspect.stdout.slice(inspect.stdout.indexOf("step implement:"));
+    expect(implement).toContain('"revision": 1');
+    expect(implement).toContain('"instructions": null');
+    expect(implement).toContain('"revision": 2');
+    expect(implement).toContain('"supersedes": 1');
+    expect(implement).toContain('"instructions": "Revised instructions."');
+  });
+
+  it("reports a rejected handoff with its machine-readable reason and runs no attempt for that step", () => {
+    const repo = createTempRepo({ "ok.mjs": VERIFY_OK, "workflow.mjs": handoffWorkflowFile(false) });
+
+    const run = ahp(["run", "workflow.mjs"], repo);
+
+    expect(run.code).toBe(1);
+    expect(run.stdout).toMatch(/step implement: handoff hnd_[a-z0-9]+ revision 1 rejected \(unmet_dependency\)/);
+    // No attempt ran for the step, so there is no mock result to label on its line; the run line carries the label.
+    expect(run.stdout).toMatch(/step implement: failed \(rejected\)$/m);
+    expect(run.stdout).toMatch(/run run_[a-z0-9]+: failed \[mock\]/);
+    expect(run.stdout).not.toMatch(/step implement: attempt/);
+    const runId = /run (run_[a-z0-9]+): failed/.exec(run.stdout)?.[1];
+
+    const inspect = ahp(["inspect", runId!], repo);
+
+    expect(inspect.stdout).toMatch(/rejected \(unmet_dependency\) at \/requires\/artifacts\/0: .*PLAN\.md/);
+    expect(inspect.stdout).toMatch(/handoff hnd_[a-z0-9]+ revision 1: rejected/);
+  });
+
+  it("rejects a parallel workflow without starting a run", () => {
+    const parallel = {
+      name: "fan-out",
+      steps: [
+        [
+          { id: "a", agent: { adapter: "mock", options: { attempts: [{}] } }, verification: { command: "node ok.mjs" } },
+          { id: "b", agent: { adapter: "mock", options: { attempts: [{}] } }, verification: { command: "node ok.mjs" } },
+        ],
+      ],
+    };
+    const repo = createTempRepo({ "ok.mjs": VERIFY_OK, "workflow.mjs": `export default ${JSON.stringify(parallel)};\n` });
+
+    const run = ahp(["run", "workflow.mjs"], repo);
+
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain('steps "a", "b"');
+    expect(run.stderr).toContain("parallel group");
+    expect(run.stdout).toBe("");
   });
 });
 

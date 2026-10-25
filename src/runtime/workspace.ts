@@ -8,9 +8,30 @@ const SNAPSHOT_IDENTITY = {
   GIT_COMMITTER_EMAIL: "ahp@localhost",
 };
 
-/** Creates a detached git worktree at `path` checked out at `commit`. */
+/** True when git config `key` is set in the repository's own (shared) configuration. */
+const isSetLocally = (repo: string, key: string) =>
+  git(repo, ["config", "--local", "--get", key]).then(
+    () => true,
+    () => false,
+  );
+
+/**
+ * Creates a detached git worktree at `path` checked out at `commit`, with `core.longpaths` enabled so deep
+ * paths (nested dependency trees) do not fail on Windows' 260-character limit (ADR 0005).
+ *
+ * `git config` inside a linked worktree writes the shared repository configuration, which belongs to the user.
+ * So the setting goes in the worktree's own configuration file, which needs the repository to have
+ * `extensions.worktreeConfig` on. That flag is the one change AHP makes to a repository's configuration; it is
+ * left alone in a repository that sets `core.worktree`, which git requires to be moved when the flag is enabled,
+ * and the worktree then has long paths only for its checkout.
+ */
 export async function addWorktree(repo: string, path: string, commit: string): Promise<void> {
-  await git(repo, ["worktree", "add", "--detach", path, commit]);
+  const perWorktreeConfig = !(await isSetLocally(repo, "core.worktree"));
+  if (perWorktreeConfig && !(await isSetLocally(repo, "extensions.worktreeConfig"))) {
+    await git(repo, ["config", "--local", "extensions.worktreeConfig", "true"]);
+  }
+  await git(repo, ["-c", "core.longpaths=true", "worktree", "add", "--detach", path, commit]);
+  if (perWorktreeConfig) await git(path, ["config", "--worktree", "core.longpaths", "true"]);
 }
 
 export async function removeWorktree(repo: string, path: string): Promise<void> {

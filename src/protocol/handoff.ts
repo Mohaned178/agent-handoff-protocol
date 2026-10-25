@@ -1,0 +1,210 @@
+// The handoff: the immutable, versioned envelope that passes a step's contract, context and artifact
+// references to the next coding agent. The Zod schemas here are the source of the published JSON Schema.
+//
+// A2A alignment (design doc §3): `contextId` groups the handoffs of one run. Acceptance criteria, artifact
+// hashes and rejection reasons are AHP-specific and belong to the A2A extension profile (ticket 17).
+
+import { z } from "zod";
+import { PROTOCOL_VERSION } from "./version.ts";
+
+/** Handoff revision states. `superseded` is set when a later revision of the same handoff is issued. */
+export const HANDOFF_STATES = ["issued", "accepted", "rejected", "superseded"] as const;
+export type HandoffState = (typeof HANDOFF_STATES)[number];
+
+/**
+ * Why a handoff revision is rejected. A new reason is a protocol change.
+ * - `schema_invalid`: the document is not a valid handoff revision.
+ * - `artifact_hash_mismatch`: an artifact exists at the base commit but its committed content hashes differently.
+ * - `unmet_dependency`: something the handoff requires is not there: a required field missing from the context,
+ *   a required artifact not listed, or a listed artifact (or the base commit) absent from the repository.
+ */
+export const HANDOFF_REJECTION_REASONS = ["schema_invalid", "artifact_hash_mismatch", "unmet_dependency"] as const;
+export type HandoffRejectionReason = (typeof HANDOFF_REJECTION_REASONS)[number];
+
+// ---------------------------------------------------------------------------
+// Identifiers and value rules shared by the workflow definition and the handoff
+
+const STEP_ID = /^[a-z0-9][a-z0-9_-]*$/;
+const OUTPUT_FIELD_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+const MAX_REPO_PATH_LENGTH = 1024;
+/**
+ * A path relative to the repository root, written with forward slashes: no leading or trailing slash, no empty,
+ * `.` or `..` segments, nothing under `.git` (any case), and none of the characters `\ : * ? " < > |` or
+ * control characters, which are invalid in a Windows path. Written as one regex so the published JSON Schema
+ * carries the same rule the SDK enforces.
+ */
+const REPO_PATH_SEGMENT = String.raw`(?!\.{1,2}(?:/|$))[^/\\:*?"<>|\u0000-\u001f]+`;
+const REPO_PATH = new RegExp(String.raw`^(?!\.[gG][iI][tT](?:/|$))${REPO_PATH_SEGMENT}(?:/${REPO_PATH_SEGMENT})*$`, "u");
+
+/** Step IDs appear in paths and git ref names. */
+export function isStepId(value: unknown): value is string {
+  return typeof value === "string" && STEP_ID.test(value);
+}
+
+export function isOutputFieldName(value: unknown): value is string {
+  return typeof value === "string" && OUTPUT_FIELD_NAME.test(value);
+}
+
+/** True for a path that is safe to read from a repository on every OS (see `REPO_PATH`). */
+export function isRepoPath(value: unknown): value is string {
+  return typeof value === "string" && value.length <= MAX_REPO_PATH_LENGTH && REPO_PATH.test(value);
+}
+
+/** What an output field holds: text, or a list of text items (for example `decisions` and `constraints`). */
+export type OutputFieldValue = string | string[];
+
+/**
+ * A required output field is present when it holds some non-blank text. Missing, blank and empty values are
+ * all "missing": a field that says nothing cannot carry a decision to the next step.
+ */
+export function isPresentOutputField(value: unknown): boolean {
+  if (typeof value === "string") return value.trim() !== "";
+  if (Array.isArray(value)) return value.some((item) => typeof item === "string" && item.trim() !== "");
+  return false;
+}
+
+const idPattern = (prefix: string) => new RegExp(`^${prefix}_[a-z0-9]+$`);
+
+const stepIdSchema = z.string().regex(STEP_ID);
+const fieldNameSchema = z.string().regex(OUTPUT_FIELD_NAME);
+const repoPathSchema = z
+  .string()
+  .max(MAX_REPO_PATH_LENGTH)
+  .regex(REPO_PATH, "must be a repository-relative path with forward slashes")
+  .describe(
+    "Relative to the repository root, written with forward slashes: no leading or trailing slash, no `.` or `..` " +
+      'segments, nothing under `.git`, and none of the characters \\ : * ? " < > | or control characters.',
+  );
+const gitObjectIdSchema = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/);
+const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
+const outputFieldValueSchema = z.union([z.string(), z.array(z.string())]);
+
+// ---------------------------------------------------------------------------
+// Handoff revision
+
+export const ArtifactReferenceSchema = z
+  .strictObject({
+    path: repoPathSchema,
+    sha256: sha256Schema.describe(
+      "SHA-256 (lowercase hex) of the file's committed content, never of working-tree bytes (ADR 0005).",
+    ),
+  })
+  .describe(
+    "A file passed by reference, read from the handoff's base commit. AHP extension: A2A artifacts carry no content hash.",
+  );
+
+export const HandoffRevisionSchema = z
+  .strictObject({
+    schemaVersion: z.literal(PROTOCOL_VERSION).describe("Version of this schema."),
+    handoffId: z.string().regex(idPattern("hnd")).describe("Identifies the handoff across its revisions."),
+    revision: z.int().min(1).describe("1 for the first revision; a change is always a new revision."),
+    supersedes: z
+      .int()
+      .min(1)
+      .nullable()
+      .describe("The revision this one replaces: null for revision 1, otherwise revision - 1."),
+    contextId: z.string().regex(idPattern("run")).describe("A2A `contextId`: the run the handoff belongs to."),
+    from: z
+      .strictObject({
+        stepId: stepIdSchema,
+        attemptId: z.string().regex(idPattern("att")),
+      })
+      .nullable()
+      .describe("The verified attempt whose result is handed on; null for the first step."),
+    to: z
+      .strictObject({
+        stepId: stepIdSchema,
+        adapter: z.string().min(1),
+        requestedModel: z.string().min(1).nullable().describe("As requested; never what the tool reports."),
+      })
+      .describe("The recipient step and its coding agent."),
+    base: z
+      .strictObject({ commit: gitObjectIdSchema })
+      .describe("The commit the recipient's workspace starts from, and the commit artifacts are read from."),
+    contract: z
+      .strictObject({
+        instructions: z.string().min(1).nullable().describe("What the step is to do, as the workflow states it."),
+        acceptance: z.strictObject({
+          verificationCommand: z.string().min(1).nullable(),
+          requiredOutputFields: z.array(fieldNameSchema).describe("Fields the attempt must report to pass."),
+        }),
+      })
+      .describe("The recipient step's contract. AHP extension: acceptance criteria."),
+    context: z
+      .strictObject({
+        fields: z
+          .record(fieldNameSchema, outputFieldValueSchema)
+          .describe("The previous step's required output fields (for example decisions, constraints, summary)."),
+      })
+      .describe("What earlier steps decided and learned."),
+    artifacts: z.array(ArtifactReferenceSchema).describe("Files from the previous step, passed by reference."),
+    requires: z
+      .strictObject({
+        fields: z.array(fieldNameSchema),
+        artifacts: z.array(repoPathSchema),
+      })
+      .describe("What the recipient cannot start without; `context` and `artifacts` must cover it."),
+  })
+  .superRefine((handoff, ctx) => {
+    // These rules are enforced by the validator; JSON Schema cannot express them.
+    const expected = handoff.revision === 1 ? null : handoff.revision - 1;
+    if (handoff.supersedes !== expected) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["supersedes"],
+        message: `revision ${handoff.revision} must supersede ${expected === null ? "nothing (null)" : `revision ${expected}`}`,
+      });
+    }
+    const duplicates = (path: (string | number)[], values: string[]) => {
+      const seen = new Set<string>();
+      values.forEach((value, index) => {
+        if (seen.has(value)) ctx.addIssue({ code: "custom", path: [...path, index], message: `duplicate "${value}"` });
+        seen.add(value);
+      });
+    };
+    duplicates(["artifacts"], handoff.artifacts.map((a) => a.path));
+    duplicates(["requires", "fields"], handoff.requires.fields);
+    duplicates(["requires", "artifacts"], handoff.requires.artifacts);
+    duplicates(["contract", "acceptance", "requiredOutputFields"], handoff.contract.acceptance.requiredOutputFields);
+  })
+  .meta({
+    title: "AHP handoff revision",
+    description:
+      "An immutable revision of a handoff. Rules JSON Schema cannot express: `supersedes` is null for revision 1 " +
+      "and revision - 1 otherwise; paths and field names listed in one array are unique.",
+  });
+
+export type ArtifactReference = z.infer<typeof ArtifactReferenceSchema>;
+export type HandoffRevision = z.infer<typeof HandoffRevisionSchema>;
+
+// ---------------------------------------------------------------------------
+// Rejection
+
+export const RejectionReasonSchema = z.strictObject({
+  code: z.enum(HANDOFF_REJECTION_REASONS),
+  /** RFC 6901 JSON Pointer to the part of the handoff the reason is about; "" for the whole document. */
+  pointer: z.string(),
+  message: z.string(),
+});
+
+export type RejectionReason = z.infer<typeof RejectionReasonSchema>;
+
+function pointerOf(path: readonly PropertyKey[]): string {
+  return path.map((part) => `/${String(part).replaceAll("~", "~0").replaceAll("/", "~1")}`).join("");
+}
+
+export type ParsedHandoff = { ok: true; handoff: HandoffRevision } | { ok: false; reasons: RejectionReason[] };
+
+/** Checks that `input` is a valid handoff revision; every problem becomes a `schema_invalid` reason. */
+export function parseHandoffRevision(input: unknown): ParsedHandoff {
+  const parsed = HandoffRevisionSchema.safeParse(input);
+  if (parsed.success) return { ok: true, handoff: parsed.data };
+  return {
+    ok: false,
+    reasons: parsed.error.issues.map((issue) => ({
+      code: "schema_invalid",
+      pointer: pointerOf(issue.path),
+      message: issue.message,
+    })),
+  };
+}

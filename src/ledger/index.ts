@@ -2,7 +2,7 @@ import { mkdir, open, readFile, type FileHandle } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { LedgerEvent, LedgerEventBody } from "../protocol/index.ts";
 
-export { applyEvent, findAttempt, findVerification, LedgerInconsistentError, replay } from "./replay.ts";
+export { applyEvent, findAttempt, findHandoff, findVerification, LedgerInconsistentError, replay } from "./replay.ts";
 
 /**
  * Appends events to a run's ledger: one JSONL file, opened once in append mode and flushed to disk

@@ -23,16 +23,22 @@
   },
   "files": [
     "bin",
-    "dist"
+    "dist",
+    "schemas"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "schemas": "node scripts/export-schemas.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
+    "ajv": "^8.20.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
   }

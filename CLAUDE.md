@@ -4,18 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Ticket 01 (tracer bullet) has landed: a one-step workflow runs with the mock adapter. No linter is configured.
+Tickets 01 (tracer bullet) and 02 (multi-step linear workflows with handoffs) have landed: linear workflows run with the mock adapter, each step under a validated, versioned handoff. No linter is configured.
 
 ## Commands
 
 - `npm run typecheck`: `tsc` over `src/` and `test/`, no emit
 - `npm test`: the whole Vitest suite; `npx vitest run test/<file>.test.ts` for one file
 - `npm run build`: compile `src/` to `dist/` (needed only for `bin/ahp.mjs`)
+- `npm run schemas`: regenerate `schemas/*.json` (the published JSON Schemas) from the Zod schemas in `src/protocol/`; a test fails if they are stale
 - `node src/cli/bin.ts <command>`: run the CLI from source without building
 
 ## Code layout
 
-One package, ESM, Node ≥ 24 type stripping: imports use `.ts` extensions, and `tsc` rewrites them on build, so use only erasable TypeScript syntax (no enums, namespaces or parameter properties). Modules under `src/`: `protocol` (types, closed state unions), `ledger` (append-only JSONL, replay), `adapters` (contract, mock), `runtime` (worktrees, snapshots, verification, run executor), `sdk` (public run API), `evaluation` (empty until ticket 20), `cli`. `src/index.ts` is the public SDK entry. `bin/ahp.mjs` checks the Node version, then loads `dist/cli/bin.js`.
+One package, ESM, Node ≥ 24 type stripping: imports use `.ts` extensions, and `tsc` rewrites them on build, so use only erasable TypeScript syntax (no enums, namespaces or parameter properties). Modules under `src/`: `protocol` (Zod schemas and JSON Schema generation for handoffs, types, closed enumerations and state unions), `ledger` (append-only JSONL, replay), `adapters` (contract, mock), `runtime` (worktrees, snapshots, verification, run executor), `sdk` (public run API), `evaluation` (empty until ticket 20), `cli`. `src/index.ts` is the public SDK entry. `bin/ahp.mjs` checks the Node version, then loads `dist/cli/bin.js`. `schemas/` holds the published JSON Schemas and `scripts/` the script that generates them.
+
+Handoff schemas are Zod (`src/protocol/handoff.ts`); rejection reasons and handoff states are `as const` arrays shared by the schema and the code, so adding one is a protocol change. A step's workspace starts from the previous step's passing snapshot commit, and a handoff's artifact hashes are SHA-256 over blobs read from that commit (`src/runtime/artifacts.ts`), never from a working tree (ADR 0005). An adapter reports a step's output fields through `AttemptExit.reportedOutput`; they are an agent claim that verification checks, and never files in the workspace. AHP-created worktrees get `core.longpaths` through git's per-worktree config, which turns on `extensions.worktreeConfig` in the repository (see `src/runtime/workspace.ts`).
 
 Ledgers live at `<git common dir>/ahp/runs/<run>/ledger.jsonl`; snapshots are pinned under `refs/ahp/snapshots/<run>/<attempt>`. Worktrees live outside every repository at `<AHP_HOME>/worktrees/<run>/<attempt|verification>` (per-user state dir by default, see `src/runtime/paths.ts`) so Node resolution and config lookups from a worktree can never reach the user's checkout. Tests set `AHP_HOME` to a temp dir in `test/helpers/setup.ts`.
 

@@ -12,15 +12,17 @@ export function git(cwd: string, ...args: string[]): string {
 
 /**
  * Creates a git repository in a fresh temporary directory with `files` committed on `main`.
+ * `config` is applied before the files are staged, so settings such as `core.autocrlf` affect the fixture commit.
  * The path is canonical (symlinks resolved), so it compares equal to paths reported by child processes.
  */
-export function createTempRepo(files: Record<string, string>): string {
+export function createTempRepo(files: Record<string, string>, config: Record<string, string> = {}): string {
   const repo = realpathSync.native(mkdtempSync(join(tmpdir(), "ahp-test-")));
   created.push(repo);
   git(repo, "init", "--quiet", "--initial-branch=main");
   git(repo, "config", "user.name", "AHP Test");
   git(repo, "config", "user.email", "ahp-test@localhost");
   git(repo, "config", "commit.gpgsign", "false");
+  for (const [key, value] of Object.entries(config)) git(repo, "config", key, value);
   for (const [path, content] of Object.entries(files)) {
     const target = join(repo, path);
     mkdirSync(dirname(target), { recursive: true });
@@ -37,6 +39,9 @@ export function removeTempRepos(): void {
     rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 }
+
+/** A verification script that always passes, for steps whose result is not what a test is about. */
+export const VERIFY_OK = `process.exit(0);\n`;
 
 /**
  * A verification script for fixture repos: passes when `greeting.txt` contains "hello".

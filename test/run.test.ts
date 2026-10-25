@@ -2,7 +2,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { defineWorkflow, mock, readRun, readRunEvents, runWorkflow, WorkflowValidationError } from "../src/index.ts";
-import type { MockAttemptScript } from "../src/index.ts";
+import type { MockAttemptScript, VerificationView } from "../src/index.ts";
 import { createTempRepo, git, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
 
 afterEach(removeTempRepos);
@@ -12,6 +12,12 @@ function workflowWith(script: MockAttemptScript, command = "node verify.mjs") {
     name: "greeting",
     steps: [{ id: "implement", agent: mock({ attempts: [script] }), verification: { command } }],
   });
+}
+
+/** The output of the verification command, from the verification's test-output evidence. */
+function testOutputOf(verification: VerificationView | null | undefined): string {
+  const item = verification?.evidence.find((e) => e.kind === "test_output");
+  return item?.kind === "test_output" ? item.output : "";
 }
 
 function greetingWorkflow(content: string, exitCode = 0) {
@@ -99,6 +105,26 @@ describe("workspaces", () => {
     expect(git(repo, "status", "--porcelain")).toBe("");
   });
 
+  it("enables core.longpaths in the worktrees it creates, leaving the repository's own configuration alone", async () => {
+    const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING });
+
+    const { state } = await runWorkflow(greetingWorkflow("hello\n"), { repo });
+
+    const workspace = state.steps[0]!.attempts[0]!.workspace;
+    expect(git(workspace, "config", "--worktree", "--get", "core.longpaths")).toBe("true");
+    expect(() => git(repo, "config", "--local", "--get", "core.longpaths")).toThrow();
+  });
+
+  it("does not switch on per-worktree configuration in a repository that sets core.worktree", async () => {
+    const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING });
+    git(repo, "config", "core.worktree", repo);
+
+    const { state } = await runWorkflow(greetingWorkflow("hello\n"), { repo });
+
+    expect(state.state).toBe("succeeded");
+    expect(() => git(repo, "config", "--local", "--get", "extensions.worktreeConfig")).toThrow();
+  });
+
   it("snapshots the workspace into a commit after the attempt even though the agent did not commit", async () => {
     const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING });
 
@@ -130,11 +156,11 @@ describe("verification", () => {
     const { state } = await runWorkflow(greetingWorkflow("hello\n"), { repo });
 
     const attempt = state.steps[0]?.attempts[0];
-    const output = attempt?.verification?.evidence[0]?.output ?? "";
+    const output = testOutputOf(attempt?.verification);
     const verifiedIn = /cwd=(.*)/.exec(output)?.[1]?.trim();
     expect(verifiedIn).toBeDefined();
-    expect(attempt?.verification?.worktree).toBeDefined();
-    expect(verifiedIn!.toLowerCase()).toBe(attempt!.verification!.worktree.toLowerCase());
+    expect(attempt?.verification?.worktree).toEqual(expect.any(String));
+    expect(verifiedIn!.toLowerCase()).toBe(attempt!.verification!.worktree!.toLowerCase());
     expect(verifiedIn!.toLowerCase()).not.toBe(attempt!.workspace.toLowerCase());
   });
 
@@ -149,7 +175,7 @@ describe("verification", () => {
     const { state } = await runWorkflow(greetingWorkflow("hello\n"), { repo });
 
     const verification = state.steps[0]?.attempts[0]?.verification;
-    expect(verification?.evidence[0]?.output).not.toContain("resolved leaked dependency");
+    expect(testOutputOf(verification)).not.toContain("resolved leaked dependency");
     expect(verification?.state).toBe("fail");
   });
 
@@ -174,6 +200,8 @@ describe("ledger", () => {
       "run_created",
       "run_started",
       "step_ready",
+      "handoff_issued",
+      "handoff_accepted",
       "attempt_created",
       "attempt_dispatching",
       "attempt_running",
