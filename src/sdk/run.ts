@@ -1,14 +1,6 @@
 import { access } from "node:fs/promises";
 import { adapters } from "../adapters/index.ts";
-import {
-  LedgerCorruptError,
-  lockPathOf,
-  readLedger,
-  readLockState,
-  replay,
-  type LedgerRead,
-  type LockState,
-} from "../ledger/index.ts";
+import { lockPathOf, readCheckedLedger, readLockState, replay, type LockState } from "../ledger/index.ts";
 import type { LedgerEvent, RunView, WorkflowDefinition } from "../protocol/index.ts";
 import { executeRun, isRunId, ledgerPath, locateRepo, type Clock, type RunResult } from "../runtime/index.ts";
 import { defineWorkflow } from "./workflow.ts";
@@ -59,8 +51,8 @@ export interface RunInspection {
      */
     tornTail: { bytes: number } | null;
   };
-  /** Who holds the run's ledger lock: the process writing the run, or one that stopped without releasing it. */
-  writer: LockState;
+  /** The run's ledger lock: free, or naming the process writing the run or one that stopped without releasing it. */
+  lock: LockState;
 }
 
 /**
@@ -70,9 +62,9 @@ export interface RunInspection {
 export async function inspectRun(options: ReadRunOptions): Promise<RunInspection> {
   const path = await runLedgerPath(options);
   // The lock before the ledger: a writer that releases it in between has already recorded its last event.
-  const writer = await readLockState(lockPathOf(path));
+  const lock = await readLockState(lockPathOf(path));
   const read = await readCheckedLedger(path);
-  return { state: replay(read.events), ledger: { events: read.events.length, tornTail: read.tornTail }, writer };
+  return { state: replay(read.events), ledger: { events: read.events.length, tornTail: read.tornTail }, lock };
 }
 
 async function runLedgerPath({ repo, runId }: ReadRunOptions): Promise<string> {
@@ -85,10 +77,4 @@ async function runLedgerPath({ repo, runId }: ReadRunOptions): Promise<string> {
     throw new Error(`no run ${runId} in ${location.repo}`);
   }
   return path;
-}
-
-async function readCheckedLedger(path: string): Promise<LedgerRead> {
-  const read = await readLedger(path);
-  if (read.corruption) throw new LedgerCorruptError(path, read.corruption);
-  return read;
 }

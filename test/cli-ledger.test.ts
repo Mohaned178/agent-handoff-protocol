@@ -5,22 +5,14 @@ import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { runWorkflow } from "../src/index.ts";
 import { LedgerWriter } from "../src/ledger/index.ts";
 import { ahp } from "./helpers/cli.ts";
-import { GONE_PID, ledgerFile, ledgerLines, lockFile, rewriteLedger, truncateLedgerAfter } from "./helpers/ledger.ts";
-import { createTempRepo, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
-import { hello, retryWorkflow } from "./helpers/retry.ts";
+import { finishedRun, GONE_PID, ledgerFile, ledgerLines, lockFile, rewriteLedger, truncateLedgerAfter } from "./helpers/ledger.ts";
+import { createTempRepo, removeTempRepos } from "./helpers/repo.ts";
 
 afterEach(removeTempRepos);
 
 const cliEntry = fileURLToPath(new URL("../src/cli/bin.ts", import.meta.url));
-
-async function finishedRun() {
-  const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING });
-  const { runId } = await runWorkflow(retryWorkflow([hello]), { repo });
-  return { repo, runId };
-}
 
 const lockOf = (pid: number) => `${JSON.stringify({ host: hostname(), pid, startedAt: "2026-01-01T00:00:00.000Z" })}\n`;
 
@@ -102,7 +94,7 @@ describe("a run's writer, across processes", () => {
       await expect(LedgerWriter.open(path)).rejects.toThrow(`lock held by PID ${runtime.pid} on ${hostname()}`);
       const live = ahp(["inspect", runId], repo);
       expect(live.stdout).toContain(`run ${runId}: running`);
-      expect(live.stdout).toMatch(new RegExp(`writer: PID ${runtime.pid} on \\S+ \\(started [^)]+\\) is writing the run`));
+      expect(live.stdout).toMatch(new RegExp(`lock: PID ${runtime.pid} on \\S+ \\(started [^)]+\\) is writing the run`));
 
       runtime.kill("SIGKILL");
       await exited;
@@ -112,7 +104,7 @@ describe("a run's writer, across processes", () => {
       const after = ahp(["inspect", runId], repo);
       expect(after.code).toBe(0);
       expect(after.stdout).toContain(`run ${runId}: running`);
-      expect(after.stdout).toContain(`writer: PID ${runtime.pid} on ${hostname()}`);
+      expect(after.stdout).toContain(`lock: PID ${runtime.pid} on ${hostname()}`);
       expect(after.stdout).toContain("stopped without finishing the run or releasing its lock: the run needs recovery");
       await expect(LedgerWriter.open(path)).rejects.toThrow("which is no longer running");
     } finally {
@@ -135,7 +127,7 @@ describe("ahp inspect and the ledger", () => {
 
     expect(inspect.code).toBe(0);
     expect(inspect.stdout).toContain(`ledger: ${ledgerLines(repo, runId).length} events, hash chain intact`);
-    expect(inspect.stdout).not.toContain("writer:");
+    expect(inspect.stdout).not.toContain("\n  lock:");
   });
 
   it.each([
@@ -155,7 +147,7 @@ describe("ahp inspect and the ledger", () => {
     {
       name: "a writer that is running",
       damage: (repo: string, runId: string) => writeFileSync(lockFile(repo, runId), lockOf(process.pid)),
-      says: `writer: PID ${process.pid} on ${hostname()} (started 2026-01-01T00:00:00.000Z) is writing the run`,
+      says: `lock: PID ${process.pid} on ${hostname()} (started 2026-01-01T00:00:00.000Z) is writing the run`,
     },
     {
       name: "an unfinished run whose writer is gone",
@@ -168,7 +160,7 @@ describe("ahp inspect and the ledger", () => {
     {
       name: "an unfinished run that nothing is writing",
       damage: (repo: string, runId: string) => truncateLedgerAfter(repo, runId, "attempt_running"),
-      says: "writer: none, yet the run has not ended: the process running it stopped partway, and the run needs recovery",
+      says: "lock: free, yet the run has not ended: the process running it stopped partway, and the run needs recovery",
     },
   ])("reports $name", async ({ damage, says }) => {
     const { repo, runId } = await finishedRun();
@@ -192,7 +184,7 @@ describe("ahp inspect and the ledger", () => {
     expect(JSON.parse(inspect.stdout)).toMatchObject({
       state: { runId, state: "succeeded" },
       ledger: { events, tornTail: { bytes: 1 } },
-      writer: { state: "free" },
+      lock: { state: "free" },
     });
   });
 

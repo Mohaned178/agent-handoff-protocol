@@ -94,6 +94,13 @@ export async function readLedger(path: string): Promise<LedgerRead> {
   return result({});
 }
 
+/** Reads a ledger file as `readLedger` does, and throws `LedgerCorruptError` if its chain is broken. */
+export async function readCheckedLedger(path: string): Promise<LedgerRead> {
+  const read = await readLedger(path);
+  if (read.corruption) throw new LedgerCorruptError(path, read.corruption);
+  return read;
+}
+
 function isEvent(value: unknown): value is LedgerEvent {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const { seq, prevHash, time, type, hash } = value as Record<string, unknown>;

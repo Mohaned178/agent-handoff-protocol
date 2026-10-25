@@ -78,7 +78,7 @@ The append-only record of everything that happened in a run, from which run, ste
 _Avoid_: Log, state store, checkpoint
 
 **Hash chain**:
-What links each ledger event to the one before it: every event records the previous event's hash and its own SHA-256 over its canonical JSON, so a changed, missing or reordered event shows. A ledger whose chain is broken is corrupt, and no state is derived from it.
+What links each ledger event to the one before it: every event records the previous event's hash and its own SHA-256 over its canonical JSON, so an event changed, reordered or missing anywhere but at the end shows. A ledger whose chain is broken is corrupt, and no state is derived from it.
 
 **Torn tail**:
 A last ledger line that a write did not finish (no newline, or not JSON), as a crash in the middle of an append leaves it. It was never recorded: readers leave it out, and the next process to open the ledger for writing truncates it and records that it did.

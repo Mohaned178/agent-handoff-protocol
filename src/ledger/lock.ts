@@ -23,18 +23,21 @@ export type LockState =
   /** The lock file names no owner: it is still being written, or the process writing it stopped first. */
   | { state: "unreadable" };
 
+/** A lock some process took, whether or not it is still running. */
+export type TakenLock = Exclude<LockState, { state: "free" }>;
+
 /** A lock taken by some other process, or left behind by one: this process may not write the run. */
 export class LedgerLockedError extends Error {
   override name = "LedgerLockedError";
-  readonly lock: Exclude<LockState, { state: "free" }>;
-  constructor(path: string, lock: Exclude<LockState, { state: "free" }>) {
+  readonly lock: TakenLock;
+  constructor(path: string, lock: TakenLock) {
     super(`${path}: ${describeLock(lock)}`);
     this.lock = lock;
   }
 }
 
 /** One sentence on who holds a lock and what that means for the run. */
-function describeLock(lock: Exclude<LockState, { state: "free" }>): string {
+function describeLock(lock: TakenLock): string {
   if (lock.state === "unreadable") {
     return "the lock file names no owner: it is still being written, or the process writing it stopped first";
   }
@@ -53,7 +56,12 @@ function describeLock(lock: Exclude<LockState, { state: "free" }>): string {
 /** The lock file of the ledger at `ledgerPath`. */
 export const lockPathOf = (ledgerPath: string) => join(dirname(ledgerPath), "ledger.lock");
 
+/**
+ * When this process started, from the wall clock less its uptime. Every module instance and thread in the process
+ * works it out for itself, and the two clocks are read a moment apart, so readings agree only to within a margin.
+ */
 const processStartedAt = new Date(Date.now() - process.uptime() * 1000).toISOString();
+const START_TIME_MARGIN_MS = 1000;
 
 /**
  * Takes the lock at `path` for this process by creating the lock file exclusively and writing this process
@@ -74,14 +82,17 @@ export async function acquireLock(path: string): Promise<void> {
       throw new LedgerLockedError(path, lock);
     }
     try {
-      await handle.writeFile(`${JSON.stringify(owner)}\n`);
-      await handle.datasync();
+      try {
+        await handle.writeFile(`${JSON.stringify(owner)}\n`);
+        await handle.datasync();
+      } finally {
+        await handle.close();
+      }
     } catch (error) {
-      await handle.close();
+      // A lock this process could not finish taking must not stay behind naming it.
       await releaseLock(path);
       throw error;
     }
-    await handle.close();
     return;
   }
 }
@@ -107,9 +118,13 @@ export async function readLockState(path: string): Promise<LockState> {
   const owner = parseOwner(text);
   if (!owner) return { state: "unreadable" };
   if (owner.host !== hostname()) return { state: "other_host", owner };
-  // This process's own PID, with another start time, was an earlier process's: that one has ended, since no two
-  // running processes share a PID.
-  if (owner.pid === process.pid) return { state: owner.startedAt === processStartedAt ? "held" : "stale", owner };
+  // This process's own PID, with a start time well apart from its own, was an earlier process's: that one has ended,
+  // since no two running processes share a PID. Windows gives a freed PID to the next process quickly, and that can
+  // be the next AHP command. Within the margin it is read as this process's own lock, which errs on the safe side.
+  if (owner.pid === process.pid) {
+    const apart = Math.abs(Date.parse(owner.startedAt) - Date.parse(processStartedAt));
+    return { state: apart > START_TIME_MARGIN_MS ? "stale" : "held", owner };
+  }
   return { state: isRunning(owner.pid) ? "held" : "stale", owner };
 }
 

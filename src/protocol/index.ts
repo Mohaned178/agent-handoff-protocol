@@ -340,8 +340,8 @@ export type LedgerEventType = LedgerEventBody["type"];
 /**
  * A ledger event as written: the body plus its sequence number (from 1), the previous event's hash (null for the
  * first), its ISO timestamp, and its own hash: SHA-256 (lowercase hex) over the canonical JSON of everything
- * else in the event, keys sorted and no whitespace. The hashes chain the events, so a changed, missing or
- * reordered event shows.
+ * else in the event, keys sorted and no whitespace. The hashes chain the events, so an event changed, reordered or
+ * missing anywhere but at the end shows. Events lost from the end leave a valid chain: nothing records its length.
  */
 export type LedgerEvent = { seq: number; prevHash: string | null; time: string; hash: string } & LedgerEventBody;
 

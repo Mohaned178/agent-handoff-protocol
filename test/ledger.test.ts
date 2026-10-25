@@ -3,18 +3,11 @@ import { hostname } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import { inspectRun, LedgerCorruptError, readRun, readRunEvents, runWorkflow } from "../src/index.ts";
 import { LedgerLockedError, LedgerWriter } from "../src/ledger/index.ts";
-import { eventHash, GONE_PID, ledgerFile, ledgerLines, lockFile, rewriteLedger } from "./helpers/ledger.ts";
+import { eventHash, finishedRun, GONE_PID, ledgerFile, ledgerLines, lockFile, rewriteLedger } from "./helpers/ledger.ts";
 import { createTempRepo, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
 import { hello, retryWorkflow } from "./helpers/retry.ts";
 
 afterEach(removeTempRepos);
-
-/** A finished one-step run that passed. */
-async function finishedRun() {
-  const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING });
-  const { runId, state } = await runWorkflow(retryWorkflow([hello]), { repo });
-  return { repo, runId, state };
-}
 
 describe("the ledger's hash chain", () => {
   it("numbers every event and chains it to the one before by a SHA-256 over its canonical JSON", async () => {
@@ -161,7 +154,7 @@ describe("inspecting a run", () => {
     const { repo, runId, state } = await finishedRun();
     const path = ledgerFile(repo, runId);
     const events = ledgerLines(repo, runId).length;
-    expect(await inspectRun({ repo, runId })).toEqual({ state, ledger: { events, tornTail: null }, writer: { state: "free" } });
+    expect(await inspectRun({ repo, runId })).toEqual({ state, ledger: { events, tornTail: null }, lock: { state: "free" } });
 
     const { writer } = await LedgerWriter.open(path);
     appendFileSync(path, "{");
@@ -171,7 +164,7 @@ describe("inspecting a run", () => {
     expect(inspection).toEqual({
       state,
       ledger: { events, tornTail: { bytes: 1 } },
-      writer: { state: "held", owner: { host: hostname(), pid: process.pid, startedAt: expect.any(String) } },
+      lock: { state: "held", owner: { host: hostname(), pid: process.pid, startedAt: expect.any(String) } },
     });
   });
 

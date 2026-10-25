@@ -1,6 +1,16 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { runWorkflow } from "../../src/index.ts";
+import { createTempRepo, VERIFY_GREETING } from "./repo.ts";
+import { hello, retryWorkflow } from "./retry.ts";
+
+/** A finished one-step run whose mock agent did the work, so it passed. */
+export async function finishedRun() {
+  const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING });
+  const { runId, state } = await runWorkflow(retryWorkflow([hello]), { repo });
+  return { repo, runId, state };
+}
 
 export const ledgerFile = (repo: string, runId: string) => join(repo, ".git", "ahp", "runs", runId, "ledger.jsonl");
 export const lockFile = (repo: string, runId: string) => join(repo, ".git", "ahp", "runs", runId, "ledger.lock");

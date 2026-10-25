@@ -204,42 +204,44 @@ export function formatEvent(event: LedgerEvent, state: Readonly<RunView>): strin
   }
 }
 
-const count = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
+/** `n` with its unit, plural unless `n` is 1. */
+const quantity = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
 
 const describeTruncation = (droppedBytes: number) =>
-  `ledger: truncated a torn last line of ${count(droppedBytes, "byte")}, which a write did not finish and so was never recorded`;
+  `ledger: truncated a torn last line of ${quantity(droppedBytes, "byte")}, which a write did not finish and so was never recorded`;
 
 /** What the ledger file and the run's lock say: how far the derived state can be trusted, and who is writing it. */
-function describeLedger({ state, ledger, writer }: RunInspection): string[] {
-  const lines = [`  ledger: ${count(ledger.events, "event")}, hash chain intact`];
+function describeLedger({ state, ledger, lock }: RunInspection): string[] {
+  const lines = [`  ledger: ${quantity(ledger.events, "event")}, hash chain intact`];
   for (const { seq, time, droppedBytes } of state.ledgerTruncations) {
     lines.push(`  ${describeTruncation(droppedBytes)} (event ${seq}, ${time})`);
   }
   if (ledger.tornTail) {
-    const torn = `the last line (${count(ledger.tornTail.bytes, "byte")})`;
+    const torn = `the last line (${quantity(ledger.tornTail.bytes, "byte")})`;
     lines.push(
-      writer.state === "held"
+      lock.state === "held"
         ? `  ledger: ${torn} is incomplete, most likely an event the writer is recording right now`
         : `  ledger: ${torn} is torn: a write did not finish, so it was never recorded and is left out; the next process to open the run for writing truncates it`,
     );
   }
   // A run that is pending or running has a process writing it; any other state is one its process exits at.
   const unfinished = state.state === "pending" || state.state === "running";
-  const who = describeWriter(writer, unfinished);
-  if (who) lines.push(`  writer: ${who}`);
+  const holder = describeLockHolder(lock, unfinished);
+  if (holder) lines.push(`  lock: ${holder}`);
   return lines;
 }
 
-function describeWriter(writer: LockState, unfinished: boolean): string | null {
-  switch (writer.state) {
+/** Who holds the run's lock and what that means for the run; null when there is nothing to say. */
+function describeLockHolder(lock: LockState, unfinished: boolean): string | null {
+  switch (lock.state) {
     case "free":
-      return unfinished ? "none, yet the run has not ended: the process running it stopped partway, and the run needs recovery" : null;
+      return unfinished ? "free, yet the run has not ended: the process running it stopped partway, and the run needs recovery" : null;
     case "unreadable":
       return "the lock file names no owner: it is still being written, or the process writing it stopped first";
   }
-  const { pid, host, startedAt } = writer.owner;
+  const { pid, host, startedAt } = lock.owner;
   const owner = `PID ${pid} on ${host} (started ${startedAt})`;
-  switch (writer.state) {
+  switch (lock.state) {
     case "held":
       return `${owner} is writing the run`;
     case "stale":

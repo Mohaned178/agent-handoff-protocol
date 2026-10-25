@@ -2,7 +2,7 @@ import { mkdir, open, type FileHandle } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { LedgerEvent, LedgerEventBody } from "../protocol/index.ts";
 import { whileBusy } from "./busy.ts";
-import { eventHash, LedgerCorruptError, readLedger } from "./chain.ts";
+import { eventHash, readCheckedLedger } from "./chain.ts";
 import { acquireLock, lockPathOf, releaseLock } from "./lock.ts";
 
 /**
@@ -51,8 +51,7 @@ export class LedgerWriter {
     await acquireLock(lockPath);
     let writer: LedgerWriter | undefined;
     try {
-      const read = await readLedger(path);
-      if (read.corruption) throw new LedgerCorruptError(path, read.corruption);
+      const read = await readCheckedLedger(path);
       const last = read.events.at(-1);
       // A ledger whose first event was never completed holds no run.
       if (!last) throw new Error(`${path} holds no complete event`);

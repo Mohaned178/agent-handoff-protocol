@@ -13,7 +13,7 @@ Commands:
 
 Options:
   --repo <dir>          The git repository to use (default: the current directory)
-  --json                inspect: print the derived state, the ledger check and the lock as JSON
+  --json                inspect: print the derived state, the ledger check and the run's lock as JSON
   -h, --help            Show this help
   -v, --version         Show the version`;
 
