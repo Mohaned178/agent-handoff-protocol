@@ -121,9 +121,9 @@ export function formatEvent(event: LedgerEvent, state: Readonly<RunView>): strin
       return attemptLine(event.attemptId, `snapshot ${short(event.commit)}`);
     case "verification_started": {
       const { step } = stepOfAttempt(state, event.attemptId);
-      return `step ${step.id}: ${event.command === null ? "structural verification" : "verifying"}${mockTag(step.mock)}: ${
-        event.command ?? STRUCTURAL_NOTE
-      }`;
+      // A command with no worktree was not run: a protected path changed, or the check could not be made.
+      const kind = event.command === null ? "structural verification" : event.worktree === null ? "verification (command not run)" : "verifying";
+      return `step ${step.id}: ${kind}${mockTag(step.mock)}: ${event.command ?? STRUCTURAL_NOTE}`;
     }
     case "verification_verdict": {
       const step = stepOfVerification(state, event.verificationId);

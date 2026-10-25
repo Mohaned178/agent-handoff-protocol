@@ -38,6 +38,16 @@ function checkEntries(
   return problems;
 }
 
+/** Names the problem with each entry of a list of repository paths that is invalid or repeated. */
+function checkRepoPaths(paths: unknown[], noun: string): string[] {
+  return checkEntries(paths, isRepoPath, {
+    invalid: (path) =>
+      `${noun} ${JSON.stringify(path)} must be relative to the repository root, written with "/" separators, ` +
+      `with no "." or ".." segments and no characters that are invalid in Windows paths`,
+    duplicate: (path) => `${noun} ${JSON.stringify(path)} is listed twice`,
+  });
+}
+
 function validateStep(step: unknown, index: number, seen: Set<string>): string[] {
   if (!isRecord(step)) return [`step ${index + 1}: must be an object`];
   const problems: string[] = [];
@@ -111,13 +121,7 @@ function validateStep(step: unknown, index: number, seen: Set<string>): string[]
     if (protectedPaths !== undefined && !Array.isArray(protectedPaths)) {
       problem("`verification.protectedPaths` must be an array of repository-relative paths");
     } else if (protectedPaths !== undefined) {
-      const messages = checkEntries(protectedPaths, isRepoPath, {
-        invalid: (path) =>
-          `protected path ${JSON.stringify(path)} must be relative to the repository root, written with "/" separators, ` +
-          `with no "." or ".." segments and no characters that are invalid in Windows paths`,
-        duplicate: (path) => `protected path ${JSON.stringify(path)} is listed twice`,
-      });
-      for (const message of messages) problem(message);
+      for (const message of checkRepoPaths(protectedPaths, "protected path")) problem(message);
     }
     const hiddenTests = verification.hiddenTests;
     if (hiddenTests !== undefined && !Array.isArray(hiddenTests)) {
@@ -131,17 +135,7 @@ function validateStep(step: unknown, index: number, seen: Set<string>): string[]
         if (!ok) problem("each hidden test needs a string `path` and `content`");
         return ok;
       });
-      const messages = checkEntries(
-        wellFormed.map((test) => test.path),
-        isRepoPath,
-        {
-          invalid: (path) =>
-            `hidden test path ${JSON.stringify(path)} must be relative to the repository root, written with "/" separators, ` +
-            `with no "." or ".." segments and no characters that are invalid in Windows paths`,
-          duplicate: (path) => `hidden test path ${JSON.stringify(path)} is listed twice`,
-        },
-      );
-      for (const message of messages) problem(message);
+      for (const message of checkRepoPaths(wellFormed.map((test) => test.path), "hidden test path")) problem(message);
     }
   }
 
@@ -152,13 +146,7 @@ function validateStep(step: unknown, index: number, seen: Set<string>): string[]
   if (step.artifacts !== undefined && !Array.isArray(step.artifacts)) {
     problem("`artifacts` must be an array of repository-relative paths");
   } else if (Array.isArray(step.artifacts)) {
-    const messages = checkEntries(step.artifacts, isRepoPath, {
-      invalid: (path) =>
-        `artifact path ${JSON.stringify(path)} must be relative to the repository root, written with "/" separators, ` +
-        `with no "." or ".." segments and no characters that are invalid in Windows paths`,
-      duplicate: (path) => `artifact path ${JSON.stringify(path)} is listed twice`,
-    });
-    for (const message of messages) problem(message);
+    for (const message of checkRepoPaths(step.artifacts, "artifact path")) problem(message);
   }
   return problems;
 }

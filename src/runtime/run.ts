@@ -184,22 +184,22 @@ async function executeStep(step: StepDefinition, index: number, context: StepCon
   // runner and scripts, is not run. If the check itself cannot be made, the command is not run either.
   const hiddenTests = step.verification.hiddenTests ?? [];
   const protectedPaths = [...new Set([...(step.verification.protectedPaths ?? []), ...hiddenTests.map((test) => test.path)])];
-  let scopeSettled = true;
+  let scopeClear = true;
   if (protectedPaths.length > 0) {
     try {
       const changed = await changedPaths(location.repo, base, snapshot);
       const check = checkProtectedPaths(changed, protectedPaths);
       evidence.push(diffScopeEvidence(changed), check);
-      scopeSettled = check.violations.length === 0;
+      scopeClear = check.violations.length === 0;
     } catch (error) {
       evidence.push(validatorError("diff_scope", error));
-      scopeSettled = false;
+      scopeClear = false;
     }
   }
   // A structural verification runs no command, so it needs no verification worktree.
   const command = step.verification.command;
   const commandRun =
-    command === undefined || !scopeSettled ? null : { command, worktree: worktreePath(worktreeRoot, runId, verificationId) };
+    command === undefined || !scopeClear ? null : { command, worktree: worktreePath(worktreeRoot, runId, verificationId) };
   await record({
     type: "verification_started",
     attemptId,
