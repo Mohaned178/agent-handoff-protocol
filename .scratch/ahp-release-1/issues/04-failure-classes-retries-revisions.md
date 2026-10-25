@@ -28,3 +28,11 @@
 ## Comments
 
 2026-10-24, from ticket 01: as a placeholder, `src/runtime/run.ts` ends the step as `failed` / `agent_error` when the agent exits non-zero and skips verification (the snapshot is still committed). Your notes include `verdict` as a classification input, so decide deliberately whether a non-zero exit still gets verified, and replace the placeholder rather than inheriting it.
+
+2026-10-25, from ticket 02:
+
+- Replay already enforces consecutive handoff revisions (revision N must supersede N-1 and nothing may re-issue or skip one), marks the earlier revision `superseded` when a later one is issued, and refuses an attempt under a handoff that is not `accepted`. Nothing in the runtime issues a second revision yet; the replay rules are tested by appending hand-made events to a real ledger (`test/helpers/ledger.ts`).
+- `attempt_created` carries `handoffId` and `handoffRevision`, so the idempotency key (handoff ID, revision, attempt ID) is already in the ledger.
+- A retry, a new revision and a send-back must keep the step's base commit: `base.commit` is the previous step's passing snapshot (the run's base commit for step 1), and artifact hashes are read from it. Every new attempt gets a new workspace created from that commit.
+- `executeStep` in `src/runtime/run.ts` passes `attemptNumber: 1` to the adapter and records one attempt; the mock adapter picks its script by attempt number, so retries need the attempt count derived from the step's ledger state.
+- A new revision is built by `buildHandoff` in `src/runtime/handoff.ts` (currently revision 1 only) and must pass `validateHandoffRevision` like any other. Evidence attached on retry has no field in the handoff schema yet; adding one is a schema change (regenerate `schemas/` with `npm run schemas`).
