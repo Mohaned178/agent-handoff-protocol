@@ -4,7 +4,7 @@
 
 **Blocked by:** 02, 03
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Model:** Sonnet 5.5 · xhigh
 
@@ -60,3 +60,4 @@
 - **Existing tests:** steps that fail by design and script one attempt now set `retry: { budget: 0 }` in their helpers (`run`, `verification`, `handoff` and CLI tests), because the default budget would ask the mock for a script it does not have. The mock deliberately does not repeat its last script, so a retry that was not meant to happen fails loudly. I checked by hand that removing the wait cap, the validator re-run or the hidden-output withholding each makes a test fail.
 - **For tickets 06 and 08:** `attempt_failed` and its replay check (`ATTEMPT_SHOWS` in `src/ledger/replay.ts`) accept only an attempt that has `exited`, and never record `unknown`; 06 will have to relax that and decide what `retry_scheduled` means after an adopted or aborted `unknown` attempt. Replay refuses `retry_scheduled` on a step that already succeeded, which 08's send-back (a `succeeded` step back to `ready`) cannot use as it stands; review findings and an approver's reason also need a new `HandoffEvidenceSchema` kind, which is a protocol change (`npm run schemas`). Send-back should spend the same `retryUsage.retries` and go through `decideAfterFailure` as a `verification_failed` rather than grow a second budget.
 - **Not done:** thrown adapter failures (a spawn error, an unreadable mock report) still propagate out of `executeRun` mid-attempt, as before; they are ticket 06's `unknown`. No attempt timeout, so `timed_out` is never produced, and a backoff wait cannot be interrupted (ticket 07). No jitter in the backoff. `diff_scope` and `validator_error` evidence are never shown to the agent. Replay checks that a retry is allowed for its class but not the numeric limits, which live in the workflow definition rather than the derived state; the runtime enforces them from replay-derived usage.
+- First green CI run: GitHub Actions run 40204979829, 160 tests on Linux and macOS and 159 (1 skipped: the signal test) on Windows; typecheck and build pass on all three.
