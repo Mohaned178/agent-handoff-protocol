@@ -328,12 +328,22 @@ export type LedgerEventBody =
       state: Extract<StepState, "succeeded" | "failed">;
       failureClass: FailureClass | null;
     }
-  | { type: "run_terminal"; state: Extract<RunState, "succeeded" | "failed"> };
+  | { type: "run_terminal"; state: Extract<RunState, "succeeded" | "failed"> }
+  /**
+   * The process that opened the ledger to write it found a torn tail, a last line that a write did not finish
+   * (no newline, or not JSON), and truncated it. The line was never recorded, so nothing it said happened.
+   */
+  | { type: "ledger_truncated"; droppedBytes: number };
 
 export type LedgerEventType = LedgerEventBody["type"];
 
-/** A ledger event as written: the body plus its sequence number (from 1) and ISO timestamp. */
-export type LedgerEvent = { seq: number; time: string } & LedgerEventBody;
+/**
+ * A ledger event as written: the body plus its sequence number (from 1), the previous event's hash (null for the
+ * first), its ISO timestamp, and its own hash: SHA-256 (lowercase hex) over the canonical JSON of everything
+ * else in the event, keys sorted and no whitespace. The hashes chain the events, so a changed, missing or
+ * reordered event shows.
+ */
+export type LedgerEvent = { seq: number; prevHash: string | null; time: string; hash: string } & LedgerEventBody;
 
 // ---------------------------------------------------------------------------
 // Derived state: produced only by replaying ledger events.
@@ -415,6 +425,14 @@ export interface StepView {
   attempts: AttemptView[];
 }
 
+/** A torn tail truncated from the ledger, as its `ledger_truncated` event records it. */
+export interface LedgerTruncation {
+  /** The `ledger_truncated` event's sequence number: the torn line came after the event before it. */
+  seq: number;
+  time: string;
+  droppedBytes: number;
+}
+
 export interface RunView {
   runId: string;
   protocolVersion: string;
@@ -427,4 +445,6 @@ export interface RunView {
   createdAt: string;
   endedAt: string | null;
   steps: StepView[];
+  /** Torn tails truncated from the ledger, oldest first. */
+  ledgerTruncations: LedgerTruncation[];
 }

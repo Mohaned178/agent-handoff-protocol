@@ -2,18 +2,18 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { readRun, runWorkflow, validateWorkflow } from "../sdk/index.ts";
+import { inspectRun, runWorkflow, validateWorkflow } from "../sdk/index.ts";
 import { formatEvent, formatRun, MOCK_NOTE } from "./format.ts";
 
 const USAGE = `Usage: ahp <command> [options]
 
 Commands:
   run <workflow-file>   Run the workflow exported by default from <workflow-file>
-  inspect <run-id>      Show a run's state, derived from its ledger
+  inspect <run-id>      Show a run's state, derived from its ledger, and who is writing it
 
 Options:
   --repo <dir>          The git repository to use (default: the current directory)
-  --json                inspect: print the derived state as JSON
+  --json                inspect: print the derived state, the ledger check and the lock as JSON
   -h, --help            Show this help
   -v, --version         Show the version`;
 
@@ -104,8 +104,8 @@ async function runCommand(file: string, repo: string, io: Io): Promise<number> {
 }
 
 async function inspectCommand(runId: string, repo: string, json: boolean, io: Io): Promise<number> {
-  const state = await readRun({ repo, runId });
-  io.stdout(json ? JSON.stringify(state, null, 2) : formatRun(state));
+  const inspection = await inspectRun({ repo, runId });
+  io.stdout(json ? JSON.stringify(inspection, null, 2) : formatRun(inspection));
   return 0;
 }
 

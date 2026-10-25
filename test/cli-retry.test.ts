@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { MockAttemptScript, RunView } from "../src/index.ts";
+import type { MockAttemptScript, RunInspection } from "../src/index.ts";
 import { ahp } from "./helpers/cli.ts";
 import { createTempRepo, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
 
@@ -83,7 +83,7 @@ describe("ahp run with retries", () => {
 
     const inspect = ahp(["inspect", runId, "--repo", repo], repo);
     expect(inspect.stdout).toMatch(/earlier verification: inconclusive/);
-    const json = JSON.parse(ahp(["inspect", runId, "--json"], repo).stdout) as RunView;
+    const json = (JSON.parse(ahp(["inspect", runId, "--json"], repo).stdout) as RunInspection).state;
     expect(json.steps[0]!.attempts[0]!.earlierVerifications).toHaveLength(1);
   });
 

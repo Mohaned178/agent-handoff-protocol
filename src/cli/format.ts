@@ -8,7 +8,7 @@ import type {
   StepView,
   VerificationView,
 } from "../protocol/index.ts";
-import { findAttempt, findHandoff, findVerification } from "../sdk/index.ts";
+import { findAttempt, findHandoff, findVerification, type LockState, type RunInspection } from "../sdk/index.ts";
 
 export const MOCK_NOTE = "note: this run used the mock adapter; its results are labelled [mock] and are not evidence.";
 
@@ -199,11 +199,61 @@ export function formatEvent(event: LedgerEvent, state: Readonly<RunView>): strin
     }
     case "run_terminal":
       return `run ${state.runId}: ${state.state}${mockTag(state.mock)}`;
+    case "ledger_truncated":
+      return `run ${state.runId}: ${describeTruncation(event.droppedBytes)}`;
   }
 }
 
-/** A human-readable account of a run's derived state. */
-export function formatRun(state: Readonly<RunView>): string {
+const count = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
+
+const describeTruncation = (droppedBytes: number) =>
+  `ledger: truncated a torn last line of ${count(droppedBytes, "byte")}, which a write did not finish and so was never recorded`;
+
+/** What the ledger file and the run's lock say: how far the derived state can be trusted, and who is writing it. */
+function describeLedger({ state, ledger, writer }: RunInspection): string[] {
+  const lines = [`  ledger: ${count(ledger.events, "event")}, hash chain intact`];
+  for (const { seq, time, droppedBytes } of state.ledgerTruncations) {
+    lines.push(`  ${describeTruncation(droppedBytes)} (event ${seq}, ${time})`);
+  }
+  if (ledger.tornTail) {
+    const torn = `the last line (${count(ledger.tornTail.bytes, "byte")})`;
+    lines.push(
+      writer.state === "held"
+        ? `  ledger: ${torn} is incomplete, most likely an event the writer is recording right now`
+        : `  ledger: ${torn} is torn: a write did not finish, so it was never recorded and is left out; the next process to open the run for writing truncates it`,
+    );
+  }
+  // A run that is pending or running has a process writing it; any other state is one its process exits at.
+  const unfinished = state.state === "pending" || state.state === "running";
+  const who = describeWriter(writer, unfinished);
+  if (who) lines.push(`  writer: ${who}`);
+  return lines;
+}
+
+function describeWriter(writer: LockState, unfinished: boolean): string | null {
+  switch (writer.state) {
+    case "free":
+      return unfinished ? "none, yet the run has not ended: the process running it stopped partway, and the run needs recovery" : null;
+    case "unreadable":
+      return "the lock file names no owner: it is still being written, or the process writing it stopped first";
+  }
+  const { pid, host, startedAt } = writer.owner;
+  const owner = `PID ${pid} on ${host} (started ${startedAt})`;
+  switch (writer.state) {
+    case "held":
+      return `${owner} is writing the run`;
+    case "stale":
+      return unfinished
+        ? `${owner} stopped without finishing the run or releasing its lock: the run needs recovery, and AHP will not write to it until then`
+        : `${owner} ended the run but stopped without releasing its lock`;
+    case "other_host":
+      return `${owner}, on another host: whether it is still running cannot be checked from here`;
+  }
+}
+
+/** A human-readable account of a run's derived state, its ledger and who is writing it. */
+export function formatRun(inspection: RunInspection): string {
+  const { state } = inspection;
   const lines = [
     `run ${state.runId}: ${state.state}${mockTag(state.mock)}`,
     `  workflow: ${state.workflowName}`,
@@ -212,6 +262,7 @@ export function formatRun(state: Readonly<RunView>): string {
     `  protocol: ${state.protocolVersion}`,
     `  created: ${state.createdAt}`,
     `  ended: ${state.endedAt ?? "-"}`,
+    ...describeLedger(inspection),
   ];
   if (state.mock) lines.push(`  ${MOCK_NOTE}`);
   for (const step of state.steps) {

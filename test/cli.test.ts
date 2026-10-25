@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import type { RunView } from "../src/index.ts";
+import type { RunInspection } from "../src/index.ts";
 import { ahp } from "./helpers/cli.ts";
 import { appendLedgerEvent } from "./helpers/ledger.ts";
 import { createTempRepo, removeTempRepos, VERIFY_GREETING, VERIFY_OK } from "./helpers/repo.ts";
@@ -95,7 +95,7 @@ describe("ahp run and ahp inspect", () => {
     const inspect = ahp(["inspect", runId!, "--json"], repo);
 
     expect(inspect.code).toBe(0);
-    expect(JSON.parse(inspect.stdout)).toMatchObject({ runId, state: "succeeded", mock: true });
+    expect(JSON.parse(inspect.stdout)).toMatchObject({ state: { runId, state: "succeeded", mock: true } });
   });
 
   it("exits 1 when the run fails verification", () => {
@@ -186,7 +186,7 @@ describe("ahp run and ahp inspect with handoffs", () => {
     expect(inspect.stdout).toContain("structural verification: checks only that");
     expect(inspect.stdout).toContain("evidence: required output fields (summary): all present");
 
-    const json = JSON.parse(ahp(["inspect", runId!, "--json"], repo).stdout) as RunView;
+    const json = (JSON.parse(ahp(["inspect", runId!, "--json"], repo).stdout) as RunInspection).state;
     expect(json.steps[1]?.handoffs[0]?.handoff.artifacts).toEqual([
       { path: "PLAN.md", sha256: createHash("sha256").update(PLAN).digest("hex") },
     ]);
@@ -195,7 +195,7 @@ describe("ahp run and ahp inspect with handoffs", () => {
   it("shows every revision of a handoff in full, the superseded one as well as the current one", () => {
     const repo = createTempRepo({ "ok.mjs": VERIFY_OK, "workflow.mjs": handoffWorkflowFile(true) });
     const runId = /run (run_[a-z0-9]+): succeeded/.exec(ahp(["run", "workflow.mjs"], repo).stdout)?.[1]!;
-    const first = (JSON.parse(ahp(["inspect", runId, "--json"], repo).stdout) as RunView).steps[1]!.handoffs[0]!.handoff;
+    const first = (JSON.parse(ahp(["inspect", runId, "--json"], repo).stdout) as RunInspection).state.steps[1]!.handoffs[0]!.handoff;
     const second = { ...first, revision: 2, supersedes: 1, contract: { ...first.contract, instructions: "Revised instructions." } };
     appendLedgerEvent(repo, runId, { type: "handoff_issued", handoff: second });
 

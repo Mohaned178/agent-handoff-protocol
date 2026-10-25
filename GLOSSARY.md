@@ -77,6 +77,18 @@ An output field a step's verification demands; those of a passing attempt become
 The append-only record of everything that happened in a run, from which run, step and attempt state are derived.
 _Avoid_: Log, state store, checkpoint
 
+**Hash chain**:
+What links each ledger event to the one before it: every event records the previous event's hash and its own SHA-256 over its canonical JSON, so a changed, missing or reordered event shows. A ledger whose chain is broken is corrupt, and no state is derived from it.
+
+**Torn tail**:
+A last ledger line that a write did not finish (no newline, or not JSON), as a crash in the middle of an append leaves it. It was never recorded: readers leave it out, and the next process to open the ledger for writing truncates it and records that it did.
+
+**Ledger lock**:
+The file beside a run's ledger, created exclusively, that names the one process writing the run: its host, PID and start time.
+
+**Stale lock**:
+A ledger lock whose process is no longer running, so whatever it was doing stopped partway and the run needs recovery. AHP never takes one over by itself.
+
 ## Verification
 
 **Verification**:

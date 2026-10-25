@@ -117,6 +117,7 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
         handoffs: [],
         attempts: [],
       })),
+      ledgerTruncations: [],
     };
   }
   if (!state) throw new LedgerInconsistentError(event, "the first event must be run_created");
@@ -326,6 +327,9 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
     case "run_terminal":
       run.state = event.state;
       run.endedAt = event.time;
+      break;
+    case "ledger_truncated":
+      run.ledgerTruncations.push({ seq: event.seq, time: event.time, droppedBytes: event.droppedBytes });
       break;
     default: {
       // A new event type must be handled here: state is derived from events alone.
