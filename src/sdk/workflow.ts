@@ -13,7 +13,7 @@ export class WorkflowValidationError extends Error {
 const WORKFLOW_KEYS = ["name", "steps"];
 const STEP_KEYS = ["id", "agent", "verification", "artifacts", "instructions"];
 const AGENT_KEYS = ["adapter", "model", "options"];
-const VERIFICATION_KEYS = ["command", "requiredOutputFields"];
+const VERIFICATION_KEYS = ["command", "requiredOutputFields", "protectedPaths", "hiddenTests", "install"];
 /** Properties authors reach for to run steps side by side or out of order; release 1 workflows are linear (ADR 0004). */
 const BRANCHING_KEYS = ["parallel", "dependsOn", "needs", "after"];
 
@@ -98,6 +98,49 @@ function validateStep(step: unknown, index: number, seen: Set<string>): string[]
           `required output field ${JSON.stringify(name)} is not a valid name (letters, digits and "_", starting with a letter, up to 64 characters)`,
         duplicate: (name) => `required output field ${JSON.stringify(name)} is listed twice`,
       });
+      for (const message of messages) problem(message);
+    }
+    if ("install" in verification) {
+      if (typeof verification.install !== "string" || verification.install.trim() === "") {
+        problem("needs a non-empty `verification.install`");
+      } else if (!("command" in verification)) {
+        problem("`verification.install` needs a `verification.command` to install for");
+      }
+    }
+    const protectedPaths = verification.protectedPaths;
+    if (protectedPaths !== undefined && !Array.isArray(protectedPaths)) {
+      problem("`verification.protectedPaths` must be an array of repository-relative paths");
+    } else if (protectedPaths !== undefined) {
+      const messages = checkEntries(protectedPaths, isRepoPath, {
+        invalid: (path) =>
+          `protected path ${JSON.stringify(path)} must be relative to the repository root, written with "/" separators, ` +
+          `with no "." or ".." segments and no characters that are invalid in Windows paths`,
+        duplicate: (path) => `protected path ${JSON.stringify(path)} is listed twice`,
+      });
+      for (const message of messages) problem(message);
+    }
+    const hiddenTests = verification.hiddenTests;
+    if (hiddenTests !== undefined && !Array.isArray(hiddenTests)) {
+      problem("`verification.hiddenTests` must be an array of `{ path, content }` files");
+    } else if (hiddenTests !== undefined) {
+      if (hiddenTests.length > 0 && !("command" in verification)) {
+        problem("`verification.hiddenTests` need a `verification.command` to run them");
+      }
+      const wellFormed = hiddenTests.filter((test) => {
+        const ok = isRecord(test) && typeof test.content === "string";
+        if (!ok) problem("each hidden test needs a string `path` and `content`");
+        return ok;
+      });
+      const messages = checkEntries(
+        wellFormed.map((test) => test.path),
+        isRepoPath,
+        {
+          invalid: (path) =>
+            `hidden test path ${JSON.stringify(path)} must be relative to the repository root, written with "/" separators, ` +
+            `with no "." or ".." segments and no characters that are invalid in Windows paths`,
+          duplicate: (path) => `hidden test path ${JSON.stringify(path)} is listed twice`,
+        },
+      );
       for (const message of messages) problem(message);
     }
   }

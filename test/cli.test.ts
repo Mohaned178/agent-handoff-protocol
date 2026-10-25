@@ -31,6 +31,38 @@ function workflowFile(content: string): string {
 `;
 }
 
+describe("ahp inspect with protected paths and hidden tests", () => {
+  it("shows what the attempt changed, the protected-path violation and that the command was not run", () => {
+    const workflow = `export default {
+  name: "scoped",
+  steps: [
+    {
+      id: "implement",
+      agent: { adapter: "mock", options: { attempts: [{ edits: [{ path: "runner.config.mjs", content: "tampered\\n" }] }] } },
+      verification: {
+        command: "node verify.mjs",
+        protectedPaths: ["runner.config.mjs"],
+        hiddenTests: [{ path: "hidden/check.mjs", content: "process.exit(0);\\n" }],
+      },
+    },
+  ],
+};
+`;
+    const repo = createTempRepo({ "verify.mjs": VERIFY_OK, "runner.config.mjs": "ok\n", "workflow.mjs": workflow });
+
+    const run = ahp(["run", "workflow.mjs"], repo);
+    const runId = /run (run_[a-z0-9]+): failed/.exec(run.stdout)?.[1];
+    expect(runId).toBeDefined();
+    const inspect = ahp(["inspect", runId!, "--repo", repo], repo);
+
+    expect(inspect.code).toBe(0);
+    expect(inspect.stdout).toContain("verification: fail");
+    expect(inspect.stdout).toContain("evidence: diff scope (1 changed)");
+    expect(inspect.stdout).toContain("| modified runner.config.mjs");
+    expect(inspect.stdout).toContain("evidence: protected paths (runner.config.mjs, hidden/check.mjs): changed, the verification command was not run");
+  });
+});
+
 describe("ahp run and ahp inspect", () => {
   it("runs a workflow, streams progress labelled as mock, and inspects the derived state", () => {
     const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING, "workflow.mjs": workflowFile("hello\n") });

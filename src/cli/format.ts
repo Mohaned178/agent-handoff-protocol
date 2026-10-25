@@ -1,4 +1,4 @@
-import type { AttemptView, EvidenceItem, HandoffView, LedgerEvent, RunView, StepView } from "../protocol/index.ts";
+import type { AttemptView, ChangedPath, EvidenceItem, HandoffView, LedgerEvent, RunView, StepView } from "../protocol/index.ts";
 import { findAttempt, findHandoff, findVerification } from "../sdk/index.ts";
 
 export const MOCK_NOTE = "note: this run used the mock adapter; its results are labelled [mock] and are not evidence.";
@@ -61,8 +61,28 @@ function describeEvidence(item: EvidenceItem): string[] {
           item.missing.length === 0 ? "all present" : `missing ${item.missing.join(", ")}`
         }`,
       ];
+    case "diff_scope":
+      return [
+        `      evidence: diff scope (${item.changed.length === 0 ? "no changes" : `${item.changed.length} changed${item.truncated ? ", first only" : ""}`})`,
+        ...item.changed.map((change) => `        | ${describeChange(change)}`),
+      ];
+    case "validator_error":
+      return [
+        `      evidence: the validator could not run (${item.stage}); this says nothing about the attempt`,
+        ...item.message.split(/\r?\n/).map((line) => `        | ${line}`),
+      ];
+    case "protected_paths":
+      return [
+        `      evidence: protected paths (${item.protected.join(", ")}): ${
+          item.violations.length === 0 ? "none changed" : "changed, the verification command was not run"
+        }`,
+        ...item.violations.map((change) => `        | ${describeChange(change)}`),
+        ...(item.truncated ? ["        | ..."] : []),
+      ];
   }
 }
+
+const describeChange = ({ path, change }: ChangedPath) => `${change} ${path}`;
 
 function describeAttempt(attempt: AttemptView): string {
   return attempt.state === "exited" ? `exited ${attempt.outcome} (${describeExit(attempt)})` : attempt.state;

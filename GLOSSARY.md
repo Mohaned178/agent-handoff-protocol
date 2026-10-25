@@ -87,10 +87,19 @@ _Avoid_: Testing step, self-report, Tester
 A fresh workspace built from the snapshot of an attempt's result, in which verification runs.
 
 **Hidden tests**:
-Tests supplied by the workflow or evaluation task and introduced only at verification time, never visible to the coding agent.
+Tests supplied by the workflow or evaluation task and introduced only at verification time, never visible to the coding agent. They are written into the verification worktree alone, never into the agent's workspace, the snapshot or the handoff.
 
 **Protected path**:
-A path the attempt must not change (hidden tests, test runner config, test scripts, CI config); changing one fails verification.
+A path the attempt must not change (hidden tests, test runner config, test scripts, CI config); changing one fails verification. A file, or a directory with everything under it.
+
+**Diff scope**:
+Evidence of what an attempt changed: the paths that differ between the step's base commit and the attempt's snapshot, with how each changed. Protected paths are checked against it.
+
+**Verdict**:
+The result of verification: `pass`, `fail` or `inconclusive`, each with evidence. Any failing evidence item fails it; otherwise any inconclusive item makes it inconclusive.
+
+**Inconclusive**:
+A verdict meaning the validator could not run to a result, so it says nothing about the attempt: the command ended on a signal or exited 126 or 127, or AHP could not set verification up (the worktree, the install, the hidden tests). Never counted as pass or fail.
 
 **Structural verification**:
 Verification of a step that declares no command, which checks only that its required output fields are present, as for a review step outside evaluation; it says nothing about quality.

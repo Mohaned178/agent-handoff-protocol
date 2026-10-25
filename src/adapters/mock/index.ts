@@ -12,7 +12,11 @@ export interface MockEdit {
 
 /** What the mock coding agent does in one attempt. */
 export interface MockAttemptScript {
+  /** Files or directories to remove, relative to the workspace; removed before `edits` are written. */
+  deletes?: string[];
   edits?: MockEdit[];
+  /** Commit the changes in the workspace, as a coding agent that commits its own work does. */
+  commit?: boolean;
   /** The output fields the agent reports, by name. Defaults to none. */
   outputFields?: Record<string, OutputFieldValue>;
   /** Defaults to 0. */
@@ -42,6 +46,12 @@ export const mockAdapter: Adapter = {
     }
     const problems: string[] = [];
     attempts.forEach((script: MockAttemptScript, index) => {
+      if (script?.deletes !== undefined && !(Array.isArray(script.deletes) && script.deletes.every((p) => typeof p === "string"))) {
+        problems.push(`mock attempt ${index + 1}: \`deletes\` must be an array of paths`);
+      }
+      if (script?.commit !== undefined && typeof script.commit !== "boolean") {
+        problems.push(`mock attempt ${index + 1}: \`commit\` must be a boolean`);
+      }
       for (const edit of script?.edits ?? []) {
         if (typeof edit?.path !== "string" || typeof edit.content !== "string") {
           problems.push(`mock attempt ${index + 1}: each edit needs a string \`path\` and \`content\``);

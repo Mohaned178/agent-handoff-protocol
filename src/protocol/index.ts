@@ -66,6 +66,32 @@ export interface VerificationDefinition {
    * passing attempt are the context of the next step's handoff.
    */
   requiredOutputFields?: string[];
+  /**
+   * Repository-relative paths the attempt must not change: a file, or a directory with everything under it
+   * (exact paths, no globs; compared without regard to case). Name test runner config, test scripts and CI
+   * config here. Hidden tests are protected too, without being listed. A change to a protected path fails
+   * verification.
+   */
+  protectedPaths?: string[];
+  /**
+   * Run through the system shell in the verification worktree before `command`, to install dependencies
+   * (for example `npm ci`). The worktree is built from the snapshot alone, so nothing the agent or the
+   * repository's own checkout installed is there. An install that fails is a validator that could not run:
+   * the verdict is `inconclusive`. Needs a `command`.
+   */
+  install?: string;
+  /**
+   * Tests the coding agent never sees. Each file is written into the verification worktree, and only there,
+   * just before `command` runs; the command must run them. They are in the workflow definition and so in the
+   * ledger, but not in the agent's workspace, the snapshot or the handoff. Their paths are protected paths.
+   */
+  hiddenTests?: HiddenTest[];
+}
+
+export interface HiddenTest {
+  /** Repository-relative; where the file appears in the verification worktree. */
+  path: string;
+  content: string;
 }
 
 export interface StepDefinition {
@@ -108,7 +134,52 @@ export interface RequiredOutputFieldsEvidence {
   missing: string[];
 }
 
-export type EvidenceItem = TestOutputEvidence | RequiredOutputFieldsEvidence;
+/** How an attempt changed a path, from the step's base commit to the attempt's snapshot. */
+export type PathChange = "added" | "modified" | "deleted";
+
+export interface ChangedPath {
+  path: string;
+  change: PathChange;
+}
+
+/** What the attempt changed: the diff from the step's base commit to the snapshot. Recorded, never a verdict on its own. */
+export interface DiffScopeEvidence {
+  kind: "diff_scope";
+  changed: ChangedPath[];
+  /** True when `changed` lists only the first of more changed paths. */
+  truncated: boolean;
+}
+
+/** Whether the attempt changed a protected path. Any violation fails verification. */
+export interface ProtectedPathsEvidence {
+  kind: "protected_paths";
+  /** Every protected path: the declared ones and the hidden tests'. */
+  protected: string[];
+  /** The changed paths that are, contain or lie under a protected path. */
+  violations: ChangedPath[];
+  /** True when `violations` lists only the first of more. */
+  truncated: boolean;
+}
+
+/** The parts of verification that can break before or while the validator runs. */
+export type ValidatorStage = "diff_scope" | "verification_worktree" | "install" | "hidden_tests" | "command";
+
+/**
+ * AHP could not get the validator to run to a result, so it says nothing about the attempt: the verdict is
+ * `inconclusive`, never `pass` or `fail`.
+ */
+export interface ValidatorErrorEvidence {
+  kind: "validator_error";
+  stage: ValidatorStage;
+  message: string;
+}
+
+export type EvidenceItem =
+  | TestOutputEvidence
+  | RequiredOutputFieldsEvidence
+  | DiffScopeEvidence
+  | ProtectedPathsEvidence
+  | ValidatorErrorEvidence;
 
 export type LedgerEventBody =
   | {

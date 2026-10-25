@@ -8,12 +8,15 @@ import {
   type LedgerEventBody,
   type RunView,
   type StepDefinition,
+  type ValidatorStage,
   type WorkflowDefinition,
 } from "../protocol/index.ts";
 import { git } from "./git.ts";
+import { introduceHiddenTests } from "./hidden-tests.ts";
 import { buildHandoff, validateHandoffRevision } from "./handoff.ts";
 import { ledgerPath, locateRepo, prepareWorktreeRoot, snapshotRef, worktreePath, type RepoLocation } from "./paths.ts";
-import { checkRequiredOutputFields, runVerificationCommand, verdictOf } from "./verification.ts";
+import { changedPaths, checkProtectedPaths, diffScopeEvidence } from "./scope.ts";
+import { checkRequiredOutputFields, installDependencies, runVerificationCommand, validatorError, verdictOf } from "./verification.ts";
 import { addWorktree, removeWorktree, snapshotWorktree } from "./workspace.ts";
 
 export interface ExecuteRunOptions {
@@ -175,25 +178,55 @@ async function executeStep(step: StepDefinition, index: number, context: StepCon
   }
 
   const verificationId = newId("ver");
+  const evidence: EvidenceItem[] = [];
+  // Whether the attempt stayed out of the protected paths is known before anything runs. A violation fails
+  // verification whatever the command says, so the command, which would run the attempt's changes to the test
+  // runner and scripts, is not run. If the check itself cannot be made, the command is not run either.
+  const hiddenTests = step.verification.hiddenTests ?? [];
+  const protectedPaths = [...new Set([...(step.verification.protectedPaths ?? []), ...hiddenTests.map((test) => test.path)])];
+  let scopeSettled = true;
+  if (protectedPaths.length > 0) {
+    try {
+      const changed = await changedPaths(location.repo, base, snapshot);
+      const check = checkProtectedPaths(changed, protectedPaths);
+      evidence.push(diffScopeEvidence(changed), check);
+      scopeSettled = check.violations.length === 0;
+    } catch (error) {
+      evidence.push(validatorError("diff_scope", error));
+      scopeSettled = false;
+    }
+  }
   // A structural verification runs no command, so it needs no verification worktree.
+  const command = step.verification.command;
   const commandRun =
-    step.verification.command === undefined
-      ? null
-      : { command: step.verification.command, worktree: worktreePath(worktreeRoot, runId, verificationId) };
+    command === undefined || !scopeSettled ? null : { command, worktree: worktreePath(worktreeRoot, runId, verificationId) };
   await record({
     type: "verification_started",
     attemptId,
     verificationId,
-    command: commandRun?.command ?? null,
+    command: command ?? null,
     worktree: commandRun?.worktree ?? null,
   });
-  const evidence: EvidenceItem[] = [];
   if (commandRun) {
-    await addWorktree(location.repo, commandRun.worktree, snapshot);
+    // Whatever breaks on AHP's side from here on is evidence that the validator could not run, not a verdict on
+    // the attempt, and a verdict is always recorded.
+    let stage: ValidatorStage = "verification_worktree";
+    let created = false;
     try {
+      await addWorktree(location.repo, commandRun.worktree, snapshot);
+      created = true;
+      if (step.verification.install !== undefined) {
+        stage = "install";
+        await installDependencies(step.verification.install, commandRun.worktree);
+      }
+      stage = "hidden_tests";
+      await introduceHiddenTests(commandRun.worktree, hiddenTests);
+      stage = "command";
       evidence.push(await runVerificationCommand(commandRun.command, commandRun.worktree));
+    } catch (error) {
+      evidence.push(validatorError(stage, error));
     } finally {
-      await removeWorktree(location.repo, commandRun.worktree);
+      if (created) await removeWorktree(location.repo, commandRun.worktree);
     }
   }
   const requiredFields = step.verification.requiredOutputFields ?? [];
@@ -206,7 +239,7 @@ async function executeStep(step: StepDefinition, index: number, context: StepCon
     type: "step_terminal",
     stepId: step.id,
     state: passed ? "succeeded" : "failed",
-    failureClass: passed ? null : "verification_failed",
+    failureClass: passed ? null : verdict === "inconclusive" ? "inconclusive" : "verification_failed",
   });
   return passed;
 }

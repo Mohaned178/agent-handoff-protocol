@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-Tickets 01 (tracer bullet) and 02 (multi-step linear workflows with handoffs) have landed: linear workflows run with the mock adapter, each step under a validated, versioned handoff. No linter is configured.
+Tickets 01 (tracer bullet), 02 (multi-step linear workflows with handoffs) and 03 (hidden tests, protected paths, three-way verdicts with evidence) have landed: linear workflows run with the mock adapter, each step under a validated, versioned handoff and verified in a fresh worktree. No linter is configured.
 
 ## Commands
 
