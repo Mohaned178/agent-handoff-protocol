@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Model:** Opus 5.5 · xhigh
 
@@ -14,7 +14,7 @@
 - [x] Writes append to one open file; no write-temp-then-rename anywhere
 - [x] Single-writer lock file created exclusively, recording the owner process ID
 - [x] A lock whose owner process is gone is treated as stale and flagged for recovery, never silently taken over
-- [ ] Tests cover torn tails and a second writer on all three CI OSes
+- [x] Tests cover torn tails and a second writer on all three CI OSes
 
 ## Implementer notes
 
@@ -27,7 +27,7 @@
 
 ## Comments
 
-2026-10-26, implementation notes. The ticket left several shapes open; these are the choices made, so ticket 06 and later can build on them or reopen them. The last box stays open until the tests have passed on all three CI OSes.
+2026-10-26, implementation notes. The ticket left several shapes open; these are the choices made, so ticket 06 and later can build on them or reopen them.
 
 **Seven decisions the ticket left to me. Confirmed by the maintainer on 2026-10-26, each kept as built; reopen one only with a new decision:**
 
@@ -86,3 +86,5 @@ Kept, with reasons:
 - `describeLock` (error messages) and the CLI's lock line both describe a lock state; one explains why a write was refused, the other what it means for a run on screen, so they stay apart.
 - Only `ESRCH` counts as a process being gone, although the ticket says "throws": `EPERM` also throws, for a process that exists.
 - The truncation box stays ticked although only `LedgerWriter.open` truncates and nothing in the runtime calls it before ticket 06; this is the first decision above.
+
+First green CI run: GitHub Actions run 40245746944 (commit 06d3a91), 188 tests on Linux and macOS and 187 (1 skipped: the signal test) on Windows; `test/ledger.test.ts` (18) and `test/cli-ledger.test.ts` (10), torn tails and a second writer included, passed on all three. Typecheck and build pass on all three.
