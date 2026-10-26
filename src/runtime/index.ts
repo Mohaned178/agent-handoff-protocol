@@ -12,3 +12,4 @@ export {
 } from "./failure.ts";
 export { validateHandoffRevision, type HandoffValidation } from "./handoff.ts";
 export { isAttemptId, isRunId, locateRepo, locateRun } from "./paths.ts";
+export { ApprovalRefusedError, decideApproval, pendingApprovalOf, type DecideApprovalOptions, type PendingApproval } from "./approval.ts";

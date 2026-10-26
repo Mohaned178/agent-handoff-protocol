@@ -1,4 +1,4 @@
-import { reviewVerdictOf } from "../protocol/index.ts";
+import { reviewFindingsOf, reviewVerdictOf } from "../protocol/index.ts";
 import type {
   AttemptCancel,
   AttemptRecovery,
@@ -19,6 +19,7 @@ import {
   findVerification,
   type LockOwner,
   type LockState,
+  type PendingApproval,
   type ResumeResult,
   type RunInspection,
 } from "../sdk/index.ts";
@@ -134,10 +135,13 @@ function describeAttempt(attempt: AttemptView): string {
 
 /** Why a failed step stopped, as one line: the failure class says what happened, this says what was done about it. */
 function describeStop(step: StepView, state: Readonly<RunView>): string | null {
+  const before = state.steps[state.steps.indexOf(step) - 1];
+  if (step.kind === "approval_gate") {
+    return `rejected, and the retry budget of step ${before?.id ?? "before it"} is spent, so it cannot be sent back again`;
+  }
   const last = step.attempts.at(-1);
   // A review that passed verification and asked for changes, with nothing left to send the step before it back with.
   if (last?.verification?.state === "pass" && reviewVerdictOf(last.reportedOutput) === "changes_requested") {
-    const before = state.steps[state.steps.indexOf(step) - 1];
     return `changes requested, and the retry budget of step ${before?.id ?? "before it"} is spent, so it cannot be sent back again`;
   }
   if (last?.recovery?.decision?.policy === "adopt") {
@@ -249,10 +253,26 @@ export function formatEvent(event: LedgerEvent, state: Readonly<RunView>): strin
     }
     case "step_sent_back": {
       const { step, attempt } = stepOfAttempt(state, event.attemptId);
+      const findings = attempt.sentBack?.kind === "review" ? attempt.sentBack.findings : [];
       return [
         `step ${event.reviewStepId}: changes requested: step ${step.id} is sent back (retry ${step.retryUsage.retries} spent), and a new handoff revision carries the findings`,
-        ...(attempt.sentBack?.findings ?? []).map((finding) => `  | ${finding}`),
+        ...findings.map((finding) => `  | ${finding}`),
       ].join("\n");
+    }
+    case "approval_requested": {
+      const { step } = stepOfAttempt(state, event.attemptId);
+      const changed = event.changed.length === 0 ? "no changes" : `${quantity(event.changed.length, "path")} changed${event.truncated ? ", first only" : ""}`;
+      return [
+        `run ${state.runId}: waiting for approval${mockTag(state.mock)}`,
+        `  step ${event.stepId} awaits a person: step ${step.id}'s attempt ${event.attemptId} passed verification (snapshot ${short(event.commit)}; ${changed} against the run's base commit)`,
+        `  ${describeApprovalChoices(state.runId, event.stepId)}`,
+      ].join("\n");
+    }
+    case "approval_decided":
+      return `step ${event.stepId}: ${event.decision} by ${event.user}${event.reason === null ? "" : `: ${event.reason}`}`;
+    case "approval_sent_back": {
+      const { step } = stepOfAttempt(state, event.attemptId);
+      return `step ${event.gateStepId}: rejected: step ${step.id} is sent back (retry ${step.retryUsage.retries} spent), and a new handoff revision carries the reason`;
     }
     case "step_terminal": {
       const step = state.steps.find((s) => s.id === event.stepId)!;
@@ -274,6 +294,10 @@ export function formatEvent(event: LedgerEvent, state: Readonly<RunView>): strin
     }
   }
 }
+
+/** What a person can decide at a gate the run waits at, and how. */
+const describeApprovalChoices = (runId: string, gateId: string) =>
+  `\`ahp inspect ${runId}\` shows what is being approved; \`ahp approve ${runId} ${gateId}\` lets the run go on, \`ahp reject ${runId} ${gateId} --reason "..."\` sends the step before the gate back with your reason`;
 
 const describeResumption = (takenOverFrom: LockOwner | null) =>
   `resumed by a new process${takenOverFrom ? `, which took over the stale lock of ${describeOwner(takenOverFrom)}` : ""}`;
@@ -350,6 +374,52 @@ function describeLedger({ state, ledger, lock }: RunInspection): string[] {
   const holder = describeLockHolder(lock, state);
   if (holder) lines.push(`  lock: ${holder}`);
   for (const attempt of awaitedAttempts(state)) lines.push(`  recovery: ${describeAwaited(attempt.id)}`);
+  for (const gate of awaitedGates(state)) lines.push(`  approval: ${describeApprovalChoices(state.runId, gate.id)}`);
+  return lines;
+}
+
+/** The approval gates a run stopped at, which a person has yet to decide. */
+const awaitedGates = (state: Readonly<RunView>) =>
+  state.state === "waiting_approval" ? state.steps.filter((step) => step.state === "waiting_approval" && !step.approvals.at(-1)?.decision) : [];
+
+/** A gate's requests for approval and how each was decided; for the gate the run waits at, also what is being approved. */
+function describeApprovals(gate: StepView, state: Readonly<RunView>, pending: PendingApproval | null): string[] {
+  const lines: string[] = [];
+  for (const request of gate.approvals) {
+    const found = findAttempt(state, request.attemptId);
+    const changed = request.changed.length === 0 ? "no changes" : `${quantity(request.changed.length, "path")} changed${request.truncated ? ", first only" : ""}`;
+    lines.push(
+      `  approval requested: ${request.requestedAt}`,
+      `    approving: attempt ${request.attemptId}${mockTag(found?.attempt.mock ?? false)} of step ${found?.step.id ?? "?"}, snapshot ${request.commit}`,
+      `    ${changed} against the run's base commit ${short(request.base)}`,
+      ...request.changed.map((change) => `      | ${describeChange(change)}`),
+    );
+    const { decision } = request;
+    lines.push(
+      decision
+        ? `    decision: ${decision.decision} by ${decision.user} at ${decision.time}${decision.reason === null ? "" : `: ${decision.reason}`}`
+        : "    decision: awaits a person",
+    );
+  }
+  const open = gate.approvals.at(-1);
+  if (!open || open.decision || pending?.stepId !== gate.id) return lines;
+  const verified = findAttempt(state, open.attemptId);
+  if (verified?.attempt.verification) lines.push(...describeVerification("verification of the attempt being approved", verified.attempt.verification));
+  // What every review before the gate found, on the result in front of the approver.
+  for (const review of state.steps.slice(0, state.steps.indexOf(gate)).filter((step) => step.kind === "review")) {
+    const reported = review.attempts.at(-1)?.reportedOutput;
+    if (!reported) continue;
+    lines.push(`    review ${review.id} found (verdict ${reviewVerdictOf(reported) ?? "not understood"}):`, ...reviewFindingsOf(reported).map((finding) => `      | ${finding}`));
+  }
+  if (pending.diff === null) {
+    lines.push(`    diff: could not be read: ${pending.diffError}`);
+  } else {
+    lines.push(
+      `    diff of the verified snapshot against the run's base commit${pending.diffTruncated ? " (start only; `git diff` shows the rest)" : ""}:`,
+      ...(pending.diff === "" ? ["      | (empty)"] : pending.diff.split(/\r?\n/).map((line) => `      | ${line}`)),
+    );
+  }
+  lines.push(`    ${describeApprovalChoices(state.runId, gate.id)}`);
   return lines;
 }
 
@@ -374,6 +444,7 @@ function describeLockHolder(lock: LockState, state: Readonly<RunView>): string |
       if (unfinished) {
         return `${owner} stopped without finishing the run or releasing its lock: the run needs recovery: ${resume} takes it over, examines the run and resumes it`;
       }
+      if (state.state === "waiting_approval") return `${owner} stopped the run for approval without releasing its lock; deciding takes it over`;
       return state.state === "needs_recovery"
         ? `${owner} stopped the run for a decision without releasing its lock; deciding takes it over`
         : `${owner} ended the run but stopped without releasing its lock; ${resume} removes it`;
@@ -391,7 +462,9 @@ export function formatUnresumed({ state, takenOverFrom }: ResumeResult): string 
   const lines =
     state.state === "needs_recovery"
       ? [`run ${state.runId}: needs recovery${mockTag(state.mock)}`, ...awaitedAttempts(state).map((attempt) => `  ${describeAwaited(attempt.id)}`)]
-      : [`run ${state.runId}: ${state.endedAt !== null ? `already ended (${state.state})` : state.state}${mockTag(state.mock)}; nothing to recover`];
+      : state.state === "waiting_approval"
+        ? [`run ${state.runId}: waiting for approval${mockTag(state.mock)}`, ...awaitedGates(state).map((gate) => `  ${describeApprovalChoices(state.runId, gate.id)}`)]
+        : [`run ${state.runId}: ${state.endedAt !== null ? `already ended (${state.state})` : state.state}${mockTag(state.mock)}; nothing to recover`];
   if (takenOverFrom) lines.push(`  removed the stale lock of ${describeOwner(takenOverFrom)}, which stopped without releasing it`);
   return lines.join("\n");
 }
@@ -420,6 +493,7 @@ export function formatRun(inspection: RunInspection): string {
     }
     const stop = step.state === "failed" ? describeStop(step, state) : null;
     if (stop) lines.push(`  ${stop}`);
+    lines.push(...describeApprovals(step, state, inspection.approval));
     for (const handoff of step.handoffs) lines.push(...describeHandoff(handoff));
     for (const attempt of step.attempts) {
       const reported = Object.keys(attempt.reportedOutput);
@@ -435,9 +509,12 @@ export function formatRun(inspection: RunInspection): string {
         `    snapshot: ${attempt.snapshot ? `${attempt.snapshot.commit} (${attempt.snapshot.ref})` : "-"}`,
       );
       if (attempt.failureClass) lines.push(`    failure class: ${attempt.failureClass}`);
-      if (attempt.sentBack) {
+      if (attempt.sentBack?.kind === "review") {
         const { reviewStepId, reviewAttemptId, findings } = attempt.sentBack;
         lines.push(`    sent back by step ${reviewStepId} (attempt ${reviewAttemptId}); its findings:`, ...findings.map((finding) => `      | ${finding}`));
+      } else if (attempt.sentBack) {
+        const { gateStepId, user, decidedAt, reason } = attempt.sentBack;
+        lines.push(`    rejected at approval gate ${gateStepId} by ${user} at ${decidedAt}; the reason:`, ...reason.split(/\r?\n/).map((line) => `      | ${line}`));
       }
       if (attempt.stopReason) lines.push(`    stop reason: ${attempt.stopReason}`);
       if (attempt.error) lines.push(`    error (${attempt.error.kind}): ${attempt.error.message}`);

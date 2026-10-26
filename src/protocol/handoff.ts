@@ -106,8 +106,8 @@ export const ArtifactReferenceSchema = z
 
 /**
  * What a retry tells the coding agent about why the step's last attempt failed: the failing parts of its
- * verification, trimmed to what the agent may see, or the findings of the review that sent it back. AHP extension:
- * no A2A counterpart. A new kind (for example an approver's rejection, with ticket 09) is a protocol change.
+ * verification, trimmed to what the agent may see, the findings of the review that sent it back, or the reason a
+ * person rejected its result at an approval gate. AHP extension: no A2A counterpart. A new kind is a protocol change.
  */
 export const HandoffEvidenceSchema = z
   .discriminatedUnion("kind", [
@@ -133,6 +133,11 @@ export const HandoffEvidenceSchema = z
       kind: z.literal("review_findings"),
       reviewStepId: stepIdSchema.describe("The review step that sent this step back."),
       findings: z.array(z.string().min(1)).min(1).describe("What the review found, in its words."),
+    }),
+    z.strictObject({
+      kind: z.literal("approval_rejected"),
+      gateStepId: stepIdSchema.describe("The approval gate where a person rejected this step's result."),
+      reason: z.string().min(1).describe("Why the approver rejected it, in their words."),
     }),
     z.strictObject({
       kind: z.literal("review_verdict"),

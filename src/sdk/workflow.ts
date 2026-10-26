@@ -19,6 +19,7 @@ export class WorkflowValidationError extends Error {
 
 const WORKFLOW_KEYS = ["name", "steps"];
 const STEP_KEYS = ["id", "agent", "verification", "artifacts", "instructions", "retry", "reroute", "recovery", "review"];
+const GATE_KEYS = ["id", "approval"];
 const REVIEW_KEYS = ["sendBackTo"];
 const AGENT_KEYS = ["adapter", "model", "options"];
 const RETRY_KEYS = ["budget", "transientBudget", "backoff"];
@@ -110,7 +111,12 @@ function validateRetry(retry: Record<string, unknown>, problem: (message: string
 }
 
 /** Checks a review step's `review`: it names the step before it, the only one a send-back reaches (ADR 0004). */
-function validateReview(review: unknown, index: number, order: (string | undefined)[], problem: (message: string) => void): void {
+function validateReview(
+  review: unknown,
+  index: number,
+  { order, gates }: Positions,
+  problem: (message: string) => void,
+): void {
   if (!isRecord(review)) {
     problem("`review` must be an object naming the step it sends back in `sendBackTo`");
     return;
@@ -135,23 +141,71 @@ function validateReview(review: unknown, index: number, order: (string | undefin
       `\`review.sendBackTo\` names ${JSON.stringify(target)}, ${index - position} steps back: a review sends back only the step immediately before it, ` +
         `${JSON.stringify(order[index - 1])} (ADR 0004)`,
     );
+  } else if (gates[position]) {
+    problem(`\`review.sendBackTo\` names ${JSON.stringify(target)}, an approval gate: it has no coding agent to send back`);
   }
 }
 
-/** `order` is every step's id by position, undefined for one that has none (it is not an object, or its id is not a string). */
-function validateStep(step: unknown, index: number, seen: Set<string>, order: (string | undefined)[]): string[] {
+/** Where each step is in the workflow, for the rules that look at the steps around one. */
+interface Positions {
+  /** Every step's id by position, undefined for one that has none (it is not an object, or its id is not a string). */
+  order: (string | undefined)[];
+  /** Whether the step at each position declares `approval`, so is an approval gate. */
+  gates: boolean[];
+}
+
+/** Checks a step's `id` and records it as seen; the problems it finds go to `problem`. */
+function checkStepId(id: unknown, seen: Set<string>, problem: (message: string) => void): void {
+  if (!isStepId(id)) {
+    problem('`id` must be lowercase letters, digits, "-" or "_", starting with a letter or digit');
+  } else if (seen.has(id)) {
+    problem("duplicate step id");
+  } else {
+    seen.add(id);
+  }
+}
+
+/** Checks a step that declares `approval`: a gate takes nothing but its id, and sits after a step that a rejection can send back. */
+function validateGate(step: Record<string, unknown>, index: number, seen: Set<string>, { order, gates }: Positions): string[] {
+  const problems: string[] = [];
+  const label = typeof step.id === "string" ? `step "${step.id}"` : `step ${index + 1}`;
+  const problem = (message: string) => problems.push(`${label}: ${message}`);
+  checkStepId(step.id, seen, problem);
+  for (const key of Object.keys(step)) {
+    if (BRANCHING_KEYS.includes(key)) {
+      problem(`\`${key}\` is not supported: release 1 workflows are linear, each step runs after the one before it (ADR 0004)`);
+    } else if (GATE_KEYS.includes(key)) {
+      continue;
+    } else if (STEP_KEYS.includes(key)) {
+      problem(`an approval gate has no coding agent and nothing to verify, so it takes no \`${key}\``);
+    } else {
+      problem(`unknown property \`${key}\``);
+    }
+  }
+  if (!isRecord(step.approval)) {
+    problem("`approval` must be an object (an empty one: a gate takes no options)");
+  } else {
+    for (const name of Object.keys(step.approval)) problem(`unknown property \`approval.${name}\``);
+  }
+  if (index === 0) {
+    problem("an approval gate needs a step before it, which a rejection sends back, and this is the first step");
+  } else if (gates[index - 1]) {
+    problem(
+      `follows approval gate ${JSON.stringify(order[index - 1])}: a rejection sends back the step immediately before the gate, ` +
+        "which must be performed by a coding agent (ADR 0004)",
+    );
+  }
+  return problems;
+}
+
+function validateStep(step: unknown, index: number, seen: Set<string>, positions: Positions): string[] {
   if (!isRecord(step)) return [`step ${index + 1}: must be an object`];
+  if ("approval" in step) return validateGate(step, index, seen, positions);
   const problems: string[] = [];
   const label = typeof step.id === "string" ? `step "${step.id}"` : `step ${index + 1}`;
   const problem = (message: string) => problems.push(`${label}: ${message}`);
 
-  if (!isStepId(step.id)) {
-    problem('`id` must be lowercase letters, digits, "-" or "_", starting with a letter or digit');
-  } else if (seen.has(step.id)) {
-    problem("duplicate step id");
-  } else {
-    seen.add(step.id);
-  }
+  checkStepId(step.id, seen, problem);
   for (const key of Object.keys(step)) {
     if (BRANCHING_KEYS.includes(key)) {
       problem(`\`${key}\` is not supported: release 1 workflows are linear, each step runs after the one before it (ADR 0004)`);
@@ -160,7 +214,7 @@ function validateStep(step: unknown, index: number, seen: Set<string>, order: (s
     }
   }
 
-  if (step.review !== undefined) validateReview(step.review, index, order, problem);
+  if (step.review !== undefined) validateReview(step.review, index, positions, problem);
   validateAgent(step.agent, "agent", problem);
   if (step.reroute !== undefined) validateAgent(step.reroute, "reroute", problem);
   if (step.retry !== undefined) {
@@ -255,7 +309,10 @@ export function validateWorkflow(workflow: unknown): string[] {
     return problems;
   }
   const seen = new Set<string>();
-  const order = workflow.steps.map((step: unknown) => (isRecord(step) && typeof step.id === "string" ? step.id : undefined));
+  const positions: Positions = {
+    order: workflow.steps.map((step: unknown) => (isRecord(step) && typeof step.id === "string" ? step.id : undefined)),
+    gates: workflow.steps.map((step: unknown) => isRecord(step) && "approval" in step),
+  };
   workflow.steps.forEach((step: unknown, index) => {
     if (Array.isArray(step)) {
       const ids = step.map((member) => (isRecord(member) ? member.id : undefined)).filter((id) => typeof id === "string");
@@ -264,7 +321,7 @@ export function validateWorkflow(workflow: unknown): string[] {
           "release 1 workflows are linear, so list steps one after another (ADR 0004)",
       );
     } else {
-      problems.push(...validateStep(step, index, seen, order));
+      problems.push(...validateStep(step, index, seen, positions));
     }
   });
   return problems;

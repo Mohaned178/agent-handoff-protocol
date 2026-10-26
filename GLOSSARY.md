@@ -66,8 +66,14 @@ A step that declares `review: { sendBackTo }` naming the step immediately before
 What a review step reported in `findings`, carried as `review_findings` evidence in the new handoff revision of the step it sent back. Written by the reviewing agent, so unlike a hidden test's output they are shown to the agent whole.
 
 **Approval gate**:
-A step with no coding agent that waits for a human to approve or reject before the run continues.
+A step declared `approval: {}` (and nothing else but its ID) with no coding agent, no handoff, no attempt and nothing to verify, placed after an agent step. When the step before it has succeeded, the run records an approval request, stops in `waiting_approval` and its process exits. `ahp approve` lets the run go on; `ahp reject --reason` sends back the step immediately before the gate, which in a workflow that has a review right before the gate is the review. There is no edit. A step after a gate receives the result of the agent step before the gate.
 _Avoid_: Approval checkpoint, approvals inbox
+
+**Approval request**:
+What the run puts to the approver when it stops at a gate: the verified attempt of the step before the gate, its snapshot commit, and the paths that differ between the run's base commit (what a later push would publish) and that commit. A decision applies to that commit and no other. `ahp inspect` adds the diff itself, read from the pinned snapshot, with the attempt's verification evidence and what any review before the gate found.
+
+**Approval decision**:
+A person's approval or rejection of an open request, recorded with who (the operating system's user name) and when. Made by a command that takes the ledger lock, so it is refused while a process is writing the run, when the step is not a gate with an open request, and for a rejection without a reason. A rejection's reason reaches the coding agent whole, without the approver's name, as `approval_rejected` evidence.
 
 **Artifact**:
 A file passed in a handoff by reference, identified by the hash of its committed content. A step may name a file it did not write, such as one already in the repository.

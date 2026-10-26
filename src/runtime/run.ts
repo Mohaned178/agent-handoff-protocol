@@ -4,10 +4,12 @@ import { DEFAULT_GRACE_MS, type Termination } from "../process/index.ts";
 import { CANCELLED, cancelledAround, TIMED_OUT, unlessCancelled, within, type RunCancel } from "./cancel.ts";
 import { applyEvent, LedgerWriter } from "../ledger/index.ts";
 import {
+  isApprovalGate,
   PROTOCOL_VERSION,
   requiredOutputFieldsOf,
   reviewVerdictOf,
   type AgentRef,
+  type ApprovalGateDefinition,
   type AttemptView,
   type EvidenceItem,
   type FailureClass,
@@ -18,11 +20,13 @@ import {
   type RetryChange,
   type RunView,
   type ScheduledRetry,
+  type SentBack,
   type StepDefinition,
   type StepView,
   type ValidatorStage,
   type VerificationView,
   type WorkflowDefinition,
+  type WorkflowStepDefinition,
 } from "../protocol/index.ts";
 import { systemClock, type Clock } from "./clock.ts";
 import { classifyAttempt, decideAfterFailure, resolveRetryPolicy, verdictFailure, type FailureDecision } from "./failure.ts";
@@ -32,7 +36,7 @@ import { buildHandoff, retryEvidence, reviseHandoff, validateHandoffRevision } f
 import { ledgerPath, locateRepo, prepareWorktreeRoot, snapshotRef, worktreePath, type RepoLocation } from "./paths.ts";
 import { buildRecoveryReport } from "./recovery.ts";
 import { sharedRefs } from "./refs.ts";
-import { changedPaths, checkProtectedPaths, diffScopeEvidence } from "./scope.ts";
+import { bounded, changedPaths, checkProtectedPaths, diffScopeEvidence } from "./scope.ts";
 import {
   checkRequiredOutputFields,
   checkReviewVerdict,
@@ -211,12 +215,31 @@ const stepOf = (run: RunContext, index: number): StepView => run.state().steps[i
 /** The coding agent the step is with: its own, or its alternative once it was rerouted. */
 const currentAgent = (step: StepDefinition, view: StepView): AgentRef => (view.retryUsage.rerouted ? step.reroute! : step.agent);
 
+/** The step at `index`, which the caller knows is performed by a coding agent. */
+function agentStepAt(run: RunContext, index: number): StepDefinition {
+  const step = run.workflow.steps[index];
+  if (!step || isApprovalGate(step)) throw new Error(`step ${index + 1} of the workflow is not performed by a coding agent`);
+  return step;
+}
+
 /**
- * The attempt whose result step `index` receives: the last attempt of the step before it, which has succeeded, so
- * that attempt is the verified one. None for the first step.
+ * The position of the step whose result step `index` receives: the nearest step before it that is not an approval
+ * gate, since a gate passes on what it was shown unchanged. -1 for a step with nothing before it.
  */
-const senderOf = (index: number, run: RunContext): AttemptView | undefined =>
-  index > 0 ? run.state().steps[index - 1]?.attempts.at(-1) : undefined;
+function senderIndex(index: number, run: RunContext): number {
+  let before = index - 1;
+  while (before >= 0 && isApprovalGate(run.workflow.steps[before]!)) before -= 1;
+  return before;
+}
+
+/**
+ * The attempt whose result step `index` receives: the last attempt of the agent step before it (past any approval
+ * gate), which has succeeded, so that attempt is the verified one. None for the first step.
+ */
+const senderOf = (index: number, run: RunContext): AttemptView | undefined => {
+  const before = senderIndex(index, run);
+  return before >= 0 ? run.state().steps[before]!.attempts.at(-1) : undefined;
+};
 
 /**
  * The commit every attempt of the step starts from, retries included, so a failed attempt's files never leak: the
@@ -246,7 +269,8 @@ function decide(step: StepDefinition, view: StepView, failureClass: FailureClass
  * failure policy decides). Every retry is a new attempt in a new workspace made from the step's base commit; what
  * is left of the retry budgets is read from the ledger's replay, never kept in memory.
  */
-async function advanceStep(step: StepDefinition, index: number, run: RunContext): Promise<void> {
+async function advanceStep(step: WorkflowStepDefinition, index: number, run: RunContext): Promise<void> {
+  if (isApprovalGate(step)) return advanceGate(step, index, run);
   const view = stepOf(run, index);
   switch (view.state) {
     case "blocked":
@@ -271,7 +295,9 @@ async function advanceStep(step: StepDefinition, index: number, run: RunContext)
  * (its step's policy is not applied: the person who cancelled is there to decide). Anything else ends the step
  * `cancelled`.
  */
-async function advanceCancelledStep(step: StepDefinition, index: number, run: RunContext): Promise<void> {
+async function advanceCancelledStep(step: WorkflowStepDefinition, index: number, run: RunContext): Promise<void> {
+  // A gate has no agent to stop; a run waiting for a person is not running, so is not cancelled.
+  if (isApprovalGate(step)) return run.record({ type: "step_terminal", stepId: step.id, state: "cancelled", failureClass: null });
   const attempt = stepOf(run, index).attempts.at(-1);
   switch (attempt?.state) {
     case "dispatching":
@@ -326,7 +352,7 @@ async function firstHandoff(step: StepDefinition, index: number, run: RunContext
     handoffId: newId("hnd"),
     step,
     sender: senderAttempt
-      ? { step: run.workflow.steps[index - 1]!, attemptId: senderAttempt.id, reportedOutput: senderAttempt.reportedOutput }
+      ? { step: agentStepAt(run, senderIndex(index, run)), attemptId: senderAttempt.id, reportedOutput: senderAttempt.reportedOutput }
       : null,
     baseCommit: stepBase(index, run),
   });
@@ -342,16 +368,26 @@ function revisedHandoff(step: StepDefinition, view: StepView, failed: AttemptVie
   const accepted = view.handoffs.at(-1)!.handoff;
   const hiddenTests = (step.verification.hiddenTests ?? []).length > 0;
   const learned: HandoffEvidence[] = failed.sentBack
-    ? [{ kind: "review_findings", reviewStepId: failed.sentBack.reviewStepId, findings: failed.sentBack.findings }]
+    ? [sentBackEvidence(failed.sentBack)]
     : retryEvidence(failed.verification?.evidence ?? [], { hiddenTests });
-  // A step that fails again after a send-back still has to act on the review's findings, so they stay with the new failure.
-  const findings = failed.sentBack ? [] : accepted.evidence.filter((item) => item.kind === "review_findings");
+  // A step that fails again after a send-back still has to act on the review's findings or the approver's reason, so
+  // they stay with the new failure.
+  const findings = failed.sentBack ? [] : accepted.evidence.filter(isSentBackEvidence);
   const alternative = change === "reroute" ? step.reroute! : null;
   return reviseHandoff(accepted, {
     evidence: learned.length > 0 ? [...findings, ...learned] : accepted.evidence,
     to: alternative ? { adapter: alternative.adapter, requestedModel: alternative.model ?? null } : undefined,
   });
 }
+
+/** What the agent is told of the review or the person that sent its step back, whole. */
+function sentBackEvidence(sentBack: SentBack): HandoffEvidence {
+  return sentBack.kind === "review"
+    ? { kind: "review_findings", reviewStepId: sentBack.reviewStepId, findings: sentBack.findings }
+    : { kind: "approval_rejected", gateStepId: sentBack.gateStepId, reason: sentBack.reason };
+}
+
+const isSentBackEvidence = (item: HandoffEvidence) => item.kind === "review_findings" || item.kind === "approval_rejected";
 
 /** Records the issue of a handoff revision, then has it validated. */
 async function issueHandoff(step: StepDefinition, handoff: HandoffRevision, run: RunContext): Promise<void> {
@@ -663,14 +699,7 @@ async function sendBack(step: StepDefinition, index: number, attempt: AttemptVie
   if (target?.id !== step.review!.sendBackTo) {
     throw new Error(`review step "${step.id}" sends back "${step.review!.sendBackTo}", which is not the step before it`);
   }
-  const decision = decideAfterFailure({
-    failureClass: "verification_failed",
-    policy: resolveRetryPolicy(target.retry),
-    usage: stepOf(run, index - 1).retryUsage,
-    validatorRuns: 1,
-    reroute: false,
-  });
-  if (decision.action !== "retry") {
+  if (!canBeSentBack(index - 1, run)) {
     return run.record({ type: "step_terminal", stepId: step.id, state: "failed", failureClass: "verification_failed" });
   }
   const sent = stepOf(run, index - 1).attempts.at(-1)!;
@@ -681,6 +710,71 @@ async function sendBack(step: StepDefinition, index: number, attempt: AttemptVie
     reviewStepId: step.id,
     reviewAttemptId: attempt.id,
   });
+}
+
+/** Whether the step at `index` has retry budget left to be sent back on: a send-back is its `verification_failed` retry. */
+function canBeSentBack(index: number, run: RunContext): boolean {
+  const decision = decideAfterFailure({
+    failureClass: "verification_failed",
+    policy: resolveRetryPolicy(agentStepAt(run, index).retry),
+    usage: stepOf(run, index).retryUsage,
+    validatorRuns: 1,
+    reroute: false,
+  });
+  return decision.action === "retry";
+}
+
+/**
+ * An approval gate: it asks a person once the step before it has succeeded, and acts on what the person decided. The
+ * run stops in `waiting_approval` with the request recorded, and no process stays to wait: a person's decision
+ * (`ahp approve` / `ahp reject`) takes the ledger lock, records itself and resumes the run, which finds the decision
+ * here. A gate has no handoff, no attempt and nothing to verify.
+ */
+async function advanceGate(gate: ApprovalGateDefinition, index: number, run: RunContext): Promise<void> {
+  const view = stepOf(run, index);
+  switch (view.state) {
+    case "blocked":
+      return run.record({ type: "step_ready", stepId: gate.id });
+    case "ready":
+      return requestApproval(gate, index, run);
+    case "waiting_approval": {
+      const decision = view.approvals.at(-1)?.decision;
+      // The run is running again only once a person decided.
+      if (!decision) throw new Error(`gate "${gate.id}" awaits a person's decision, so the run is not to be driven`);
+      if (decision.decision === "approved") {
+        return run.record({ type: "step_terminal", stepId: gate.id, state: "succeeded", failureClass: null });
+      }
+      return rejectBack(gate, index, run);
+    }
+    default:
+      throw new Error(`step "${gate.id}" is ${view.state}, so there is nothing to advance`);
+  }
+}
+
+/**
+ * Puts the verified result of the step before the gate to a person: the attempt, its snapshot and what it changed
+ * against the run's base commit, which is what a later push would publish. Then the run stops.
+ */
+async function requestApproval(gate: ApprovalGateDefinition, index: number, run: RunContext): Promise<void> {
+  const sent = run.state().steps[index - 1]!.attempts.at(-1)!;
+  const { baseCommit } = run.state();
+  const commit = sent.snapshot!.commit;
+  const { items, truncated } = bounded(await changedPaths(run.location.repo, baseCommit, commit));
+  await run.record({ type: "approval_requested", stepId: gate.id, attemptId: sent.id, base: baseCommit, commit, changed: items, truncated });
+}
+
+/**
+ * A rejection sends the step before the gate back, with the person's reason as evidence in its next handoff revision,
+ * as a review's changes requested would (ADR 0004). With none of that step's retry budget left the gate fails, and
+ * the run with it: the person has said the work is not to go on, and nothing is left to fix it with.
+ */
+async function rejectBack(gate: ApprovalGateDefinition, index: number, run: RunContext): Promise<void> {
+  const target = agentStepAt(run, index - 1);
+  if (!canBeSentBack(index - 1, run)) {
+    return run.record({ type: "step_terminal", stepId: gate.id, state: "failed", failureClass: "verification_failed" });
+  }
+  const sent = stepOf(run, index - 1).attempts.at(-1)!;
+  return run.record({ type: "approval_sent_back", stepId: target.id, attemptId: sent.id, gateStepId: gate.id });
 }
 
 /** Runs one verification of an attempt's snapshot and records it and its verdict. */

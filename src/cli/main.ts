@@ -4,11 +4,13 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { RECOVERY_ACTIONS, type LedgerEvent, type RecoveryAction, type RunView } from "../protocol/index.ts";
 import {
+  approveStep,
   DISCARD_AND_RETRY_DEFERRED,
   inspectRun,
   isAttemptId,
   isRunId,
   recoverAttempt,
+  rejectStep,
   resumeRun,
   runWorkflow,
   validateWorkflow,
@@ -25,19 +27,25 @@ Commands:
   recover <attempt-id> --policy adopt|abort
                         Decide an attempt that awaits recovery, then resume its run: adopt
                         verifies its workspace as its result, abort ends its step
+  approve <run-id> <step-id>
+                        Approve the gate a run is waiting at, then resume the run
+  reject <run-id> <step-id> --reason <text>
+                        Reject it: the step before the gate is sent back with your reason
 
 Options:
   --repo <dir>          The git repository to use (default: the current directory)
   --json                inspect: print the derived state, the ledger check and the run's lock as JSON
   --policy <decision>   recover: adopt or abort
+  --reason <text>       reject: why the work is rejected (required)
   -h, --help            Show this help
   -v, --version         Show the version
 
-Ctrl+C during run or recover cancels the run: the running agent and every process it
-started are stopped, and the run ends cancelled.
+Ctrl+C during run, recover, approve or reject cancels the run: the running agent and every
+process it started are stopped, and the run ends cancelled.
 
 Exit codes: 0 the run succeeded, 1 it failed or ahp failed, 2 usage error,
-3 the run stopped for a recovery decision, 130 the run was cancelled`;
+3 the run stopped for a recovery decision, 4 the run stopped at an approval gate,
+130 the run was cancelled`;
 
 export interface Io {
   stdout: (text: string) => void;
@@ -62,12 +70,13 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
         repo: { type: "string" },
         json: { type: "boolean" },
         policy: { type: "string" },
+        reason: { type: "string" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean", short: "v" },
       },
     });
     const repo = resolve(values.repo ?? process.cwd());
-    const [command, target, ...extra] = positionals;
+    const [command, target, step, ...extra] = positionals;
 
     if (values.help) {
       io.stdout(USAGE);
@@ -77,7 +86,9 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
       io.stdout(version());
       return 0;
     }
-    if (extra.length > 0) throw new UsageError(`unexpected argument: ${extra[0]}`);
+    const deciding = command === "approve" || command === "reject";
+    // Only a decision takes a second argument, the gate's step ID.
+    if (extra.length > 0 || (step !== undefined && !deciding)) throw new UsageError(`unexpected argument: ${extra[0] ?? step}`);
     switch (command) {
       case "run":
         if (!target) throw new UsageError("run needs a workflow file");
@@ -88,6 +99,9 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
       case "recover":
         if (!target) throw new UsageError("recover needs a run ID, or an attempt ID and --policy");
         return await recoverCommand(target, values.policy, repo, io);
+      case "approve":
+      case "reject":
+        return await decideCommand(command, target, step, values.reason, repo, io);
       default:
         throw new UsageError(command ? `unknown command: ${command}` : "no command given");
     }
@@ -101,13 +115,18 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
   }
 }
 
-/** The exit code for a run in `state`: 0 succeeded, 3 stopped for a recovery decision, 130 cancelled, 1 anything else. */
+/**
+ * The exit code for a run in `state`: 0 succeeded, 3 stopped for a recovery decision, 4 stopped at an approval gate, 130
+ * cancelled, 1 anything else.
+ */
 function exitCodeOf(state: Readonly<RunView>): number {
   switch (state.state) {
     case "succeeded":
       return 0;
     case "needs_recovery":
       return 3;
+    case "waiting_approval":
+      return 4;
     case "cancelled":
       // What a shell reports for a command Ctrl+C stopped: 128 + SIGINT.
       return 130;
@@ -189,6 +208,25 @@ async function recoverCommand(target: string, policy: string | undefined, repo: 
   if (policy === "discard_and_retry") throw new UsageError(DISCARD_AND_RETRY_DEFERRED);
   if (!RECOVERY_ACTIONS.includes(policy as RecoveryAction)) throw new UsageError(`--policy must be adopt or abort, not ${policy}`);
   const { state } = await followRun(io, (following) => recoverAttempt({ repo, attemptId: target, policy: policy as RecoveryAction, ...following }));
+  return exitCodeOf(state);
+}
+
+/** `ahp approve <run> <step>` and `ahp reject <run> <step> --reason`: a person's decision at the gate a run waits at. */
+async function decideCommand(
+  command: "approve" | "reject",
+  runId: string | undefined,
+  stepId: string | undefined,
+  reason: string | undefined,
+  repo: string,
+  io: Io,
+): Promise<number> {
+  if (!runId || !stepId) throw new UsageError(`${command} needs a run ID and the approval gate's step ID: ahp ${command} <run-id> <step-id>${command === "reject" ? " --reason <text>" : ""}`);
+  if (!isRunId(runId)) throw new UsageError(`not a run ID: ${runId}`);
+  if (command === "approve" && reason !== undefined) throw new UsageError("approve takes no --reason; a rejection does: `ahp reject <run-id> <step-id> --reason <text>`");
+  if (command === "reject" && (reason === undefined || reason.trim() === "")) throw new UsageError("reject needs --reason <text>: it is sent back with the work");
+  const { state } = await followRun(io, (following) =>
+    command === "approve" ? approveStep({ repo, runId, stepId, ...following }) : rejectStep({ repo, runId, stepId, reason: reason!, ...following }),
+  );
   return exitCodeOf(state);
 }
 

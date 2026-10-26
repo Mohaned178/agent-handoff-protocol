@@ -1,4 +1,4 @@
-import { reviewFindingsOf, reviewVerdictOf } from "../protocol/index.ts";
+import { isApprovalGate, isPresentOutputField, reviewFindingsOf, reviewVerdictOf } from "../protocol/index.ts";
 import type {
   AttemptRecovery,
   AttemptState,
@@ -129,12 +129,14 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       endedAt: null,
       steps: event.workflow.steps.map((step) => ({
         id: step.id,
+        kind: isApprovalGate(step) ? "approval_gate" : step.review ? "review" : "agent",
         state: "blocked",
         failureClass: null,
         retryUsage: noRetriesSpent(),
         mock: false,
         handoffs: [],
         attempts: [],
+        approvals: [],
       })),
       ledgerTruncations: [],
       resumptions: [],
@@ -165,6 +167,18 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
   const refuseAfterCancel = (what: string) => {
     if (run.cancelRequestedAt !== null) throw new LedgerInconsistentError(event, `the run is being cancelled, so ${what}`);
   };
+  /** The step, which an event that needs a coding agent refuses to be about an approval gate. */
+  const agentStep = (stepId: string): StepView => {
+    const found = step(stepId);
+    if (found.kind === "approval_gate") throw new LedgerInconsistentError(event, `step "${found.id}" is an approval gate, which has no coding agent`);
+    return found;
+  };
+  /** The step, which an approval event requires to be an approval gate. */
+  const gateStep = (stepId: string): StepView => {
+    const found = step(stepId);
+    if (found.kind !== "approval_gate") throw new LedgerInconsistentError(event, `step "${found.id}" is not an approval gate`);
+    return found;
+  };
   /** The issued handoff revision a decision applies to; only an `issued` revision can be decided. */
   const issuedHandoff = (handoffId: string, revision: number): HandoffView => {
     const found = findHandoff(run, handoffId, revision);
@@ -184,7 +198,7 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       break;
     case "handoff_issued": {
       const { handoff } = event;
-      const s = step(handoff.to.stepId);
+      const s = agentStep(handoff.to.stepId);
       // Revisions are immutable and numbered in order: a change is always the next revision, which
       // supersedes the one before it. Nothing re-issues or skips a revision.
       const earlier = s.handoffs.filter((h) => h.handoffId === handoff.handoffId);
@@ -216,7 +230,7 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       break;
     }
     case "attempt_created": {
-      const s = step(event.stepId);
+      const s = agentStep(event.stepId);
       // An attempt runs only under a handoff revision the recipient has accepted.
       const handoff = s.handoffs.find((h) => h.handoffId === event.handoffId && h.revision === event.handoffRevision);
       if (handoff?.state !== "accepted") {
@@ -407,11 +421,78 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       }
       // The same budget as a failed verification: a send-back is that retry (ADR 0004).
       target.retryUsage.retries += 1;
-      sent.sentBack = { reviewStepId: reviewer.id, reviewAttemptId: review.id, findings };
+      sent.sentBack = { kind: "review", reviewStepId: reviewer.id, reviewAttemptId: review.id, findings };
       sent.retry = { change: "evidence", delayMs: 0, scheduledAt: event.time };
       target.state = "ready";
       // The review is done again, on the new result, once there is one.
       reviewer.state = "blocked";
+      break;
+    }
+    case "approval_requested": {
+      const gate = gateStep(event.stepId);
+      refuseAfterCancel("no approval is requested");
+      if (run.state !== "running" || gate.state !== "ready") {
+        throw new LedgerInconsistentError(event, `step "${gate.id}" is ${gate.state} in a ${run.state} run, not ready in a running one`);
+      }
+      // What is put to the approver is the verified result of the step immediately before the gate, as it is now.
+      const before = run.steps[run.steps.indexOf(gate) - 1];
+      const verified = before?.attempts.at(-1);
+      if (!before || before.state !== "succeeded" || verified?.id !== event.attemptId || verified.verification?.state !== "pass") {
+        throw new LedgerInconsistentError(event, `attempt "${event.attemptId}" is not the verified last attempt of the succeeded step before gate "${gate.id}"`);
+      }
+      if (verified.snapshot?.commit !== event.commit || event.base !== run.baseCommit) {
+        throw new LedgerInconsistentError(event, `the request does not name the run's base commit and attempt "${verified.id}"'s snapshot`);
+      }
+      gate.state = "waiting_approval";
+      run.state = "waiting_approval";
+      gate.approvals.push({
+        attemptId: event.attemptId,
+        requestedAt: event.time,
+        base: event.base,
+        commit: event.commit,
+        changed: event.changed,
+        truncated: event.truncated,
+        decision: null,
+      });
+      break;
+    }
+    case "approval_decided": {
+      const gate = gateStep(event.stepId);
+      const open = gate.approvals.at(-1);
+      if (run.state !== "waiting_approval" || gate.state !== "waiting_approval" || !open || open.decision) {
+        throw new LedgerInconsistentError(event, `step "${gate.id}" has no open request for approval`);
+      }
+      // A rejection is sent back with its reason, so it is never empty; an approval has none.
+      if (event.decision === "rejected" ? !isPresentOutputField(event.reason) : event.reason !== null) {
+        throw new LedgerInconsistentError(event, event.decision === "rejected" ? "a rejection needs a reason" : "an approval carries no reason");
+      }
+      open.decision = { decision: event.decision, reason: event.reason, user: event.user, time: event.time };
+      run.state = "running";
+      break;
+    }
+    case "approval_sent_back": {
+      const target = agentStep(event.stepId);
+      const gate = gateStep(event.gateStepId);
+      refuseAfterCancel("no step is sent back");
+      if (run.steps.indexOf(target) !== run.steps.indexOf(gate) - 1) {
+        throw new LedgerInconsistentError(event, `step "${target.id}" is not the step immediately before "${gate.id}", the only one it sends back`);
+      }
+      const sent = target.attempts.at(-1);
+      if (target.state !== "succeeded" || sent?.id !== event.attemptId) {
+        throw new LedgerInconsistentError(event, `step "${target.id}" is ${target.state}, not succeeded with attempt "${event.attemptId}" as its last`);
+      }
+      const rejection = gate.approvals.at(-1);
+      const decision = rejection?.decision;
+      if (gate.state !== "waiting_approval" || decision?.decision !== "rejected" || rejection!.attemptId !== sent.id) {
+        throw new LedgerInconsistentError(event, `gate "${gate.id}" has no rejection of attempt "${sent.id}"`);
+      }
+      // The same budget as a failed verification: a send-back is that retry (ADR 0004).
+      target.retryUsage.retries += 1;
+      sent.sentBack = { kind: "approval", gateStepId: gate.id, reason: decision.reason!, user: decision.user, decidedAt: decision.time };
+      sent.retry = { change: "evidence", delayMs: 0, scheduledAt: event.time };
+      target.state = "ready";
+      // The gate asks again, on the new result, once there is one.
+      gate.state = "blocked";
       break;
     }
     case "ref_snapshot_taken": {
@@ -457,8 +538,17 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
     }
     case "step_terminal": {
       const s = step(event.stepId);
-      // A step succeeds only because verification passed; the ledger may not claim otherwise.
-      if (event.state === "succeeded" && s.attempts.at(-1)?.verification?.state !== "pass") {
+      // A step succeeds only because verification passed, a gate only because a person approved; the ledger may not
+      // claim otherwise. A gate fails only because a person rejected and the step before it cannot be sent back again.
+      if (s.kind === "approval_gate") {
+        const decided = s.approvals.at(-1)?.decision?.decision;
+        if (event.state === "succeeded" && (s.state !== "waiting_approval" || decided !== "approved")) {
+          throw new LedgerInconsistentError(event, `gate "${s.id}" succeeded without an approval`);
+        }
+        if (event.state === "failed" && (s.state !== "waiting_approval" || decided !== "rejected")) {
+          throw new LedgerInconsistentError(event, `gate "${s.id}" failed without a rejection`);
+        }
+      } else if (event.state === "succeeded" && s.attempts.at(-1)?.verification?.state !== "pass") {
         throw new LedgerInconsistentError(event, `step "${s.id}" succeeded without a passing verification`);
       }
       if (event.state === "cancelled") {

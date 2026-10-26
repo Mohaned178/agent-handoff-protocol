@@ -2,8 +2,11 @@ import { adapters } from "../adapters/index.ts";
 import { lockPathOf, readCheckedLedger, readLockState, replay, type LockState } from "../ledger/index.ts";
 import type { LedgerEvent, RecoveryAction, RunView, WorkflowDefinition } from "../protocol/index.ts";
 import {
+  decideApproval,
   executeRun,
   locateRun,
+  pendingApprovalOf,
+  type PendingApproval,
   recoverAttempt as recoverAttemptInRuntime,
   resumeRun as resumeRunInRuntime,
   type Clock,
@@ -29,8 +32,8 @@ export interface RunWorkflowOptions {
 }
 
 /**
- * Validates and runs a workflow until it ends, or until it stops for a person (`needs_recovery`); resolves with the
- * run ID and its derived state.
+ * Validates and runs a workflow until it ends, or until it stops for a person (`needs_recovery`, or `waiting_approval`
+ * at an approval gate); resolves with the run ID and its derived state.
  */
 export async function runWorkflow(workflow: WorkflowDefinition, options: RunWorkflowOptions): Promise<RunResult> {
   return executeRun(defineWorkflow(workflow), { ...options, adapters });
@@ -64,6 +67,34 @@ export interface RecoverAttemptOptions extends RunWorkflowOptions {
  */
 export async function recoverAttempt(options: RecoverAttemptOptions): Promise<RunResult> {
   return recoverAttemptInRuntime({ ...options, adapters });
+}
+
+export interface DecideOptions extends RunWorkflowOptions {
+  runId: string;
+  /** The approval gate the run is waiting at. */
+  stepId: string;
+}
+
+/**
+ * Approves the gate the run is waiting at, taking the run's ledger lock, and resumes the run until it ends or stops
+ * again. Records who approved and when. Throws `ApprovalRefusedError`, writing nothing, unless the step is a gate with
+ * an open request; `LedgerLockedError` if a running process holds the run.
+ */
+export async function approveStep(options: DecideOptions): Promise<RunResult> {
+  return decideApproval({ ...options, decision: "approved", adapters });
+}
+
+export interface RejectOptions extends DecideOptions {
+  /** Why the work is rejected: sent to the coding agent as evidence in the next revision of the step's handoff. */
+  reason: string;
+}
+
+/**
+ * Rejects the gate the run is waiting at and sends the step before it back, with `reason` as evidence, which spends
+ * one retry of that step's budget; with none left the gate fails and so does the run. Otherwise as `approveStep`.
+ */
+export async function rejectStep(options: RejectOptions): Promise<RunResult> {
+  return decideApproval({ ...options, decision: "rejected", adapters });
 }
 
 export interface ReadRunOptions {
@@ -100,6 +131,8 @@ export interface RunInspection {
   };
   /** The run's ledger lock: free, or naming the process writing the run or one that stopped without releasing it. */
   lock: LockState;
+  /** What a person approving is shown, when the run is waiting at an approval gate: the diff of the verified result. */
+  approval: PendingApproval | null;
 }
 
 /**
@@ -111,7 +144,8 @@ export async function inspectRun(options: ReadRunOptions): Promise<RunInspection
   // The lock before the ledger: a writer that releases it in between has already recorded its last event.
   const lock = await readLockState(lockPathOf(path));
   const read = await readCheckedLedger(path);
-  return { state: replay(read.events), ledger: { events: read.events.length, tornTail: read.tornTail }, lock };
+  const state = replay(read.events);
+  return { state, ledger: { events: read.events.length, tornTail: read.tornTail }, lock, approval: await pendingApprovalOf(state) };
 }
 
 const runLedgerPath = async ({ repo, runId }: ReadRunOptions) => (await locateRun(repo, runId)).path;

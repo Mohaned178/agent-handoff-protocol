@@ -17,9 +17,14 @@ export type RunState =
   | "failed"
   | "cancelled";
 
+/**
+ * A step's state. An approval gate goes `blocked → ready → waiting_approval → succeeded | failed` and never
+ * `in_progress` or `verifying`: it has no coding agent, so no attempt.
+ */
 export type StepState =
   | "blocked"
   | "ready"
+  | "waiting_approval"
   | "in_progress"
   | "verifying"
   | "succeeded"
@@ -231,9 +236,30 @@ export interface StepDefinition {
   artifacts?: string[];
 }
 
+/** What a human may decide at an approval gate. There is no edit: the approver approves or sends work back. */
+export const APPROVAL_DECISIONS = ["approved", "rejected"] as const;
+export type ApprovalDecisionKind = (typeof APPROVAL_DECISIONS)[number];
+
+/**
+ * Makes a step an approval gate: no coding agent, and nothing to verify. The run stops at it in `waiting_approval`
+ * and its process exits; a person approves, which lets the run go on, or rejects with a reason, which sends back the
+ * step immediately before it (ADR 0004), so that step must be an agent step. Takes no options yet.
+ */
+export type ApprovalDefinition = Record<string, never>;
+
+export interface ApprovalGateDefinition {
+  id: string;
+  approval: ApprovalDefinition;
+}
+
+/** A step of a workflow: one a coding agent performs, or an approval gate. */
+export type WorkflowStepDefinition = StepDefinition | ApprovalGateDefinition;
+
+export const isApprovalGate = (step: WorkflowStepDefinition): step is ApprovalGateDefinition => "approval" in step;
+
 export interface WorkflowDefinition {
   name: string;
-  steps: StepDefinition[];
+  steps: WorkflowStepDefinition[];
 }
 
 // ---------------------------------------------------------------------------
@@ -467,6 +493,35 @@ export type LedgerEventBody =
    */
   | { type: "step_sent_back"; stepId: string; attemptId: string; reviewStepId: string; reviewAttemptId: string }
   /**
+   * The run reached an approval gate: the step before it (`attemptId`'s) succeeded, and the run stops in
+   * `waiting_approval` for a person. The request binds the decision to what was verified: the attempt, its snapshot
+   * `commit`, and the paths that differ between the run's `base` commit (what a later push would publish against) and
+   * that commit. A decision applies to this commit and no other.
+   */
+  | {
+      type: "approval_requested";
+      stepId: string;
+      attemptId: string;
+      base: string;
+      commit: string;
+      changed: ChangedPath[];
+      /** True when `changed` lists only the first of more. */
+      truncated: boolean;
+    }
+  /**
+   * A person decided the gate's open request, after taking the ledger lock. A rejection carries the reason, which
+   * reaches the coding agent as evidence; an approval carries none. `user` is the name the operating system gives
+   * the person; the time is the event's.
+   */
+  | { type: "approval_decided"; stepId: string; decision: ApprovalDecisionKind; reason: string | null; user: string }
+  /**
+   * The gate's rejection sends the step before it (`stepId`, whose last attempt `attemptId` was the one put to the
+   * approver) back, as a review's changes requested would: the step goes back to `ready` for a new attempt under a
+   * new handoff revision carrying the reason, spends one retry of its budget (ADR 0004), and the gate goes back to
+   * `blocked`. Recorded before the revision or the attempt begins; the reason is the decision's, which replay reads.
+   */
+  | { type: "approval_sent_back"; stepId: string; attemptId: string; gateStepId: string }
+  /**
    * The step will be tried again: recorded before any wait and before the next attempt (or the new handoff
    * revision) begins. Retry budgets are counted from these events.
    */
@@ -614,12 +669,51 @@ export interface RecoveryDecision {
 }
 
 /** A send-back, as the review step's attempt reported it. */
-export interface SentBack {
+export interface ReviewSentBack {
+  kind: "review";
   reviewStepId: string;
   reviewAttemptId: string;
   /** What the review found, in its words. */
   findings: string[];
 }
+
+/** A send-back by a person who rejected the attempt's result at an approval gate. */
+export interface ApprovalSentBack {
+  kind: "approval";
+  gateStepId: string;
+  /** The reason the approver gave, in their words. */
+  reason: string;
+  user: string;
+  /** When the rejection was decided (ISO). */
+  decidedAt: string;
+}
+
+export type SentBack = ReviewSentBack | ApprovalSentBack;
+
+/** A person's decision at an approval gate, as its `approval_decided` event records it. */
+export interface ApprovalDecision {
+  decision: ApprovalDecisionKind;
+  reason: string | null;
+  user: string;
+  time: string;
+}
+
+/** One request for approval of a gate: what was put to the approver, and what they decided once they did. */
+export interface ApprovalView {
+  /** The verified attempt of the step before the gate. */
+  attemptId: string;
+  /** When the run stopped for approval (ISO). */
+  requestedAt: string;
+  /** The run's base commit, and the attempt's snapshot commit: the diff approved is between them. */
+  base: string;
+  commit: string;
+  changed: ChangedPath[];
+  truncated: boolean;
+  decision: ApprovalDecision | null;
+}
+
+/** What a step is: one a coding agent performs, a review (an agent step that can send the one before it back), or an approval gate. */
+export type StepKind = "agent" | "review" | "approval_gate";
 
 export interface ScheduledRetry {
   change: RetryChange;
@@ -656,6 +750,7 @@ export interface RetryUsage {
 
 export interface StepView {
   id: string;
+  kind: StepKind;
   state: StepState;
   failureClass: FailureClass | null;
   retryUsage: RetryUsage;
@@ -664,6 +759,8 @@ export interface StepView {
   /** Every handoff revision issued to this step, in issue order. */
   handoffs: HandoffView[];
   attempts: AttemptView[];
+  /** The requests for approval of an approval gate, in order; empty for any other step. */
+  approvals: ApprovalView[];
 }
 
 /** A torn tail truncated from the ledger, as its `ledger_truncated` event records it. */

@@ -184,7 +184,7 @@ describe("inspecting a run", () => {
     const { repo, runId, state } = await finishedRun();
     const path = ledgerFile(repo, runId);
     const events = ledgerLines(repo, runId).length;
-    expect(await inspectRun({ repo, runId })).toEqual({ state, ledger: { events, tornTail: null }, lock: { state: "free" } });
+    expect(await inspectRun({ repo, runId })).toEqual({ state, ledger: { events, tornTail: null }, lock: { state: "free" }, approval: null });
 
     const { writer } = await LedgerWriter.open(path);
     appendFileSync(path, "{");
@@ -195,6 +195,7 @@ describe("inspecting a run", () => {
       state,
       ledger: { events, tornTail: { bytes: 1 } },
       lock: { state: "held", owner: { host: hostname(), pid: process.pid, startedAt: expect.any(String) } },
+      approval: null,
     });
   });
 

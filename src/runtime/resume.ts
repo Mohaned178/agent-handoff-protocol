@@ -102,7 +102,7 @@ export async function recoverAttempt(options: RecoverAttemptOptions): Promise<Ru
  * Opens an existing run to continue it, taking over a stale lock: whoever calls this was asked by a person to
  * continue the run, and records that it did (`run_resumed`, naming the stale lock's process) before anything else.
  */
-async function openRun(location: RepoLocation, runId: string, options: ContinueRunOptions) {
+export async function openRun(location: RepoLocation, runId: string, options: ContinueRunOptions) {
   const clock = options.clock ?? systemClock;
   const worktreeRoot = await prepareWorktreeRoot();
   const { writer, events, takenOverFrom } = await LedgerWriter.open(ledgerPath(location, runId), () => clock.now(), {
@@ -173,7 +173,7 @@ const exists = (path: string) =>
   );
 
 /** Who is deciding, as the operating system names the user running this process. */
-function currentUser(): string {
+export function currentUser(): string {
   try {
     return userInfo().username;
   } catch {

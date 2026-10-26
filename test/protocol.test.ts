@@ -110,6 +110,18 @@ describe("the published protocol schemas", () => {
     expect(validate(withEvidence([{ ...findings, extra: true }]))).toBe(false);
   });
 
+  it("describe the evidence of a rejection at an approval gate: the gate and the approver's reason", async () => {
+    const validate = new Ajv2020({ strict: true }).compile(protocolJsonSchemas()["handoff-revision.schema.json"]!);
+    const handoff = (await issuedHandoff()) as Record<string, unknown>;
+    const withEvidence = (evidence: unknown[]) => ({ ...handoff, revision: 2, supersedes: 1, evidence });
+    const rejected = { kind: "approval_rejected", gateStepId: "approve", reason: "use a constant" };
+
+    expect(validate(withEvidence([rejected])), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate(withEvidence([{ ...rejected, reason: "" }]))).toBe(false);
+    expect(validate(withEvidence([{ ...rejected, gateStepId: "Not A Step" }]))).toBe(false);
+    expect(validate(withEvidence([{ ...rejected, user: "someone" }]))).toBe(false);
+  });
+
   it("carry the repository-path rules, so a third-party validator rejects paths the SDK rejects", async () => {
     const validate = new Ajv2020({ strict: true }).compile(protocolJsonSchemas()["handoff-revision.schema.json"]!);
     const handoff = (await issuedHandoff()) as { artifacts: { path: string; sha256: string }[] };
