@@ -1,4 +1,4 @@
-import { isApprovalGate, isExternalAction, isExternalActionDone, isPresentOutputField, reviewFindingsOf, reviewVerdictOf } from "../protocol/index.ts";
+import { isApprovalGate, isExternalAction, isExternalActionDone, isPresentOutputField, reviewFindingsOf, reviewVerdictOf, UNKNOWN_MODEL } from "../protocol/index.ts";
 import type {
   AttemptRecovery,
   AttemptState,
@@ -299,7 +299,9 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
         adapter: event.adapter,
         mock: event.mock,
         requestedModel: event.requestedModel,
-        reportedModel: "unknown",
+        reportedModel: UNKNOWN_MODEL,
+        usage: null,
+        capabilities: event.capabilities ?? null,
         workspace: event.workspace,
         refs: { before: null, after: null },
         snapshot: null,
@@ -345,6 +347,8 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       a.reportedOutput = event.reportedOutput;
       a.stopReason = event.stopReason ?? null;
       a.error = event.error ?? null;
+      a.reportedModel = event.reportedModel ?? UNKNOWN_MODEL;
+      a.usage = event.usage ?? null;
       break;
     }
     case "attempt_unknown": {

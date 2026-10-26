@@ -4,6 +4,7 @@ import type { Adapter } from "../adapters/index.ts";
 import { clearStaleLock, findAttempt, LedgerWriter, lockPathOf, readCheckedLedger, readLedger, replay } from "../ledger/index.ts";
 import { RECOVERY_ACTIONS, type LedgerEvent, type LockOwner, type RecoveryAction, type RunView } from "../protocol/index.ts";
 import { systemClock, type Clock } from "./clock.ts";
+import { currentPlatform } from "./capabilities.ts";
 import { githubCli, type PullRequestProvider } from "./pull-requests.ts";
 import { isAttemptId, isRunId, ledgerPath, locateRepo, locateRun, prepareWorktreeRoot, runsDir, type RepoLocation } from "./paths.ts";
 import { drive, runCancel, runContext, type RunContext, type RunResult } from "./run.ts";
@@ -20,6 +21,8 @@ export interface ContinueRunOptions {
   cancelGraceMs?: number;
   /** Pull requests for external actions, as in `ExecuteRunOptions`. */
   pullRequests?: PullRequestProvider;
+  /** The operating system whose declared levels attempts are recorded with, as in `ExecuteRunOptions`. */
+  platform?: string;
 }
 
 export interface RecoverAttemptOptions extends ContinueRunOptions {
@@ -125,6 +128,7 @@ export async function openRun(location: RepoLocation, runId: string, options: Co
     clock,
     cancel: runCancel(options),
     pullRequests: options.pullRequests ?? githubCli(),
+    platform: options.platform ?? currentPlatform(),
   };
   const run: RunContext = runContext(writer, events, fields, options.onEvent);
   return { run, writer, takenOverFrom };

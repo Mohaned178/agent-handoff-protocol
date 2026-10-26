@@ -54,6 +54,18 @@ describe("the published protocol schemas", () => {
     expect(validate({ ...handoff, context: { fields: { "bad name": "x" } } })).toBe(false);
     const { revision: _revision, ...withoutRevision } = handoff;
     expect(validate(withoutRevision)).toBe(false);
+
+    // The capability requests and network stance are part of the published envelope.
+    expect(handoff.capabilities).toEqual([{ kind: "no_external_actions", require: "none" }]);
+    expect(handoff.network).toEqual({ stance: "deny", require: "none" });
+    expect(validate({ ...handoff, capabilities: [{ kind: "write_scope", paths: ["src"], require: "enforced_by_tool" }] })).toBe(true);
+    expect(validate({ ...handoff, capabilities: [{ kind: "sudo", require: "none" }] })).toBe(false);
+    expect(validate({ ...handoff, capabilities: [{ kind: "read_only" }] })).toBe(false);
+    expect(validate({ ...handoff, capabilities: [{ kind: "write_scope", paths: [], require: "none" }] })).toBe(false);
+    expect(validate({ ...handoff, capabilities: [{ kind: "write_scope", paths: ["../up"], require: "none" }] })).toBe(false);
+    expect(validate({ ...handoff, network: { stance: "allow", require: "none" } })).toBe(false);
+    const { network: _network, ...withoutNetwork } = handoff;
+    expect(validate(withoutNetwork)).toBe(false);
   });
 
   it("describe the evidence a retry's handoff revision carries, and real revisions conform", async () => {
@@ -143,8 +155,8 @@ describe("the published protocol schemas", () => {
     };
 
     // Literal lists: adding a reason or a state is a protocol change that must show up here.
-    expect(reason.properties.code.enum).toEqual(["schema_invalid", "artifact_hash_mismatch", "unmet_dependency"]);
-    expect([...HANDOFF_REJECTION_REASONS]).toEqual(["schema_invalid", "artifact_hash_mismatch", "unmet_dependency"]);
+    expect(reason.properties.code.enum).toEqual(["schema_invalid", "artifact_hash_mismatch", "unmet_dependency", "capability_unsatisfiable"]);
+    expect([...HANDOFF_REJECTION_REASONS]).toEqual(["schema_invalid", "artifact_hash_mismatch", "unmet_dependency", "capability_unsatisfiable"]);
     expect([...HANDOFF_STATES]).toEqual(["issued", "accepted", "rejected", "superseded"]);
     expect(reason.additionalProperties).toBe(false);
   });

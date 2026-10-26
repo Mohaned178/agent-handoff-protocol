@@ -5,6 +5,7 @@
 // hashes and rejection reasons are AHP-specific and belong to the A2A extension profile (ticket 17).
 
 import { z } from "zod";
+import { CAPABILITY_KINDS, ENFORCEMENT_LEVELS, NETWORK_STANCES } from "./capabilities.ts";
 import { PROTOCOL_VERSION } from "./version.ts";
 
 /** Handoff revision states. `superseded` is set when a later revision of the same handoff is issued. */
@@ -17,8 +18,10 @@ export type HandoffState = (typeof HANDOFF_STATES)[number];
  * - `artifact_hash_mismatch`: an artifact exists at the base commit but its committed content hashes differently.
  * - `unmet_dependency`: something the handoff requires is not there: a required field missing from the context,
  *   a required artifact not listed, or a listed artifact (or the base commit) absent from the repository.
+ * - `capability_unsatisfiable`: the recipient's adapter cannot apply a requested capability, or the network stance, at the
+ *   enforcement level the handoff requires on this operating system.
  */
-export const HANDOFF_REJECTION_REASONS = ["schema_invalid", "artifact_hash_mismatch", "unmet_dependency"] as const;
+export const HANDOFF_REJECTION_REASONS = ["schema_invalid", "artifact_hash_mismatch", "unmet_dependency", "capability_unsatisfiable"] as const;
 export type HandoffRejectionReason = (typeof HANDOFF_REJECTION_REASONS)[number];
 
 /**
@@ -103,6 +106,32 @@ export const ArtifactReferenceSchema = z
   .describe(
     "A file passed by reference, read from the handoff's base commit. AHP extension: A2A artifacts carry no content hash.",
   );
+
+const requiredLevelSchema = z
+  .enum(ENFORCEMENT_LEVELS)
+  .describe("The weakest enforcement level the recipient's adapter may apply this at on the running operating system; a weaker one rejects the handoff.");
+
+export const CapabilityRequestSchema = z
+  .discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("read_only"), require: requiredLevelSchema }),
+    z.strictObject({
+      kind: z.literal("write_scope"),
+      paths: z.array(repoPathSchema).min(1).describe("The only paths the agent may change, each a file or a directory with everything under it."),
+      require: requiredLevelSchema,
+    }),
+    z.strictObject({ kind: z.literal("no_external_actions"), require: requiredLevelSchema }),
+  ])
+  .describe(
+    "A capability the recipient's adapter is to apply to the coding agent's tool use. `enforced_by_tool` means the tool " +
+      "blocks what it forbids; `cooperative` means the agent is only asked, which is not enforcement. AHP extension: no A2A counterpart.",
+  );
+
+export const NetworkRequestSchema = z
+  .strictObject({
+    stance: z.enum(NETWORK_STANCES).describe("The network access the agent's own tool use has, never its connection to its model provider."),
+    require: requiredLevelSchema,
+  })
+  .describe("The step's network stance. AHP extension: no A2A counterpart.");
 
 /**
  * What a retry tells the coding agent about why the step's last attempt failed: the failing parts of its
@@ -214,6 +243,10 @@ export const HandoffRevisionSchema = z
         }),
       })
       .describe("The recipient step's contract. AHP extension: acceptance criteria."),
+    capabilities: z
+      .array(CapabilityRequestSchema)
+      .describe("What the recipient's adapter is to apply, at least at each request's required level. Every agent step carries `no_external_actions`."),
+    network: NetworkRequestSchema,
     context: z
       .strictObject({
         fields: z
@@ -256,14 +289,25 @@ export const HandoffRevisionSchema = z
     duplicates(["requires", "fields"], handoff.requires.fields);
     duplicates(["requires", "artifacts"], handoff.requires.artifacts);
     duplicates(["contract", "acceptance", "requiredOutputFields"], handoff.contract.acceptance.requiredOutputFields);
+    duplicates(["capabilities"], handoff.capabilities.map((c) => c.kind));
+    handoff.capabilities.forEach((capability, index) => {
+      if (capability.kind === "write_scope") duplicates(["capabilities", index, "paths"], capability.paths);
+    });
+    const kinds = handoff.capabilities.map((c) => c.kind);
+    if (kinds.includes("read_only") && kinds.includes("write_scope")) {
+      ctx.addIssue({ code: "custom", path: ["capabilities"], message: "`read_only` and `write_scope` contradict each other" });
+    }
   })
   .meta({
     title: "AHP handoff revision",
     description:
       "An immutable revision of a handoff. Rules JSON Schema cannot express: `supersedes` is null for revision 1 " +
-      "and revision - 1 otherwise; revision 1 carries no evidence; paths and field names listed in one array are unique.",
+      "and revision - 1 otherwise; revision 1 carries no evidence; paths and field names listed in one array are unique; " +
+      "each capability kind is requested at most once, and `read_only` and `write_scope` are not requested together.",
   });
 
+export type CapabilityRequest = z.infer<typeof CapabilityRequestSchema>;
+export type NetworkRequest = z.infer<typeof NetworkRequestSchema>;
 export type ArtifactReference = z.infer<typeof ArtifactReferenceSchema>;
 export type HandoffRevision = z.infer<typeof HandoffRevisionSchema>;
 export type HandoffEvidence = z.infer<typeof HandoffEvidenceSchema>;

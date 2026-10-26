@@ -12,6 +12,15 @@ _Avoid_: Model, backend, inference engine
 The per-tool component that drives one coding agent through its transport and declares that tool's capabilities.
 _Avoid_: Inference adapter, driver, plugin
 
+**Adapter declaration**:
+What an adapter says about itself statically, the same on every run: its transport kind, its model reporting level, the login its tool needs, whether its transport has a graceful cancel, and the enforcement level at which it applies each capability and each network stance on each operating system (stated for every one; `none` says it cannot). The runtime checks a handoff against it before any agent starts. The levels are claims about the tool that the conformance suite checks (ticket 12).
+
+**Model reporting level**:
+How much an adapter can say about its tool's model: `enumerable` (the integration lists selectable models), `pass_through` (the tool accepts a model name, which is passed on unvalidated) or `not_exposed`. AHP never claims to discover what a subscription entitles the user to.
+
+**Login kind**:
+The login an adapter's tool needs: `none`, `tool_login` (made in the tool itself) or `api_key` (configured through the tool's own settings or environment). AHP stores no credential.
+
 **Transport**:
 The interface an adapter uses to drive a coding agent: a vendor-maintained interface (native ACP, the vendor's SDK or app-server protocol) where one exists, otherwise the tool's headless mode.
 _Avoid_: Protocol (reserved for AHP itself)
@@ -50,7 +59,10 @@ The step whose passing attempt a handoff hands on.
 The step a handoff is issued to, and whose coding agent receives it.
 
 **Rejection reason**:
-One of a closed set of machine-readable codes saying why a handoff revision was rejected: schema invalid, artifact hash mismatch or unmet dependency.
+One of a closed set of machine-readable codes saying why a handoff revision was rejected: schema invalid, artifact hash mismatch, unmet dependency or capability unsatisfiable.
+
+**Capability unsatisfiable**:
+A rejection reason: the recipient's adapter cannot apply a requested capability, or the network stance, at the enforcement level the handoff requires on the operating system the run is on. Checked against the adapter's declaration, before any agent runs; every request it fails is reported, with where it is in the document.
 
 **Unmet dependency**:
 A rejection reason: something the handoff requires, such as a field, an artifact or the base commit, is not there.
@@ -170,11 +182,29 @@ _Avoid_: Checkpoint
 **Base commit**:
 The commit a step's workspace starts from: the repository's HEAD when the run began for the first step, the previous step's snapshot for later ones. Artifact hashes are read from it.
 
+**Capability**:
+Something a step asks of its coding agent's tool use, from a closed list: `read_only` (change no file), `write_scope` (change files only under listed paths) and `no_external_actions` (push, open or merge nothing and change no shared ref; ADR 0003). Every agent step carries `no_external_actions` whether or not its workflow lists it.
+
+**Capability request**:
+A capability in a handoff with the weakest enforcement level it may be applied at (`require`). A request the workflow lists defaults to `cooperative`: the adapter must at least ask the agent. The baseline `no_external_actions` and the network stance require `none`, so they are applied as far as the adapter can and reported, and are never the reason a handoff is rejected. Each kind is requested at most once, and `read_only` and `write_scope` are not requested together.
+
 **Enforcement level**:
-How strongly an applied capability is upheld: `enforced_by_tool`, `cooperative` or `none`.
+How strongly an applied capability is upheld: `enforced_by_tool` (the coding agent's own tool blocks what it forbids, so the agent cannot do it however it is prompted), `cooperative` (the agent is only asked, by a prompt instruction or an ACP permission request it may answer or ignore; nothing stops it) or `none` (not applied). Only `enforced_by_tool` is enforcement: prompt instructions and ACP permission requests are never described as it.
+
+**Applied capability**:
+A requested capability with the enforcement level the adapter's declaration reaches for it on the operating system the run is on, recorded with the attempt before its agent starts. The level is the declared one: AHP does not ask the tool afterwards, and an adapter that cannot apply a capability fails the attempt instead of applying it more weakly.
 
 **Network stance**:
-The network access a step permits to the coding agent's own tool use (web fetch and search, shell network); never the agent's connection to its model provider.
+The network access a step permits to the coding agent's own tool use (web fetch and search, shell network); never the agent's connection to its model provider. `deny` (the default) or `package_registries` (package registries only, so an implement step can install dependencies). It is applied at the level the adapter declares and reported with the capabilities.
+
+**Requested model**:
+The model a step names for its coding agent, recorded as requested and passed to the tool unvalidated.
+
+**Reported model**:
+The model the coding agent's tool said it ran, as it said it, recorded beside the requested one. `unknown` when the tool did not say; never filled in from the request.
+
+**Usage report**:
+What a coding agent's tool reported using for an attempt (token counts, a cost), with the source of the numbers. Recorded only when the adapter reports it: a number the tool did not give is null, never 0, and nothing is estimated, derived or summed across attempts. A report that names no source, has a negative or non-finite number, or reports no number at all is not recorded. The mock adapter's usage is scripted and labelled so.
 
 **External action**:
 An effect outside the workspace and shared repo, such as push, PR or merge, performed only by AHP after verification and approval. Deploy is not an external action AHP performs in release 1.

@@ -2,7 +2,7 @@
 
 export * from "./protocol/index.ts";
 export * from "./sdk/index.ts";
-export { mock, type MockAttemptScript, type MockEdit, type MockOptions } from "./adapters/index.ts";
+export { mock, MOCK_USAGE_SOURCE, type MockAttemptScript, type MockEdit, type MockOptions, type MockUsage } from "./adapters/index.ts";
 export {
   classifyAttempt,
   decideAfterFailure,

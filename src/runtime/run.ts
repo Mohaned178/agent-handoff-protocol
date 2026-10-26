@@ -7,6 +7,7 @@ import {
   isAgentStep,
   isApprovalGate,
   isExternalAction,
+  isUsageReport,
   PROTOCOL_VERSION,
   requiredOutputFieldsOf,
   reviewVerdictOf,
@@ -30,6 +31,7 @@ import {
   type WorkflowDefinition,
   type WorkflowStepDefinition,
 } from "../protocol/index.ts";
+import { currentPlatform, resolveCapabilities } from "./capabilities.ts";
 import { systemClock, type Clock } from "./clock.ts";
 import { advanceCancelledExternalAction, advanceExternalAction } from "./external.ts";
 import { classifyAttempt, decideAfterFailure, resolveRetryPolicy, verdictFailure, type FailureDecision } from "./failure.ts";
@@ -69,6 +71,12 @@ export interface ExecuteRunOptions {
   cancelGraceMs?: number;
   /** Finds, opens and merges pull requests for external actions. Default: the GitHub CLI, under the user's own login. */
   pullRequests?: PullRequestProvider;
+  /**
+   * The operating system whose declared enforcement levels a handoff is checked against and an attempt is recorded
+   * with, as Node's `process.platform` names it. Default: the system the run is on. Tests pass another to see an
+   * adapter's levels differ by system.
+   */
+  platform?: string;
 }
 
 /** How long an adapter still starting an agent when the run is cancelled is given to say whether it did. */
@@ -102,6 +110,8 @@ export interface RunContext {
   clock: Clock;
   cancel: RunCancel;
   pullRequests: PullRequestProvider;
+  /** The operating system the adapters' declared levels are read for. */
+  platform: string;
   /** The state derived from the ledger so far. */
   state: () => Readonly<RunView>;
   /** The ledger's events so far, in append order. */
@@ -146,7 +156,7 @@ export async function executeRun(workflow: WorkflowDefinition, options: ExecuteR
   const clock = options.clock ?? systemClock;
   const runId = newId("run");
   const ledger = await LedgerWriter.create(ledgerPath(location, runId), () => clock.now());
-  const fields = { runId, location, worktreeRoot, adapters: options.adapters, workflow, clock, cancel: runCancel(options), pullRequests: options.pullRequests ?? githubCli() };
+  const fields = { runId, location, worktreeRoot, adapters: options.adapters, workflow, clock, cancel: runCancel(options), pullRequests: options.pullRequests ?? githubCli(), platform: options.platform ?? currentPlatform() };
   const run = runContext(ledger, [], fields, options.onEvent);
   try {
     await run.record({
@@ -411,7 +421,8 @@ async function issueHandoff(step: StepDefinition, handoff: HandoffRevision, run:
  */
 async function decideHandoff(step: StepDefinition, handoff: HandoffRevision, run: RunContext): Promise<void> {
   // Validate the document as a recipient would receive it, not the object the runtime built.
-  const validation = await validateHandoffRevision(JSON.parse(JSON.stringify(handoff)), run.location.repo);
+  const recipient = { declaration: run.adapters.get(handoff.to.adapter)?.declaration, platform: run.platform };
+  const validation = await validateHandoffRevision(JSON.parse(JSON.stringify(handoff)), run.location.repo, recipient);
   const { handoffId, revision } = handoff;
   if (!validation.accepted) {
     await run.record({ type: "handoff_rejected", handoffId, revision, reasons: validation.reasons });
@@ -439,6 +450,12 @@ async function executeAttempt(step: StepDefinition, index: number, run: RunConte
     await addWorktree(location.repo, attempt.workspace, base, { force: true });
   } else {
     const accepted = view.handoffs.at(-1)!.handoff;
+    // What the handoff asked for, at the level this adapter declares for this system. Accepted on the same terms, so a
+    // shortfall now means the system or the adapter changed since: the run does not go on at a weaker level.
+    const { applied, shortfalls } = resolveCapabilities(accepted, adapter.declaration, run.platform);
+    if (shortfalls.length > 0) {
+      throw new Error(`step "${step.id}": the accepted handoff can no longer be satisfied: ${shortfalls.map((s) => s.message).join("; ")}`);
+    }
     const attemptId = newId("att");
     await record({
       type: "attempt_created",
@@ -450,11 +467,13 @@ async function executeAttempt(step: StepDefinition, index: number, run: RunConte
       mock: adapter.declaration.mock,
       requestedModel: agent.model ?? null,
       workspace: worktreePath(worktreeRoot, runId, attemptId),
+      capabilities: applied,
     });
     attempt = stepOf(run, index).attempts.at(-1)!;
     await addWorktree(location.repo, attempt.workspace, base);
   }
-  const { id: attemptId, workspace, number: attemptNumber } = attempt;
+  const { id: attemptId, workspace, number: attemptNumber, capabilities } = attempt;
+  if (!capabilities) throw new Error(`attempt "${attemptId}" was recorded without capabilities, so it cannot be dispatched`);
   const handoff = view.handoffs.find((h) => h.handoffId === attempt.handoff.id && h.revision === attempt.handoff.revision)!.handoff;
 
   await record({ type: "ref_snapshot_taken", attemptId, phase: "before", refs: await sharedRefs(location.repo) });
@@ -465,6 +484,7 @@ async function executeAttempt(step: StepDefinition, index: number, run: RunConte
     attemptNumber,
     workspace,
     requestedModel: agent.model ?? null,
+    capabilities,
     handoff,
     options: agent.options,
   });
@@ -500,8 +520,18 @@ async function executeAttempt(step: StepDefinition, index: number, run: RunConte
   if (exit === CANCELLED || (await cancelledAround(exitOutcome(exit) === "ok", run.cancel, run.clock))) {
     return cancelAttempt(attemptId, started, run);
   }
-  await record({ type: "attempt_exited", attemptId, outcome: exitOutcome(exit), ...exit, cancel: null });
+  await record({ type: "attempt_exited", attemptId, outcome: exitOutcome(exit), ...exit, ...reportedBy(exit), cancel: null });
 }
+
+/**
+ * What the tool reported of itself, as the ledger records it: the model it said it ran (`null` when it said none or a
+ * blank), and its usage only if it is a well-formed report with a source. Anything else is not recorded: no model is
+ * made up, and no usage is estimated or repaired.
+ */
+const reportedBy = (exit: Pick<AttemptExit, "reportedModel" | "usage">) => ({
+  reportedModel: exit.reportedModel !== null && exit.reportedModel.trim() !== "" ? exit.reportedModel.trim() : null,
+  usage: isUsageReport(exit.usage) ? exit.usage : null,
+});
 
 /**
  * How an agent's process ended, from its exit alone: `ok` exactly when that shows no failure. The attempt's failure
@@ -534,9 +564,10 @@ async function cancelAttempt(attemptId: string, started: StartedAttempt, run: Ru
   const exited = exit === TIMED_OUT || exit === null ? null : exit;
   if (termination.outcome === "already_gone") {
     if (!exited) return record({ type: "attempt_unknown", attemptId, reason: "lost_contact", detail: "the agent had ended, and its adapter could not say how" });
-    return record({ type: "attempt_exited", attemptId, outcome: exitOutcome(exited), ...exited, cancel: null });
+    return record({ type: "attempt_exited", attemptId, outcome: exitOutcome(exited), ...exited, ...reportedBy(exited), cancel: null });
   }
-  // A cancelled agent's report is not its result.
+  // A cancelled agent's report is not its result. What its tool said of its model and usage so far is not a result either,
+  // and is recorded if it said any.
   await record({
     type: "attempt_exited",
     attemptId,
@@ -546,6 +577,7 @@ async function cancelAttempt(attemptId: string, started: StartedAttempt, run: Ru
     reportedOutput: {},
     stopReason: null,
     error: null,
+    ...reportedBy(exited ?? { reportedModel: null, usage: null }),
     cancel: { forced: termination.forced, via: termination.via },
   });
 }

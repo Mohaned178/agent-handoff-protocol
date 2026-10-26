@@ -1,6 +1,8 @@
 import { adapters } from "../adapters/index.ts";
 import {
+  CAPABILITY_KINDS,
   DEFAULT_REMOTE,
+  ENFORCEMENT_LEVELS,
   EXTERNAL_ACTION_KINDS,
   isBranchName,
   isOutputFieldName,
@@ -8,7 +10,10 @@ import {
   isRepoPath,
   isStepId,
   MERGE_METHODS,
+  NETWORK_STANCES,
   RECOVERY_POLICIES,
+  type CapabilityKind,
+  type EnforcementLevel,
   type ExternalActionKind,
   type MergeMethod,
   type RecoveryPolicy,
@@ -25,7 +30,13 @@ export class WorkflowValidationError extends Error {
 }
 
 const WORKFLOW_KEYS = ["name", "steps"];
-const STEP_KEYS = ["id", "agent", "verification", "artifacts", "instructions", "retry", "reroute", "recovery", "review"];
+const STEP_KEYS = ["id", "agent", "verification", "artifacts", "instructions", "retry", "reroute", "recovery", "review", "capabilities", "network"];
+const CAPABILITY_KEYS: Record<CapabilityKind, string[]> = {
+  read_only: ["kind", "require"],
+  write_scope: ["kind", "paths", "require"],
+  no_external_actions: ["kind", "require"],
+};
+const NETWORK_KEYS = ["stance", "require"];
 const GATE_KEYS = ["id", "approval"];
 const REVIEW_KEYS = ["sendBackTo"];
 const AGENT_KEYS = ["adapter", "model", "options"];
@@ -115,6 +126,65 @@ function validateRetry(retry: Record<string, unknown>, problem: (message: string
   if (factor !== undefined && !(typeof factor === "number" && Number.isFinite(factor) && factor >= 1)) {
     problem("`retry.backoff.factor` must be a number of at least 1");
   }
+}
+
+/** Checks the `require` of a capability request or the network stance: an enforcement level. */
+function validateRequirement(value: unknown, where: string, problem: (message: string) => void): void {
+  if (value !== undefined && !ENFORCEMENT_LEVELS.includes(value as EnforcementLevel)) {
+    problem(`\`${where}.require\` must be one of ${ENFORCEMENT_LEVELS.join(", ")}`);
+  }
+}
+
+/**
+ * Checks a step's capability requests: each of a known kind, with its own properties, each kind at most once, and
+ * nothing that contradicts itself. Whether an adapter can apply them is the handoff's validation, at run time, since it
+ * depends on the adapter and the operating system.
+ */
+function validateCapabilities(capabilities: unknown, problem: (message: string) => void): void {
+  if (!Array.isArray(capabilities)) {
+    problem("`capabilities` must be an array of capability requests");
+    return;
+  }
+  const seen = new Set<string>();
+  capabilities.forEach((request: unknown, index) => {
+    const where = `capabilities[${index}]`;
+    if (!isRecord(request)) {
+      problem(`\`${where}\` must be an object with a \`kind\`: ${CAPABILITY_KINDS.join(", ")}`);
+      return;
+    }
+    const kind = request.kind as CapabilityKind;
+    if (!CAPABILITY_KINDS.includes(kind)) {
+      problem(`\`${where}.kind\` must be one of ${CAPABILITY_KINDS.join(", ")}`);
+      return;
+    }
+    for (const name of Object.keys(request)) {
+      if (!CAPABILITY_KEYS[kind].includes(name)) problem(`unknown property \`${where}.${name}\` for ${kind}`);
+    }
+    validateRequirement(request.require, where, problem);
+    if (seen.has(kind)) problem(`\`${where}\` requests ${kind} a second time`);
+    seen.add(kind);
+    if (kind === "write_scope") {
+      if (!Array.isArray(request.paths) || request.paths.length === 0) {
+        problem(`\`${where}.paths\` must list the repository-relative paths the agent may change`);
+      } else {
+        for (const message of checkRepoPaths(request.paths, "write scope path")) problem(message);
+      }
+    }
+  });
+  if (seen.has("read_only") && seen.has("write_scope")) {
+    problem("`read_only` and `write_scope` contradict each other: a read-only step may change nothing");
+  }
+}
+
+/** Checks a step's network stance. */
+function validateNetwork(network: unknown, problem: (message: string) => void): void {
+  if (!isRecord(network)) {
+    problem(`\`network\` must be an object with a \`stance\`: ${NETWORK_STANCES.join(", ")}`);
+    return;
+  }
+  for (const name of Object.keys(network)) if (!NETWORK_KEYS.includes(name)) problem(`unknown property \`network.${name}\``);
+  if (!NETWORK_STANCES.includes(network.stance as never)) problem(`\`network.stance\` must be one of ${NETWORK_STANCES.join(", ")}`);
+  validateRequirement(network.require, "network", problem);
 }
 
 /** Checks a review step's `review`: it names the step before it, the only one a send-back reaches (ADR 0004). */
@@ -308,6 +378,8 @@ function validateStep(step: unknown, index: number, seen: Set<string>, positions
   }
 
   if (step.review !== undefined) validateReview(step.review, index, positions, problem);
+  if (step.capabilities !== undefined) validateCapabilities(step.capabilities, problem);
+  if (step.network !== undefined) validateNetwork(step.network, problem);
   validateAgent(step.agent, "agent", problem);
   if (step.reroute !== undefined) validateAgent(step.reroute, "reroute", problem);
   if (step.retry !== undefined) {

@@ -160,6 +160,124 @@
       "additionalProperties": false,
       "description": "The recipient step's contract. AHP extension: acceptance criteria."
     },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "read_only"
+              },
+              "require": {
+                "type": "string",
+                "enum": [
+                  "enforced_by_tool",
+                  "cooperative",
+                  "none"
+                ],
+                "description": "The weakest enforcement level the recipient's adapter may apply this at on the running operating system; a weaker one rejects the handoff."
+              }
+            },
+            "required": [
+              "kind",
+              "require"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "write_scope"
+              },
+              "paths": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 1024,
+                  "pattern": "^(?!\\.[gG][iI][tT](?:\\/|$))(?!\\.{1,2}(?:\\/|$))[^/\\\\:*?\"<>|\\u0000-\\u001f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\:*?\"<>|\\u0000-\\u001f]+)*$",
+                  "description": "Relative to the repository root, written with forward slashes: no leading or trailing slash, no `.` or `..` segments, nothing under `.git`, and none of the characters \\ : * ? \" < > | or control characters."
+                },
+                "description": "The only paths the agent may change, each a file or a directory with everything under it."
+              },
+              "require": {
+                "type": "string",
+                "enum": [
+                  "enforced_by_tool",
+                  "cooperative",
+                  "none"
+                ],
+                "description": "The weakest enforcement level the recipient's adapter may apply this at on the running operating system; a weaker one rejects the handoff."
+              }
+            },
+            "required": [
+              "kind",
+              "paths",
+              "require"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "no_external_actions"
+              },
+              "require": {
+                "type": "string",
+                "enum": [
+                  "enforced_by_tool",
+                  "cooperative",
+                  "none"
+                ],
+                "description": "The weakest enforcement level the recipient's adapter may apply this at on the running operating system; a weaker one rejects the handoff."
+              }
+            },
+            "required": [
+              "kind",
+              "require"
+            ],
+            "additionalProperties": false
+          }
+        ],
+        "description": "A capability the recipient's adapter is to apply to the coding agent's tool use. `enforced_by_tool` means the tool blocks what it forbids; `cooperative` means the agent is only asked, which is not enforcement. AHP extension: no A2A counterpart."
+      },
+      "description": "What the recipient's adapter is to apply, at least at each request's required level. Every agent step carries `no_external_actions`."
+    },
+    "network": {
+      "type": "object",
+      "properties": {
+        "stance": {
+          "type": "string",
+          "enum": [
+            "deny",
+            "package_registries"
+          ],
+          "description": "The network access the agent's own tool use has, never its connection to its model provider."
+        },
+        "require": {
+          "type": "string",
+          "enum": [
+            "enforced_by_tool",
+            "cooperative",
+            "none"
+          ],
+          "description": "The weakest enforcement level the recipient's adapter may apply this at on the running operating system; a weaker one rejects the handoff."
+        }
+      },
+      "required": [
+        "stance",
+        "require"
+      ],
+      "additionalProperties": false,
+      "description": "The step's network stance. AHP extension: no A2A counterpart."
+    },
     "context": {
       "type": "object",
       "properties": {
@@ -532,6 +650,8 @@
     "to",
     "base",
     "contract",
+    "capabilities",
+    "network",
     "context",
     "artifacts",
     "evidence",
@@ -539,5 +659,5 @@
   ],
   "additionalProperties": false,
   "title": "AHP handoff revision",
-  "description": "An immutable revision of a handoff. Rules JSON Schema cannot express: `supersedes` is null for revision 1 and revision - 1 otherwise; revision 1 carries no evidence; paths and field names listed in one array are unique."
+  "description": "An immutable revision of a handoff. Rules JSON Schema cannot express: `supersedes` is null for revision 1 and revision - 1 otherwise; revision 1 carries no evidence; paths and field names listed in one array are unique; each capability kind is requested at most once, and `read_only` and `write_scope` are not requested together."
 }

@@ -2,9 +2,14 @@ import { extname, isAbsolute } from "node:path";
 import { text } from "node:stream/consumers";
 import { fileURLToPath } from "node:url";
 import { launch } from "../../process/index.ts";
-import { ADAPTER_ERROR_KINDS, STOP_REASONS } from "../../protocol/index.ts";
-import type { AgentRef, AttemptError, OutputFieldValue, StopReason } from "../../protocol/index.ts";
+import { ADAPTER_ERROR_KINDS, sameOnEveryOs, STOP_REASONS } from "../../protocol/index.ts";
+import type { AgentRef, AttemptError, OutputFieldValue, StopReason, UsageReport } from "../../protocol/index.ts";
 import type { Adapter, AttemptExit } from "../contract.ts";
+
+/** The usage a mock attempt reports, as a tool would: only the numbers it gives; the rest are not reported. */
+export type MockUsage = Partial<Omit<UsageReport, "source">>;
+
+export { MOCK_USAGE_SOURCE } from "./source.ts";
 
 export interface MockEdit {
   /** Relative to the attempt's workspace. */
@@ -28,6 +33,10 @@ export interface MockAttemptScript {
   outputFields?: Record<string, OutputFieldValue>;
   /** Defaults to 0. */
   exitCode?: number;
+  /** The model the agent reports having run. Defaults to none: the attempt's model is then `unknown`. */
+  reportedModel?: string;
+  /** The usage the agent reports, labelled as scripted. Defaults to none: nothing is reported, and nothing is estimated. */
+  usage?: MockUsage;
   /** Why the agent's turn ended, as an adapter would report it. Defaults to none. */
   stopReason?: StopReason;
   /** An error the adapter saw, as it would report it: a rate limit is `transient`, a missing login `config_auth`. Defaults to none. */
@@ -69,7 +78,23 @@ export function mock(options: MockOptions): AgentRef {
 const agentScript = fileURLToPath(new URL(`./agent${extname(fileURLToPath(import.meta.url))}`, import.meta.url));
 
 export const mockAdapter: Adapter = {
-  declaration: { name: "mock", mock: true, gracefulCancel: false },
+  // The mock agent is told what is asked of it and does nothing about it, so it declares no more than `cooperative`: a
+  // script may do what it was asked not to, which is how the tests exercise verification. Its network use is not
+  // controlled at all.
+  declaration: {
+    name: "mock",
+    mock: true,
+    gracefulCancel: false,
+    transport: "mock",
+    modelReporting: "pass_through",
+    login: "none",
+    capabilities: {
+      read_only: sameOnEveryOs("cooperative"),
+      write_scope: sameOnEveryOs("cooperative"),
+      no_external_actions: sameOnEveryOs("cooperative"),
+    },
+    network: { deny: sameOnEveryOs("none"), package_registries: sameOnEveryOs("none") },
+  },
 
   validateOptions(options) {
     const attempts = (options as Partial<MockOptions> | undefined)?.attempts;
@@ -105,6 +130,20 @@ export const mockAdapter: Adapter = {
       if (script?.exitCode !== undefined && !Number.isInteger(script.exitCode)) {
         problems.push(`mock attempt ${index + 1}: \`exitCode\` must be an integer`);
       }
+      if (script?.reportedModel !== undefined && !(typeof script.reportedModel === "string" && script.reportedModel.trim() !== "")) {
+        problems.push(`mock attempt ${index + 1}: \`reportedModel\` must be a non-empty string`);
+      }
+      if (script?.usage !== undefined) {
+        const { cost, ...counts } = script.usage;
+        const countKeys = ["inputTokens", "outputTokens", "totalTokens", "cachedInputTokens"];
+        const badCount = Object.entries(counts).some(([key, value]) => !countKeys.includes(key) || !(Number.isFinite(value) && (value as number) >= 0));
+        const badCost = cost != null && !(Number.isFinite(cost.amount) && cost.amount >= 0 && typeof cost.currency === "string" && cost.currency !== "");
+        if (badCount || badCost || Object.keys(script.usage).length === 0) {
+          problems.push(
+            `mock attempt ${index + 1}: \`usage\` needs at least one of ${countKeys.join(", ")} (non-negative numbers) or a \`cost\` with an amount and a currency`,
+          );
+        }
+      }
       if (script?.stopReason !== undefined && !STOP_REASONS.includes(script.stopReason)) {
         problems.push(`mock attempt ${index + 1}: \`stopReason\` must be one of ${STOP_REASONS.join(", ")}`);
       }
@@ -135,7 +174,7 @@ export const mockAdapter: Adapter = {
       if (script.loseContact) throw new Error("mock adapter lost contact with the agent (scripted)");
       // A crashed or killed agent may have printed nothing: it reported no output.
       const printed = await report;
-      let parsed: (Pick<AttemptExit, "stopReason" | "error"> & { outputFields: AttemptExit["reportedOutput"] }) | undefined;
+      let parsed: (Pick<AttemptExit, "stopReason" | "error" | "reportedModel" | "usage"> & { outputFields: AttemptExit["reportedOutput"] }) | undefined;
       try {
         parsed = printed === "" ? undefined : JSON.parse(printed);
       } catch (error) {
@@ -147,6 +186,8 @@ export const mockAdapter: Adapter = {
         reportedOutput: parsed?.outputFields ?? {},
         stopReason: parsed?.stopReason ?? null,
         error: parsed?.error ?? null,
+        reportedModel: parsed?.reportedModel ?? null,
+        usage: parsed?.usage ?? null,
       };
     });
     return { pid: agent.pid, exited, cancel: ({ graceMs }) => agent.terminate({ graceMs }) };

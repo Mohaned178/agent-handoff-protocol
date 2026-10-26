@@ -1,3 +1,4 @@
+import type { AdapterDeclaration } from "../adapters/index.ts";
 import {
   isPresentOutputField,
   parseHandoffRevision,
@@ -13,6 +14,7 @@ import {
   type StepDefinition,
 } from "../protocol/index.ts";
 import { hashCommittedFile } from "./artifacts.ts";
+import { requestsOf, resolveCapabilities } from "./capabilities.ts";
 import { git } from "./git.ts";
 import { evidenceVerdict } from "./verification.ts";
 
@@ -72,6 +74,7 @@ export async function buildHandoff(input: BuildHandoffInput): Promise<HandoffRev
         requiredOutputFields: requiredOutputFieldsOf(step),
       },
     },
+    ...requestsOf(step),
     context: { fields },
     artifacts,
     evidence: [],
@@ -146,11 +149,20 @@ export type HandoffValidation =
   | { accepted: true; handoff: HandoffRevision }
   | { accepted: false; reasons: RejectionReason[] };
 
+/** The recipient's adapter, as far as validation needs it: what it declares, and the system the run is on. */
+export interface HandoffRecipient {
+  /** The declaration of the adapter the handoff names in `to.adapter`; undefined when there is no such adapter. */
+  declaration: AdapterDeclaration | undefined;
+  /** The operating system, as Node's `process.platform` names it. */
+  platform: string;
+}
+
 /**
  * Validates a handoff revision on the recipient's behalf: the document is checked against the schema, then
- * against the repository it refers to. Every problem found is reported, each with a machine-readable code.
+ * against the repository it refers to, then against what the recipient's adapter declares it can apply on this
+ * system. Every problem found is reported, each with a machine-readable code.
  */
-export async function validateHandoffRevision(input: unknown, repo: string): Promise<HandoffValidation> {
+export async function validateHandoffRevision(input: unknown, repo: string, recipient: HandoffRecipient): Promise<HandoffValidation> {
   const parsed = parseHandoffRevision(input);
   if (!parsed.ok) return { accepted: false, reasons: parsed.reasons };
   const { handoff } = parsed;
@@ -174,6 +186,16 @@ export async function validateHandoffRevision(input: unknown, repo: string): Pro
       });
     }
   });
+
+  if (!recipient.declaration) {
+    reasons.push({
+      code: "unmet_dependency",
+      pointer: "/to/adapter",
+      message: `the handoff is for adapter "${handoff.to.adapter}", which is not one of the adapters available`,
+    });
+  } else {
+    reasons.push(...resolveCapabilities(handoff, recipient.declaration, recipient.platform).shortfalls);
+  }
 
   const baseExists = await git(repo, ["rev-parse", "--verify", "--quiet", `${handoff.base.commit}^{commit}`]).then(
     () => true,

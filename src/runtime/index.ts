@@ -10,7 +10,8 @@ export {
   type FailureDecision,
   type ResolvedRetryPolicy,
 } from "./failure.ts";
-export { validateHandoffRevision, type HandoffValidation } from "./handoff.ts";
+export { currentPlatform, requestsOf, resolveCapabilities } from "./capabilities.ts";
+export { validateHandoffRevision, type HandoffRecipient, type HandoffValidation } from "./handoff.ts";
 export { isAttemptId, isRunId, locateRepo, locateRun } from "./paths.ts";
 export { githubCli, type GithubCliOptions, type PullRequestProvider, type PullRequestTarget } from "./pull-requests.ts";
 export { refChanges } from "./recovery.ts";

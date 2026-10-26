@@ -7,6 +7,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve, isAbsolute } from "node:path";
 import { text } from "node:stream/consumers";
 import type { MockAttemptScript } from "./index.ts";
+import { MOCK_USAGE_SOURCE } from "./source.ts";
 
 const script = JSON.parse(await text(process.stdin)) as MockAttemptScript;
 const workspace = process.cwd();
@@ -72,8 +73,23 @@ if (script.hang) {
   await new Promise(() => setInterval(() => undefined, 60_000));
 }
 
+// Only what the script reports: a number it does not give is not reported, and nothing is estimated.
+const usage = script.usage && {
+  source: MOCK_USAGE_SOURCE,
+  inputTokens: script.usage.inputTokens ?? null,
+  outputTokens: script.usage.outputTokens ?? null,
+  totalTokens: script.usage.totalTokens ?? null,
+  cachedInputTokens: script.usage.cachedInputTokens ?? null,
+  cost: script.usage.cost ?? null,
+};
 process.stdout.write(
-  JSON.stringify({ outputFields: script.outputFields ?? {}, stopReason: script.stopReason ?? null, error: script.error ?? null }),
+  JSON.stringify({
+    outputFields: script.outputFields ?? {},
+    stopReason: script.stopReason ?? null,
+    error: script.error ?? null,
+    reportedModel: script.reportedModel ?? null,
+    usage: usage ?? null,
+  }),
 );
 // Not process.exit(): it may cut off output still buffered for a pipe.
 process.exitCode = script.exitCode ?? 0;

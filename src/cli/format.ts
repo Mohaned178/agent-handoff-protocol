@@ -1,5 +1,6 @@
-import { reviewFindingsOf, reviewVerdictOf } from "../protocol/index.ts";
+import { reviewFindingsOf, reviewVerdictOf, UNKNOWN_MODEL } from "../protocol/index.ts";
 import type {
+  AppliedCapabilities,
   AttemptCancel,
   AttemptRecovery,
   AttemptView,
@@ -15,6 +16,7 @@ import type {
   RefChange,
   RunView,
   StepView,
+  UsageReport,
   VerificationView,
 } from "../protocol/index.ts";
 import {
@@ -53,6 +55,54 @@ function stepOfHandoff(state: Readonly<RunView>, handoffId: string, revision: nu
   const found = findHandoff(state, handoffId, revision);
   if (!found) throw new Error(`unknown handoff ${handoffId} revision ${revision}`);
   return found.step;
+}
+
+/** What each enforcement level means, in every report that shows one: only the first is enforcement. */
+const ENFORCEMENT_NOTE =
+  "enforced_by_tool: the tool itself blocks it; cooperative: the agent is only asked, and nothing stops it; none: not applied";
+
+/**
+ * The model the tool reported, beside what was requested: `unknown` when it said none (AHP never guesses), and a note
+ * when what it reported is not what was asked for.
+ */
+function describeReportedModel(attempt: AttemptView): string {
+  if (attempt.reportedModel === UNKNOWN_MODEL) {
+    return attempt.state === "exited" ? `${UNKNOWN_MODEL} (the tool did not report one)` : UNKNOWN_MODEL;
+  }
+  return attempt.requestedModel !== null && attempt.requestedModel !== attempt.reportedModel
+    ? `${attempt.reportedModel} (not the requested model)`
+    : attempt.reportedModel;
+}
+
+function describeUsageReport({ source, inputTokens, outputTokens, totalTokens, cachedInputTokens, cost }: UsageReport): string {
+  const parts = [
+    inputTokens !== null && `${inputTokens} input tokens`,
+    outputTokens !== null && `${outputTokens} output tokens`,
+    totalTokens !== null && `${totalTokens} total tokens`,
+    cachedInputTokens !== null && `${cachedInputTokens} cached input tokens`,
+    cost !== null && `cost ${cost.amount} ${cost.currency}`,
+  ].filter((part) => part !== false);
+  return `${parts.join(", ")} (source: ${source})`;
+}
+
+/** Usage only as the tool reported it, with its source; an attempt whose tool reported none says so, and shows no number. */
+function describeUsage(attempt: AttemptView): string {
+  if (attempt.usage) return describeUsageReport(attempt.usage);
+  return attempt.state === "exited" ? "not reported by the tool (none is estimated)" : "-";
+}
+
+/** The capabilities asked of the adapter and the level its declaration reaches for each, which are declared levels. */
+function describeCapabilities(applied: AppliedCapabilities | null): string[] {
+  if (!applied) return ["    capabilities: not recorded"];
+  const { platform, capabilities, network } = applied;
+  return [
+    `    capabilities as the adapter declares them for ${platform} (${ENFORCEMENT_NOTE}):`,
+    ...capabilities.map((capability) => {
+      const scope = capability.kind === "write_scope" ? ` under ${capability.paths.join(", ")}` : "";
+      return `      ${capability.kind}${scope}: ${capability.level} (required at least ${capability.require})`;
+    }),
+    `      network ${network.stance}: ${network.level} (required at least ${network.require}); the agent's own tool use only, never its connection to its model provider`,
+  ];
 }
 
 const describeRevision = (handoffId: string, revision: number) => `${handoffId} revision ${revision}`;
@@ -600,7 +650,9 @@ export function formatRun(inspection: RunInspection): string {
         `    handoff: ${describeRevision(attempt.handoff.id, attempt.handoff.revision)}`,
         `    adapter: ${attempt.adapter}`,
         `    requested model: ${attempt.requestedModel ?? "(none)"}`,
-        `    reported model: ${attempt.reportedModel}`,
+        `    reported model: ${describeReportedModel(attempt)}`,
+        `    usage: ${describeUsage(attempt)}`,
+        ...describeCapabilities(attempt.capabilities),
         `    pid: ${attempt.pid ?? "-"}`,
         `    workspace: ${attempt.workspace}`,
         `    reported output fields: ${reported.length > 0 ? reported.join(", ") : "(none)"}`,

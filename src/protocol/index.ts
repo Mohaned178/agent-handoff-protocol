@@ -1,8 +1,10 @@
 // AHP protocol: workflow definitions, ledger events and the state derived from them.
 // State names and failure classes are closed enumerations; adding a value is a protocol change.
 
-import type { HandoffRevision, HandoffState, OutputFieldValue, PathChange, RejectionReason, ReviewVerdict } from "./handoff.ts";
+import type { EnforcementLevel, NetworkStance, UsageReport } from "./capabilities.ts";
+import type { CapabilityRequest, HandoffRevision, HandoffState, NetworkRequest, OutputFieldValue, PathChange, RejectionReason, ReviewVerdict } from "./handoff.ts";
 
+export * from "./capabilities.ts";
 export * from "./handoff.ts";
 export * from "./review.ts";
 export { protocolJsonSchemas } from "./schemas.ts";
@@ -212,9 +214,35 @@ export interface ReviewDefinition {
   sendBackTo: string;
 }
 
+/**
+ * A capability a step asks its coding agent's adapter to apply, and the weakest enforcement level it will accept. An
+ * adapter that cannot reach `require` on the running operating system gets the handoff rejected
+ * (`capability_unsatisfiable`). Default `require`: `cooperative`, which asks the agent and stops nothing.
+ */
+export type CapabilityRequestDefinition =
+  | { kind: "read_only"; require?: EnforcementLevel }
+  | { kind: "write_scope"; paths: string[]; require?: EnforcementLevel }
+  | { kind: "no_external_actions"; require?: EnforcementLevel };
+
+/**
+ * A step's network stance for its coding agent's own tool use (never its connection to its model provider). Default
+ * `deny`, applied as far as the adapter can; `require` raises the bar, default `none`.
+ */
+export interface NetworkDefinition {
+  stance: NetworkStance;
+  require?: EnforcementLevel;
+}
+
 export interface StepDefinition {
   id: string;
   agent: AgentRef;
+  /**
+   * What the adapter is to apply to the coding agent. Every agent step also carries `no_external_actions` (ADR 0003),
+   * at the level the adapter reaches, whether or not it is listed here. Each kind at most once.
+   */
+  capabilities?: CapabilityRequestDefinition[];
+  /** Default: `{ stance: "deny" }`. An implement step opts in to package registries with `{ stance: "package_registries" }`. */
+  network?: NetworkDefinition;
   verification: VerificationDefinition;
   /** Present on a review step. Without a `verification.command`, a review is verified structurally only. */
   review?: ReviewDefinition;
@@ -344,6 +372,24 @@ export const isAgentStep = (step: WorkflowStepDefinition): step is StepDefinitio
 export interface WorkflowDefinition {
   name: string;
   steps: WorkflowStepDefinition[];
+}
+
+/** A requested capability and the enforcement level the adapter's declaration reaches for it. */
+export type AppliedCapability = CapabilityRequest & { level: EnforcementLevel };
+
+/** The network stance and the enforcement level the adapter's declaration reaches for it. */
+export type AppliedNetwork = NetworkRequest & { level: EnforcementLevel };
+
+/**
+ * What an attempt's adapter was asked to apply, with the level its static declaration reaches for each on `platform`.
+ * The levels are the declared ones, recorded before the agent starts; an adapter that cannot apply a capability fails
+ * the attempt rather than apply it at a weaker level. They are never read from the tool afterwards.
+ */
+export interface AppliedCapabilities {
+  /** The operating system the levels are for, as Node's `process.platform` names it. */
+  platform: string;
+  capabilities: AppliedCapability[];
+  network: AppliedNetwork;
 }
 
 // ---------------------------------------------------------------------------
@@ -570,6 +616,8 @@ export type LedgerEventBody =
       mock: boolean;
       requestedModel: string | null;
       workspace: string;
+      /** What the runtime asked the adapter to apply, and the level its declaration reaches for it on this system. */
+      capabilities: AppliedCapabilities;
     }
   | { type: "attempt_dispatching"; attemptId: string }
   | { type: "attempt_running"; attemptId: string; pid: number }
@@ -585,6 +633,10 @@ export type LedgerEventBody =
       stopReason: StopReason | null;
       /** What the adapter saw go wrong, if anything; its class decides how the failure is handled. */
       error: AttemptError | null;
+      /** The model the tool said it ran; null when it did not say. Never the requested one. */
+      reportedModel: string | null;
+      /** What the tool reported using, with its source; null when it reported none. Never estimated. */
+      usage: UsageReport | null;
       /**
        * How the agent was stopped, for the `cancelled` outcome only; null otherwise. An attempt that was being cancelled
        * and had ended by itself before anything was sent to it exits with its own outcome.
@@ -764,6 +816,10 @@ export interface AttemptView {
   requestedModel: string | null;
   /** What the coding agent reported; `unknown` until an adapter reports one. */
   reportedModel: string;
+  /** What the tool reported using, labelled with its source; null until the attempt exits, and for good when it reported none. */
+  usage: UsageReport | null;
+  /** What was asked of the adapter and the level its declaration reaches for it; null for an attempt recorded before capabilities existed. */
+  capabilities: AppliedCapabilities | null;
   workspace: string;
   /** The shared repository's refs just before the agent was dispatched and once it had exited; null until recorded. */
   refs: Record<RefSnapshotPhase, SharedRef[] | null>;
