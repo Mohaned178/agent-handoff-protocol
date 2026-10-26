@@ -23,7 +23,7 @@
 
 2026-10-26, implementation notes. The ticket left several shapes open; these are the choices made, so tickets 07 to 10 can build on them or reopen them.
 
-**Decisions the ticket left to me, awaiting the maintainer's confirmation:**
+**Eight decisions the ticket left to me. Confirmed by the maintainer on 2026-10-26, each kept as built; reopen one only with a new decision:**
 
 1. **`ahp recover <run-id>` is the restart.** There is no `ahp resume`. `ahp recover <run-id>` takes over the stale lock (or a free lock on an unfinished run), records `run_resumed { takenOverFrom }`, and continues the run from where its ledger stops. That marks an attempt left dispatched or running as `unknown`, writes its report, and applies the step's policy or stops for a person. `ahp recover <attempt-id> --policy adopt|abort` is the decision. The spec's CLI list stays as it is; the SDK has `resumeRun` and `recoverAttempt`.
 2. **An attempt that was created but never dispatched is taken up, not made `unknown`.** Dispatching is recorded before the spawn, so the ledger proves no agent ran. The attempt's half-made workspace is discarded and made again, and the attempt is dispatched for the first time, under the same ID and attempt number. Read literally, "no terminal record means `unknown`" would stop the run for a person over an attempt known to have done nothing.
