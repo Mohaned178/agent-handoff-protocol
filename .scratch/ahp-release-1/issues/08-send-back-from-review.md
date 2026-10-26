@@ -4,7 +4,7 @@
 
 **Blocked by:** 04
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Model:** Sonnet 5.5 · high
 
@@ -47,3 +47,5 @@
 - Left as they are, on purpose: `sendBackTo` may name a review step (a review of a review works mechanically; ADR 0004 says "agent step" and every step is one today). The ledger alone shows the exhausted case as `step_terminal failed verification_failed` on a step whose last attempt passed, and `ahp` explains it from that shape. The "changes requested and passed" test is written in three places (executor, replay, report), each asking a slightly different thing.
 
 **Confirmed by the maintainer on 2026-10-26 ("do recommendation"): decisions 1 to 6 above stand as recommended; reopen one only with a new decision.**
+
+First green CI run: GitHub Actions run 40319704880 (commit 1c34619). 284 tests passed on Linux and macOS (1 skipped: the signal test). Windows had 282 passed and 3 skipped: the signal test, the POSIX resolution test and the Ctrl+C CLI test.
