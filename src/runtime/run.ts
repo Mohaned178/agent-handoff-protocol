@@ -344,9 +344,11 @@ function revisedHandoff(step: StepDefinition, view: StepView, failed: AttemptVie
   const learned: HandoffEvidence[] = failed.sentBack
     ? [{ kind: "review_findings", reviewStepId: failed.sentBack.reviewStepId, findings: failed.sentBack.findings }]
     : retryEvidence(failed.verification?.evidence ?? [], { hiddenTests });
+  // A step that fails again after a send-back still has to act on the review's findings, so they stay with the new failure.
+  const findings = failed.sentBack ? [] : accepted.evidence.filter((item) => item.kind === "review_findings");
   const alternative = change === "reroute" ? step.reroute! : null;
   return reviseHandoff(accepted, {
-    evidence: learned.length > 0 ? learned : accepted.evidence,
+    evidence: learned.length > 0 ? [...findings, ...learned] : accepted.evidence,
     to: alternative ? { adapter: alternative.adapter, requestedModel: alternative.model ?? null } : undefined,
   });
 }
@@ -661,7 +663,13 @@ async function sendBack(step: StepDefinition, index: number, attempt: AttemptVie
   if (target?.id !== step.review!.sendBackTo) {
     throw new Error(`review step "${step.id}" sends back "${step.review!.sendBackTo}", which is not the step before it`);
   }
-  const decision = decide({ ...target, reroute: undefined }, stepOf(run, index - 1), "verification_failed", 1);
+  const decision = decideAfterFailure({
+    failureClass: "verification_failed",
+    policy: resolveRetryPolicy(target.retry),
+    usage: stepOf(run, index - 1).retryUsage,
+    validatorRuns: 1,
+    reroute: false,
+  });
   if (decision.action !== "retry") {
     return run.record({ type: "step_terminal", stepId: step.id, state: "failed", failureClass: "verification_failed" });
   }

@@ -40,3 +40,8 @@
 - "Outside evaluation" is not distinguished: nothing in evaluation exists yet (ticket 20). Whether a review inside evaluation gets a command is its decision.
 - A review with a `verification.command` is verified by that command and is not labelled structural, since it is not.
 - The approval gate's reject (ticket 09) reuses `step_sent_back`'s idea but not its event: a gate has no review attempt. It will need its own event and a handoff evidence kind for the approver's reason.
+
+**After review (code-review against this ticket and the repo's standards):**
+
+- Fixed: a step that failed verification again after a send-back lost the review's findings from its next revision; they now stay beside the new failing evidence (`revisedHandoff`). `sendBack` asks `decideAfterFailure` directly instead of overriding `reroute` on a copy of the step.
+- Left as they are, on purpose: `sendBackTo` may name a review step (a review of a review works mechanically; ADR 0004 says "agent step" and every step is one today). The ledger alone shows the exhausted case as `step_terminal failed verification_failed` on a step whose last attempt passed, and `ahp` explains it from that shape. The "changes requested and passed" test is written in three places (executor, replay, report), each asking a slightly different thing.

@@ -78,6 +78,23 @@ describe("a review that requests changes", () => {
     expect(events[sentBack]).toMatchObject({ type: "step_sent_back", stepId: "implement", reviewStepId: "review" });
   });
 
+  it("keeps the findings with the sent-back step if it then fails verification and is retried", async () => {
+    const repo = fixture();
+    const workflow = reviewedWorkflow(
+      implementStep([implemented(1), goodbye, implemented(3)], { verification: { command: "node verify.mjs" } }),
+      reviewStep([changesRequested("rename it"), approved()]),
+    );
+
+    const { state } = await runWorkflow(workflow, { repo, clock: fakeClock() });
+
+    expect(state.state).toBe("succeeded");
+    const implement = stepOf(state, "implement");
+    expect(implement.retryUsage.retries).toBe(2);
+    const [, sentBack, retried] = implement.handoffs.map((h) => h.handoff.evidence.map((e) => e.kind));
+    expect(sentBack).toEqual(["review_findings"]);
+    expect(retried).toEqual(["review_findings", "test_output"]);
+  });
+
   it("is not sent back when the review approves", async () => {
     const repo = fixture();
     const workflow = reviewedWorkflow(implementStep([implemented(1)]), reviewStep([approved("looks right")]));
