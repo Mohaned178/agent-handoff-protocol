@@ -1,9 +1,18 @@
 import { mkdir, open, type FileHandle } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { LedgerEvent, LedgerEventBody } from "../protocol/index.ts";
+import type { LedgerEvent, LedgerEventBody, LockOwner } from "../protocol/index.ts";
 import { whileBusy } from "./busy.ts";
 import { eventHash, readCheckedLedger } from "./chain.ts";
-import { acquireLock, lockPathOf, releaseLock } from "./lock.ts";
+import { acquireLock, LedgerLockedError, lockPathOf, releaseLock, removeStaleLock } from "./lock.ts";
+
+export interface OpenLedgerOptions {
+  /**
+   * Take a stale lock over (one whose process is no longer running) instead of refusing it, as a recovering
+   * process does when a person has asked it to continue the run. A lock held by a running process, one on another
+   * host and one that names no owner are refused all the same.
+   */
+  takeOverStale?: boolean;
+}
 
 /**
  * Appends events to a run's ledger: one JSONL file, opened once in append mode and flushed to disk after every
@@ -13,15 +22,18 @@ import { acquireLock, lockPathOf, releaseLock } from "./lock.ts";
 export class LedgerWriter {
   #handle: FileHandle;
   #lockPath: string;
+  /** What this writer wrote into the lock file; the file is removed on close only while it still says so. */
+  #owner: LockOwner;
   #now: () => Date;
   #seq = 0;
   #lastHash: string | null = null;
   /** Set when an append failed: what reached the file is unknown, so nothing more is appended. */
   #failed: Error | null = null;
 
-  private constructor(handle: FileHandle, lockPath: string, now: () => Date) {
+  private constructor(handle: FileHandle, lockPath: string, owner: LockOwner, now: () => Date) {
     this.#handle = handle;
     this.#lockPath = lockPath;
+    this.#owner = owner;
     this.#now = now;
   }
 
@@ -31,11 +43,11 @@ export class LedgerWriter {
   static async create(path: string, now: () => Date = () => new Date()): Promise<LedgerWriter> {
     await mkdir(dirname(path), { recursive: true });
     const lockPath = lockPathOf(path);
-    await acquireLock(lockPath);
+    const owner = await acquireLock(lockPath);
     try {
-      return new LedgerWriter(await whileBusy(() => open(path, "ax")), lockPath, now);
+      return new LedgerWriter(await whileBusy(() => open(path, "ax")), lockPath, owner, now);
     } catch (error) {
-      await releaseLock(lockPath);
+      await releaseLock(lockPath, owner);
       throw error;
     }
   }
@@ -43,12 +55,17 @@ export class LedgerWriter {
   /**
    * Takes the run's lock and opens its existing ledger to append to it, after checking the whole hash chain. A
    * torn tail (a last line a write did not finish) is truncated, and the truncation recorded as the next event.
-   * Returns the writer and the ledger's events, that one included. Throws `LedgerLockedError` if another process
-   * holds the lock or left it behind, and `LedgerCorruptError` if the chain is broken.
+   * Returns the writer, the ledger's events (that one included) and, if a stale lock was taken over, whose it was.
+   * Throws `LedgerLockedError` if another process holds the lock or, unless `takeOverStale` is set, left it behind,
+   * and `LedgerCorruptError` if the chain is broken.
    */
-  static async open(path: string, now: () => Date = () => new Date()): Promise<{ writer: LedgerWriter; events: LedgerEvent[] }> {
+  static async open(
+    path: string,
+    now: () => Date = () => new Date(),
+    options: OpenLedgerOptions = {},
+  ): Promise<{ writer: LedgerWriter; events: LedgerEvent[]; takenOverFrom: LockOwner | null }> {
     const lockPath = lockPathOf(path);
-    await acquireLock(lockPath);
+    const { owner, takenOverFrom } = await takeLock(lockPath, options);
     let writer: LedgerWriter | undefined;
     try {
       const read = await readCheckedLedger(path);
@@ -65,15 +82,15 @@ export class LedgerWriter {
           await handle.close();
         }
       }
-      writer = new LedgerWriter(await whileBusy(() => open(path, "a")), lockPath, now);
+      writer = new LedgerWriter(await whileBusy(() => open(path, "a")), lockPath, owner, now);
       writer.#seq = last.seq;
       writer.#lastHash = last.hash;
       const events = [...read.events];
       if (read.tornTail) events.push(await writer.append({ type: "ledger_truncated", droppedBytes: read.tornTail.bytes }));
-      return { writer, events };
+      return { writer, events, takenOverFrom };
     } catch (error) {
       if (writer) await writer.close();
-      else await releaseLock(lockPath);
+      else await releaseLock(lockPath, owner);
       throw error;
     }
   }
@@ -102,12 +119,24 @@ export class LedgerWriter {
     return event;
   }
 
-  /** Closes the ledger file and releases the run's lock. */
+  /** Closes the ledger file and releases the run's lock, unless another process has taken it since. */
   async close(): Promise<void> {
     try {
       await this.#handle.close();
     } finally {
-      await releaseLock(this.#lockPath);
+      await releaseLock(this.#lockPath, this.#owner);
     }
+  }
+}
+
+/** Takes the lock at `lockPath`, first removing a stale one if `options` allow it; says whose stale lock that was. */
+async function takeLock(lockPath: string, options: OpenLedgerOptions): Promise<{ owner: LockOwner; takenOverFrom: LockOwner | null }> {
+  try {
+    return { owner: await acquireLock(lockPath), takenOverFrom: null };
+  } catch (error) {
+    if (!options.takeOverStale || !(error instanceof LedgerLockedError) || error.lock.state !== "stale") throw error;
+    const stale = error.lock.owner;
+    await removeStaleLock(lockPath, stale);
+    return { owner: await acquireLock(lockPath), takenOverFrom: stale };
   }
 }

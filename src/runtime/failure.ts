@@ -27,7 +27,15 @@ export function classifyAttempt(end: AttemptEnd): FailureClass | null {
   if (end.error) return end.error.kind;
   if (end.stopReason !== null && FAILED_STOP_REASONS.includes(end.stopReason)) return "agent_error";
   if (end.exitCode !== 0) return "agent_error";
-  switch (end.verdict) {
+  return verdictFailure(end.verdict);
+}
+
+/**
+ * The failure class a verdict alone gives, or null for a pass or no verdict yet: all there is to classify for an
+ * attempt whose outcome was unknown and whose workspace was adopted, since how its agent ended was never seen.
+ */
+export function verdictFailure(verdict: Verdict | null): FailureClass | null {
+  switch (verdict) {
     case "fail":
       return "verification_failed";
     case "inconclusive":

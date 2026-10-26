@@ -26,6 +26,18 @@ export interface MockAttemptScript {
   stopReason?: StopReason;
   /** An error the adapter saw, as it would report it: a rate limit is `transient`, a missing login `config_auth`. Defaults to none. */
   error?: AttemptError;
+  /**
+   * The adapter loses contact with the agent once it has run: it cannot say how the attempt ended, as when a
+   * transport's connection drops, so the attempt's outcome is unknown.
+   */
+  loseContact?: boolean;
+  /** The agent makes its edits and commit, then never exits: it hangs until something kills it. */
+  hang?: boolean;
+  /**
+   * The adapter never spawns the agent: starting the attempt never settles, so the runtime waits after recording
+   * that it is dispatching it, until something kills the runtime.
+   */
+  hangBeforeSpawn?: boolean;
 }
 
 export interface MockOptions {
@@ -54,8 +66,10 @@ export const mockAdapter: Adapter = {
       if (script?.deletes !== undefined && !(Array.isArray(script.deletes) && script.deletes.every((p) => typeof p === "string"))) {
         problems.push(`mock attempt ${index + 1}: \`deletes\` must be an array of paths`);
       }
-      if (script?.commit !== undefined && typeof script.commit !== "boolean") {
-        problems.push(`mock attempt ${index + 1}: \`commit\` must be a boolean`);
+      for (const flag of ["commit", "loseContact", "hang", "hangBeforeSpawn"] as const) {
+        if (script?.[flag] !== undefined && typeof script[flag] !== "boolean") {
+          problems.push(`mock attempt ${index + 1}: \`${flag}\` must be a boolean`);
+        }
       }
       for (const edit of script?.edits ?? []) {
         if (typeof edit?.path !== "string" || typeof edit.content !== "string") {
@@ -85,6 +99,8 @@ export const mockAdapter: Adapter = {
   async startAttempt({ attemptNumber, workspace, options }) {
     const script = (options as MockOptions).attempts[attemptNumber - 1];
     if (!script) throw new Error(`mock adapter has no script for attempt ${attemptNumber}`);
+    // A promise alone would not keep the process alive; the timer does.
+    if (script.hangBeforeSpawn) await new Promise(() => setInterval(() => undefined, 60_000));
 
     const child = spawn(process.execPath, [agentScript], {
       cwd: workspace,
@@ -96,6 +112,10 @@ export const mockAdapter: Adapter = {
     const exited = new Promise<AttemptExit>((resolve, reject) => {
       child.once("error", reject);
       child.once("close", (exitCode, signal) => {
+        if (script.loseContact) {
+          reject(new Error("mock adapter lost contact with the agent (scripted)"));
+          return;
+        }
         // A crashed agent may have printed nothing: it reported no output.
         const report = Buffer.concat(stdout).toString("utf8");
         try {

@@ -1,14 +1,25 @@
 import type {
+  AttemptRecovery,
   AttemptView,
   ChangedPath,
   EvidenceItem,
   HandoffView,
   LedgerEvent,
+  RecoveryDecision,
+  RecoveryReport,
   RunView,
   StepView,
   VerificationView,
 } from "../protocol/index.ts";
-import { findAttempt, findHandoff, findVerification, type LockState, type RunInspection } from "../sdk/index.ts";
+import {
+  findAttempt,
+  findHandoff,
+  findVerification,
+  type LockOwner,
+  type LockState,
+  type ResumeResult,
+  type RunInspection,
+} from "../sdk/index.ts";
 
 export const MOCK_NOTE = "note: this run used the mock adapter; its results are labelled [mock] and are not evidence.";
 
@@ -159,6 +170,11 @@ export function formatEvent(event: LedgerEvent, state: Readonly<RunView>): strin
       return attemptLine(event.attemptId, `running (pid ${event.pid})`);
     case "attempt_exited":
       return attemptLine(event.attemptId, describeAttempt(stepOfAttempt(state, event.attemptId).attempt));
+    case "ref_snapshot_taken":
+      return attemptLine(
+        event.attemptId,
+        `shared refs recorded ${event.phase === "before" ? "before dispatch" : "after exit"} (${quantity(event.refs.length, "ref")})`,
+      );
     case "workspace_snapshot_committed":
       return attemptLine(event.attemptId, `snapshot ${short(event.commit)}`);
     case "verification_started": {
@@ -177,6 +193,16 @@ export function formatEvent(event: LedgerEvent, state: Readonly<RunView>): strin
     case "verification_verdict": {
       const step = stepOfVerification(state, event.verificationId);
       return `step ${step.id}: verification ${event.verdict}${mockTag(step.mock)}`;
+    }
+    case "attempt_unknown":
+      return attemptLine(event.attemptId, `unknown (${event.reason}): ${event.detail}; it is never retried automatically`);
+    case "recovery_report_written":
+      return [attemptLine(event.attemptId, "recovery report:"), ...describeReport(event.report, "  ")].join("\n");
+    case "recovery_awaited":
+      return `run ${state.runId}: needs recovery\n  ${describeAwaited(event.attemptId)}`;
+    case "recovery_decided": {
+      const { step } = stepOfAttempt(state, event.attemptId);
+      return `step ${step.id}: recovery of attempt ${event.attemptId}: ${describeDecision(event)}`;
     }
     case "attempt_failed":
       return attemptLine(event.attemptId, `failed: ${event.failureClass}`);
@@ -201,7 +227,58 @@ export function formatEvent(event: LedgerEvent, state: Readonly<RunView>): strin
       return `run ${state.runId}: ${state.state}${mockTag(state.mock)}`;
     case "ledger_truncated":
       return `run ${state.runId}: ${describeTruncation(event.droppedBytes)}`;
+    case "run_resumed":
+      return `run ${state.runId}: ${describeResumption(event.takenOverFrom)}`;
   }
+}
+
+const describeResumption = (takenOverFrom: LockOwner | null) =>
+  `resumed by a new process${takenOverFrom ? `, which took over the stale lock of ${describeOwner(takenOverFrom)}` : ""}`;
+
+const describeOwner = ({ pid, host, startedAt }: LockOwner) => `PID ${pid} on ${host} (started ${startedAt})`;
+
+/** What a person can decide for an attempt that awaits recovery, and how. */
+const describeAwaited = (attemptId: string) =>
+  `attempt ${attemptId} awaits a decision: \`ahp recover ${attemptId} --policy adopt\` verifies its workspace as the attempt's result, \`ahp recover ${attemptId} --policy abort\` ends the step`;
+
+function describeDecision({ policy, decidedBy, user }: Pick<RecoveryDecision, "policy" | "decidedBy" | "user">): string {
+  const what = policy === "adopt" ? "adopt (its workspace is verified as its result)" : "abort (the step ends)";
+  return `${what}, decided ${decidedBy === "human" ? `by ${user ?? "a person"}` : "by the step's recovery policy"}`;
+}
+
+/** Why an attempt's outcome is unknown, its report, and what was decided. */
+function describeRecovery({ reason, detail, report, awaited, decision }: AttemptRecovery): string[] {
+  const lines = [`    outcome unknown (${reason}): ${detail}`];
+  if (report) lines.push("    recovery report:", ...describeReport(report, "      "));
+  if (decision) lines.push(`    recovery: ${describeDecision(decision)}, at ${decision.time}`);
+  else lines.push(`    recovery: ${awaited ? "awaits a decision" : "not decided yet"}`);
+  return lines;
+}
+
+/** A recovery report, line by line, each indented by `indent`. */
+function describeReport(report: RecoveryReport, indent: string): string[] {
+  const { lastEvents, workspace, refs } = report;
+  const lines = ["last events before the attempt was found unknown:", ...lastEvents.map(({ seq, time, type }) => `  | ${seq} ${time} ${type}`)];
+  if (!workspace.exists) {
+    lines.push(`workspace ${workspace.path}: gone, so there is nothing to adopt`);
+  } else if (workspace.error !== null) {
+    lines.push(`workspace ${workspace.path}: could not be read: ${workspace.error}`);
+  } else {
+    const changed = workspace.changed.length === 0 ? "no changes" : `${workspace.changed.length} changed${workspace.truncated ? ", first only" : ""}`;
+    lines.push(`workspace ${workspace.path}: ${changed} against the step's base commit`, ...workspace.changed.map((c) => `  | ${describeChange(c)}`));
+  }
+  if (refs.error !== null) {
+    lines.push(`shared refs: could not be compared: ${refs.error}`);
+  } else if (refs.changed.length === 0) {
+    lines.push("shared refs: unchanged since just before the attempt was dispatched");
+  } else {
+    lines.push(
+      `shared refs: ${refs.changed.length} changed since just before the attempt was dispatched${refs.truncated ? ", first only" : ""}`,
+      ...refs.changed.map(({ name, before, after }) => `  | ${name}: ${before ? short(before) : "(none)"} -> ${after ? short(after) : "(none)"}`),
+    );
+  }
+  lines.push(report.toolCallLog === null ? "tool-call log: none, the attempt's adapter keeps none" : "tool-call log:", report.undetermined);
+  return lines.map((line) => `${indent}${line}`);
 }
 
 /** `n` with its unit, plural unless `n` is 1. */
@@ -224,33 +301,56 @@ function describeLedger({ state, ledger, lock }: RunInspection): string[] {
         : `  ledger: ${torn} is torn: a write did not finish, so it was never recorded and is left out; the next process to open the run for writing truncates it`,
     );
   }
-  // A run that is pending or running has a process writing it; any other state is one its process exits at.
-  const unfinished = state.state === "pending" || state.state === "running";
-  const holder = describeLockHolder(lock, unfinished);
+  for (const { seq, time, takenOverFrom } of state.resumptions) {
+    lines.push(`  resumed: ${time} (event ${seq})${takenOverFrom ? `, taking over the stale lock of ${describeOwner(takenOverFrom)}` : ""}`);
+  }
+  const holder = describeLockHolder(lock, state);
   if (holder) lines.push(`  lock: ${holder}`);
+  for (const attempt of awaitedAttempts(state)) lines.push(`  recovery: ${describeAwaited(attempt.id)}`);
   return lines;
 }
 
 /** Who holds the run's lock and what that means for the run; null when there is nothing to say. */
-function describeLockHolder(lock: LockState, unfinished: boolean): string | null {
+function describeLockHolder(lock: LockState, state: Readonly<RunView>): string | null {
+  // A run that is pending or running has a process writing it; any other state is one its process exits at.
+  const unfinished = state.state === "pending" || state.state === "running";
+  const resume = `\`ahp recover ${state.runId}\``;
   switch (lock.state) {
     case "free":
-      return unfinished ? "free, yet the run has not ended: the process running it stopped partway, and the run needs recovery" : null;
+      return unfinished
+        ? `free, yet the run has not ended: the process running it stopped partway, and the run needs recovery: ${resume} examines it and resumes it`
+        : null;
     case "unreadable":
       return "the lock file names no owner: it is still being written, or the process writing it stopped first";
   }
-  const { pid, host, startedAt } = lock.owner;
-  const owner = `PID ${pid} on ${host} (started ${startedAt})`;
+  const owner = describeOwner(lock.owner);
   switch (lock.state) {
     case "held":
       return `${owner} is writing the run`;
     case "stale":
-      return unfinished
-        ? `${owner} stopped without finishing the run or releasing its lock: the run needs recovery, and AHP will not write to it until then`
-        : `${owner} ended the run but stopped without releasing its lock`;
+      if (unfinished) {
+        return `${owner} stopped without finishing the run or releasing its lock: the run needs recovery: ${resume} takes it over, examines the run and resumes it`;
+      }
+      return state.state === "needs_recovery"
+        ? `${owner} stopped the run for a decision without releasing its lock; deciding takes it over`
+        : `${owner} ended the run but stopped without releasing its lock; ${resume} removes it`;
     case "other_host":
       return `${owner}, on another host: whether it is still running cannot be checked from here`;
   }
+}
+
+/** The attempts a run stopped for, which a person has yet to decide. */
+const awaitedAttempts = (state: Readonly<RunView>) =>
+  state.steps.flatMap((step) => step.attempts).filter((attempt) => attempt.recovery?.awaited && !attempt.recovery.decision);
+
+/** What `ahp recover` says about a run it had nothing to continue for. */
+export function formatUnresumed({ state, takenOverFrom }: ResumeResult): string {
+  const lines =
+    state.state === "needs_recovery"
+      ? [`run ${state.runId}: needs recovery${mockTag(state.mock)}`, ...awaitedAttempts(state).map((attempt) => `  ${describeAwaited(attempt.id)}`)]
+      : [`run ${state.runId}: ${state.endedAt !== null ? `already ended (${state.state})` : state.state}${mockTag(state.mock)}; nothing to recover`];
+  if (takenOverFrom) lines.push(`  removed the stale lock of ${describeOwner(takenOverFrom)}, which stopped without releasing it`);
+  return lines.join("\n");
 }
 
 /** A human-readable account of a run's derived state, its ledger and who is writing it. */
@@ -294,6 +394,7 @@ export function formatRun(inspection: RunInspection): string {
       if (attempt.failureClass) lines.push(`    failure class: ${attempt.failureClass}`);
       if (attempt.stopReason) lines.push(`    stop reason: ${attempt.stopReason}`);
       if (attempt.error) lines.push(`    error (${attempt.error.kind}): ${attempt.error.message}`);
+      if (attempt.recovery) lines.push(...describeRecovery(attempt.recovery));
       for (const earlier of attempt.earlierVerifications) {
         lines.push(...describeVerification("earlier verification", earlier, " (the validator could not run; verified again)"));
       }

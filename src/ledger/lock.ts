@@ -1,15 +1,11 @@
 import { open, readFile, unlink, type FileHandle } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
+import { isDeepStrictEqual } from "node:util";
+import type { LockOwner } from "../protocol/index.ts";
 import { whileBusy } from "./busy.ts";
 
-/** The process that holds a run's ledger lock, and so is the one process writing the run. */
-export interface LockOwner {
-  host: string;
-  pid: number;
-  /** When the process started (ISO). With the PID it tells the owner apart from a later process given the same PID. */
-  startedAt: string;
-}
+export type { LockOwner };
 
 /** What a run's ledger lock says about who is writing the run. */
 export type LockState =
@@ -65,9 +61,10 @@ const START_TIME_MARGIN_MS = 1000;
 
 /**
  * Takes the lock at `path` for this process by creating the lock file exclusively and writing this process
- * into it. Throws `LedgerLockedError` if the file exists, whoever left it: a stale lock is never taken over.
+ * into it, and returns what it wrote. Throws `LedgerLockedError` if the file exists, whoever left it: a stale lock
+ * is never taken over here.
  */
-export async function acquireLock(path: string): Promise<void> {
+export async function acquireLock(path: string): Promise<LockOwner> {
   const owner: LockOwner = { host: hostname(), pid: process.pid, startedAt: processStartedAt };
   for (let tries = 1; ; tries++) {
     let handle: FileHandle;
@@ -93,17 +90,44 @@ export async function acquireLock(path: string): Promise<void> {
       await releaseLock(path);
       throw error;
     }
-    return;
+    return owner;
   }
 }
 
-/** Releases a lock this process holds. */
-export async function releaseLock(path: string): Promise<void> {
+/**
+ * Releases a lock this process holds. Given the `owner` it wrote, it removes the file only while the file still
+ * names that owner, so a lock some other process has taken since is left alone.
+ */
+export async function releaseLock(path: string, owner?: LockOwner): Promise<void> {
   try {
+    if (owner && !isDeepStrictEqual(parseOwner(await whileBusy(() => readFile(path, "utf8"))), owner)) return;
     await whileBusy(() => unlink(path));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
+}
+
+/**
+ * Removes a stale lock that names `owner`, the process a caller found gone, so that a recovering process can take
+ * the run over explicitly. The lock is read again first: if it no longer names that owner, or that owner is
+ * running after all, nothing is removed and `LedgerLockedError` says who holds it now.
+ */
+export async function removeStaleLock(path: string, owner: LockOwner): Promise<void> {
+  const lock = await readLockState(path);
+  if (lock.state === "free") return;
+  if (lock.state !== "stale" || !isDeepStrictEqual(lock.owner, owner)) throw new LedgerLockedError(path, lock);
+  await releaseLock(path, owner);
+}
+
+/**
+ * Removes the lock at `path` if it is stale, for a run that no process is to write again, and returns whose it
+ * was; any other lock is left alone and null returned.
+ */
+export async function clearStaleLock(path: string): Promise<LockOwner | null> {
+  const lock = await readLockState(path);
+  if (lock.state !== "stale") return null;
+  await removeStaleLock(path, lock.owner);
+  return lock.owner;
 }
 
 /** Reads the lock at `path` and, for an owner on this host, checks whether it is still running. */

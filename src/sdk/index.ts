@@ -4,11 +4,16 @@ export {
   inspectRun,
   readRun,
   readRunEvents,
+  recoverAttempt,
+  resumeRun,
   runWorkflow,
   type ReadRunOptions,
+  type RecoverAttemptOptions,
+  type ResumeRunOptions,
   type RunInspection,
   type RunWorkflowOptions,
 } from "./run.ts";
+export { isAttemptId, isRunId, RecoveryRefusedError, type ResumeResult } from "../runtime/index.ts";
 export {
   findAttempt,
   findHandoff,

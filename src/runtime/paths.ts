@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { git } from "./git.ts";
 
 const RUN_ID = /^run_[a-z0-9]+$/;
+const ATTEMPT_ID = /^att_[a-z0-9]+$/;
 
 export interface RepoLocation {
   /** The top level of the working tree AHP was pointed at. */
@@ -47,9 +48,16 @@ export function isRunId(value: string): boolean {
   return RUN_ID.test(value);
 }
 
+export function isAttemptId(value: string): boolean {
+  return ATTEMPT_ID.test(value);
+}
+
+/** The directory that holds a directory per run, named by its ID, with the run's ledger in it. */
+export const runsDir = (location: RepoLocation) => join(location.ahpDir, "runs");
+
 export function ledgerPath(location: RepoLocation, runId: string): string {
   if (!isRunId(runId)) throw new Error(`not a run ID: ${runId}`);
-  return join(location.ahpDir, "runs", runId, "ledger.jsonl");
+  return join(runsDir(location), runId, "ledger.jsonl");
 }
 
 export function worktreePath(worktreeRoot: string, runId: string, name: string): string {

@@ -136,6 +136,36 @@ describe("the single-writer lock", () => {
     expect(readFileSync(path)).toEqual(ledger);
   });
 
+  it("is released only while it still names its writer, so a lock some process has taken since stays", async () => {
+    const { repo, runId } = await finishedRun();
+    const { writer } = await LedgerWriter.open(ledgerFile(repo, runId));
+    const other = `${JSON.stringify({ host: hostname(), pid: GONE_PID, startedAt: "2026-01-01T00:00:00.000Z" })}\n`;
+    writeFileSync(lockFile(repo, runId), other);
+
+    await writer.close();
+
+    expect(readFileSync(lockFile(repo, runId), "utf8")).toBe(other);
+  });
+
+  it("is taken over, when a recovering writer asks, only from a process that is no longer running", async () => {
+    const { repo, runId } = await finishedRun();
+    const path = ledgerFile(repo, runId);
+    const stale = { host: hostname(), pid: GONE_PID, startedAt: "2026-01-01T00:00:00.000Z" };
+    for (const content of [`${JSON.stringify({ ...stale, host: `not-${hostname()}` })}\n`, ""]) {
+      writeFileSync(lockFile(repo, runId), content);
+      await expect(LedgerWriter.open(path, undefined, { takeOverStale: true })).rejects.toThrow(LedgerLockedError);
+      expect(readFileSync(lockFile(repo, runId), "utf8")).toBe(content);
+    }
+    writeFileSync(lockFile(repo, runId), `${JSON.stringify(stale)}\n`);
+
+    const { writer, takenOverFrom } = await LedgerWriter.open(path, undefined, { takeOverStale: true });
+
+    expect(takenOverFrom).toEqual(stale);
+    expect(JSON.parse(readFileSync(lockFile(repo, runId), "utf8"))).toMatchObject({ pid: process.pid });
+    await expect(LedgerWriter.open(path, undefined, { takeOverStale: true })).rejects.toThrow(`lock held by PID ${process.pid}`);
+    await writer.close();
+  });
+
   it("is released again when the ledger it guards turns out to be corrupt, which is never appended to", async () => {
     const { repo, runId } = await finishedRun();
     const path = ledgerFile(repo, runId);

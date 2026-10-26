@@ -1,3 +1,4 @@
+import { rm } from "node:fs/promises";
 import { git } from "./git.ts";
 
 // Snapshot commits are made with plumbing commands, so no hooks run and no user identity is required.
@@ -25,17 +26,28 @@ const isSetLocally = (repo: string, key: string) =>
  * left alone in a repository that sets `core.worktree`, which git requires to be moved when the flag is enabled,
  * and the worktree then has long paths only for its checkout.
  */
-export async function addWorktree(repo: string, path: string, commit: string): Promise<void> {
+export async function addWorktree(repo: string, path: string, commit: string, options: { force?: boolean } = {}): Promise<void> {
   const perWorktreeConfig = !(await isSetLocally(repo, "core.worktree"));
   if (perWorktreeConfig && !(await isSetLocally(repo, "extensions.worktreeConfig"))) {
     await git(repo, ["config", "--local", "extensions.worktreeConfig", "true"]);
   }
-  await git(repo, ["-c", "core.longpaths=true", "worktree", "add", "--detach", path, commit]);
+  // `--force` also takes a path git still has registered as a worktree that is no longer there.
+  await git(repo, ["-c", "core.longpaths=true", "worktree", "add", "--detach", ...(options.force ? ["--force"] : []), path, commit]);
   if (perWorktreeConfig) await git(path, ["config", "--worktree", "core.longpaths", "true"]);
 }
 
 export async function removeWorktree(repo: string, path: string): Promise<void> {
   await git(repo, ["worktree", "remove", "--force", path]);
+}
+
+/**
+ * Removes whatever an AHP process stopped partway through making or using at `path`, whether git has it registered
+ * as a worktree or not, so nothing is there afterwards. For AHP's own worktrees only.
+ */
+export async function discardWorktree(repo: string, path: string): Promise<void> {
+  // Fails for a path that is not a worktree, or one git has registered that is no longer there; the rest is removed below.
+  await git(repo, ["worktree", "remove", "--force", "--force", path]).catch(() => undefined);
+  await rm(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
 
 /**

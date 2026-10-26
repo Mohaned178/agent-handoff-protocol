@@ -45,7 +45,7 @@ export type Verdict = Exclude<VerificationState, "pending">;
  * - `agent_error`: the agent failed (non-zero exit, refusal, ran out of turns). Retried within the shared budget.
  * - `verification_failed`: verification failed. Retried with the evidence, within the shared budget.
  * - `inconclusive`: the validator could not run. Re-run once, then escalated; never counted.
- * - `unknown`: the attempt's outcome is not known. Never retried automatically (ticket 06).
+ * - `unknown`: the attempt's outcome is not known. Never retried: the step's recovery policy, or a person, decides.
  */
 export const FAILURE_CLASSES = [
   "rejected",
@@ -64,6 +64,34 @@ export type FailureClass = (typeof FAILURE_CLASSES)[number];
  */
 export const STOP_REASONS = ["end_turn", "max_tokens", "max_turn_requests", "refusal"] as const;
 export type StopReason = (typeof STOP_REASONS)[number];
+
+/**
+ * Why an attempt's outcome is unknown: it was dispatched, and nothing records how it ended. A closed list.
+ * - `no_terminal_record`: the runtime stopped while the attempt was dispatching or running, and a later process
+ *   found it so.
+ * - `lost_contact`: the adapter could not say whether or how the agent's process ended, as when its transport's
+ *   connection dropped or its start failed partway.
+ * - `unconfirmed_kill`: the runtime stopped the agent and could not confirm that it had stopped (ticket 07).
+ */
+export const UNKNOWN_REASONS = ["no_terminal_record", "lost_contact", "unconfirmed_kill"] as const;
+export type UnknownReason = (typeof UNKNOWN_REASONS)[number];
+
+/**
+ * What is done with a step's attempt whose outcome is unknown, declared per step: `manual` (the default) stops the
+ * run for a person to decide with `ahp recover`; `adopt` verifies the attempt's workspace as its result; `abort`
+ * ends the step. Never a retry: whatever the attempt did may already have happened. `discard_and_retry` is
+ * deferred past release 1.
+ */
+export const RECOVERY_POLICIES = ["manual", "adopt", "abort"] as const;
+export type RecoveryPolicy = (typeof RECOVERY_POLICIES)[number];
+
+/** A recovery decision: what `manual` leaves to a person, or what the step's policy says at once. */
+export type RecoveryAction = Exclude<RecoveryPolicy, "manual">;
+export const RECOVERY_ACTIONS = ["adopt", "abort"] as const satisfies readonly RecoveryAction[];
+
+/** Why the design's fourth recovery policy is not one, for whoever asks for it. */
+export const DISCARD_AND_RETRY_DEFERRED =
+  "`discard_and_retry` is deferred past release 1: its only safety check, the diff of the shared refs, cannot see a push that leaves no local ref behind (to a URL rather than a configured remote, or through a service's API), so AHP cannot tell that running the step again is safe";
 
 /** The failure classes an adapter can report for an attempt it saw fail. */
 export const ADAPTER_ERROR_KINDS = ["config_auth", "transient", "agent_error"] as const satisfies readonly FailureClass[];
@@ -159,6 +187,8 @@ export interface StepDefinition {
    * step is rerouted at most once.
    */
   reroute?: AgentRef;
+  /** What is done with an attempt whose outcome is unknown. Default `manual`: the run stops for a person to decide. */
+  recovery?: RecoveryPolicy;
   /** What the step is to do, in the words the coding agent receives it in; carried in the handoff's contract. */
   instructions?: string;
   /**
@@ -219,8 +249,11 @@ export interface ProtectedPathsEvidence {
   truncated: boolean;
 }
 
-/** The parts of verification that can break before or while the validator runs. */
-export type ValidatorStage = "diff_scope" | "verification_worktree" | "install" | "hidden_tests" | "command";
+/**
+ * The parts of verification that can break before or while the validator runs; `runtime_stopped` when the runtime
+ * stopped during the verification, so which part it had reached is not known.
+ */
+export type ValidatorStage = "diff_scope" | "verification_worktree" | "install" | "hidden_tests" | "command" | "runtime_stopped";
 
 /**
  * AHP could not get the validator to run to a result, so it says nothing about the attempt: the verdict is
@@ -238,6 +271,61 @@ export type EvidenceItem =
   | DiffScopeEvidence
   | ProtectedPathsEvidence
   | ValidatorErrorEvidence;
+
+/** The process that holds a run's ledger lock, and so is the one process writing the run. */
+export interface LockOwner {
+  host: string;
+  pid: number;
+  /** When the process started (ISO). With the PID it tells the owner apart from a later process given the same PID. */
+  startedAt: string;
+}
+
+/**
+ * A ref of the shared repository (branches, tags, remote-tracking refs, the stash: everything under `refs/` but
+ * AHP's own `refs/ahp/`) and the object it points at.
+ */
+export interface SharedRef {
+  name: string;
+  oid: string;
+}
+
+/** A shared ref that differs between two snapshots of the refs: null on the side where it did not exist. */
+export interface RefChange {
+  name: string;
+  before: string | null;
+  after: string | null;
+}
+
+/**
+ * What is known about an attempt whose outcome is unknown, for the person or policy that decides what becomes of
+ * it. Everything in it was read when it was written; nothing in it says what the agent did beyond the workspace
+ * and the shared repository's refs.
+ */
+export interface RecoveryReport {
+  /** The last events recorded before the attempt was found unknown, oldest first. */
+  lastEvents: { seq: number; time: string; type: LedgerEventType }[];
+  workspace: {
+    path: string;
+    /** False when the workspace is gone, so there is no result to adopt. */
+    exists: boolean;
+    /** What differs between the step's base commit and the workspace as it was, untracked files included. */
+    changed: ChangedPath[];
+    /** True when `changed` lists only the first of more. */
+    truncated: boolean;
+    /** Why the workspace could not be read, if it could not. */
+    error: string | null;
+  };
+  refs: {
+    /** The shared refs that differ between the snapshot taken before the attempt was dispatched and the refs now. */
+    changed: RefChange[];
+    truncated: boolean;
+    error: string | null;
+  };
+  /** The transport's log of the agent's tool calls; null when the adapter keeps none, as no adapter does yet. */
+  toolCallLog: null;
+  /** The statement that host and external effects are undetermined, always present. */
+  undetermined: string;
+}
 
 /**
  * What a retry changes about the step's input: nothing (a new attempt under the same handoff revision), the
@@ -290,6 +378,23 @@ export type LedgerEventBody =
       /** What the adapter saw go wrong, if anything; its class decides how the failure is handled. */
       error: AttemptError | null;
     }
+  /**
+   * The attempt was dispatched and how it ended is not known. It is never retried automatically: its step needs
+   * recovery, decided by the step's policy or by a person.
+   */
+  | { type: "attempt_unknown"; attemptId: string; reason: UnknownReason; detail: string }
+  | { type: "recovery_report_written"; attemptId: string; report: RecoveryReport }
+  /** The step's policy is `manual`, so the run stops here for a person to decide with `ahp recover`. */
+  | { type: "recovery_awaited"; attemptId: string }
+  | {
+      type: "recovery_decided";
+      attemptId: string;
+      policy: RecoveryAction;
+      /** A person, through `ahp recover`, or the step's own policy. */
+      decidedBy: "human" | "step_policy";
+      /** The name of the user who decided; null for the step's policy. */
+      user: string | null;
+    }
   /** The failure class of an attempt that did not pass, recorded once its verdict (if it had one) is final. */
   | { type: "attempt_failed"; attemptId: string; failureClass: FailureClass }
   /**
@@ -306,6 +411,11 @@ export type LedgerEventBody =
       /** The backoff before the next attempt, in milliseconds; 0 for everything but a transient failure. */
       delayMs: number;
     }
+  /**
+   * The shared repository's refs, recorded just before the attempt's agent is dispatched and again once it has
+   * exited, so a change an agent made to them (a branch, a fetch, a push that moved a remote-tracking ref) shows.
+   */
+  | { type: "ref_snapshot_taken"; attemptId: string; phase: "before" | "after"; refs: SharedRef[] }
   | { type: "workspace_snapshot_committed"; attemptId: string; commit: string; ref: string }
   | {
       type: "verification_started";
@@ -329,6 +439,11 @@ export type LedgerEventBody =
       failureClass: FailureClass | null;
     }
   | { type: "run_terminal"; state: Extract<RunState, "succeeded" | "failed"> }
+  /**
+   * A process opened the unfinished run to continue it: after its process stopped, or to apply a person's decision.
+   * `takenOverFrom` names the process whose stale lock it removed to do so, if it did.
+   */
+  | { type: "run_resumed"; takenOverFrom: LockOwner | null }
   /**
    * The process that opened the ledger to write it found a torn tail, a last line that a write did not finish
    * (no newline, or not JSON), and truncated it. The line was never recorded, so nothing it said happened.
@@ -380,11 +495,41 @@ export interface AttemptView {
   /** What the coding agent reported; `unknown` until an adapter reports one. */
   reportedModel: string;
   workspace: string;
+  /** The shared repository's refs just before the agent was dispatched and once it had exited; null until recorded. */
+  refs: { before: SharedRef[] | null; after: SharedRef[] | null };
   snapshot: { commit: string; ref: string } | null;
   /** The verification that decided the attempt: the last one, or the only one. */
   verification: VerificationView | null;
   /** Inconclusive verifications that were re-run, oldest first. */
   earlierVerifications: VerificationView[];
+  /** The retry scheduled after this attempt failed, if one was: what it changes, and the wait it starts with. */
+  retry: ScheduledRetry | null;
+  /** Set once the attempt's outcome is unknown: why, its report, and what was decided. */
+  recovery: AttemptRecovery | null;
+}
+
+export interface AttemptRecovery {
+  reason: UnknownReason;
+  /** What was observed, in words. */
+  detail: string;
+  report: RecoveryReport | null;
+  /** True once the run stopped for a person to decide. */
+  awaited: boolean;
+  decision: RecoveryDecision | null;
+}
+
+export interface RecoveryDecision {
+  policy: RecoveryAction;
+  decidedBy: "human" | "step_policy";
+  user: string | null;
+  time: string;
+}
+
+export interface ScheduledRetry {
+  change: RetryChange;
+  delayMs: number;
+  /** When the retry was scheduled (ISO): its wait runs from here. */
+  scheduledAt: string;
 }
 
 export interface HandoffView {
@@ -447,4 +592,14 @@ export interface RunView {
   steps: StepView[];
   /** Torn tails truncated from the ledger, oldest first. */
   ledgerTruncations: LedgerTruncation[];
+  /** Each time a later process continued the run, oldest first. */
+  resumptions: RunResumption[];
+}
+
+/** A process continuing a run, as its `run_resumed` event records it. */
+export interface RunResumption {
+  seq: number;
+  time: string;
+  /** The process whose stale lock was removed so the run could continue, if one was. */
+  takenOverFrom: LockOwner | null;
 }

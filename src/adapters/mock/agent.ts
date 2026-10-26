@@ -42,6 +42,11 @@ if (script.commit) {
   );
   console.error("mock agent: committed");
 }
+if (script.hang) {
+  console.error("mock agent: hanging until killed");
+  // The timer keeps the process alive; the promise never settles.
+  await new Promise(() => setInterval(() => undefined, 60_000));
+}
 
 process.stdout.write(
   JSON.stringify({ outputFields: script.outputFields ?? {}, stopReason: script.stopReason ?? null, error: script.error ?? null }),

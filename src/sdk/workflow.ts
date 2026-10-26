@@ -1,5 +1,13 @@
 import { adapters } from "../adapters/index.ts";
-import { isOutputFieldName, isRepoPath, isStepId, type WorkflowDefinition } from "../protocol/index.ts";
+import {
+  DISCARD_AND_RETRY_DEFERRED,
+  isOutputFieldName,
+  isRepoPath,
+  isStepId,
+  RECOVERY_POLICIES,
+  type RecoveryPolicy,
+  type WorkflowDefinition,
+} from "../protocol/index.ts";
 
 export class WorkflowValidationError extends Error {
   override name = "WorkflowValidationError";
@@ -11,7 +19,7 @@ export class WorkflowValidationError extends Error {
 }
 
 const WORKFLOW_KEYS = ["name", "steps"];
-const STEP_KEYS = ["id", "agent", "verification", "artifacts", "instructions", "retry", "reroute"];
+const STEP_KEYS = ["id", "agent", "verification", "artifacts", "instructions", "retry", "reroute", "recovery"];
 const AGENT_KEYS = ["adapter", "model", "options"];
 const RETRY_KEYS = ["budget", "transientBudget", "backoff"];
 const BACKOFF_KEYS = ["initialMs", "factor", "maxTotalMs"];
@@ -123,6 +131,11 @@ function validateStep(step: unknown, index: number, seen: Set<string>): string[]
   if (step.retry !== undefined) {
     if (isRecord(step.retry)) validateRetry(step.retry, problem);
     else problem("`retry` must be an object");
+  }
+  if (step.recovery === "discard_and_retry") {
+    problem(`\`recovery\`: ${DISCARD_AND_RETRY_DEFERRED}`);
+  } else if (step.recovery !== undefined && !RECOVERY_POLICIES.includes(step.recovery as RecoveryPolicy)) {
+    problem(`\`recovery\` must be one of ${RECOVERY_POLICIES.join(", ")}`);
   }
 
   const verification = step.verification;

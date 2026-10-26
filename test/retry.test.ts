@@ -71,9 +71,11 @@ describe("the retry budget", () => {
     const events = await readRunEvents({ repo, runId });
     const attemptEvents = [
       "attempt_created",
+      "ref_snapshot_taken",
       "attempt_dispatching",
       "attempt_running",
       "attempt_exited",
+      "ref_snapshot_taken",
       "workspace_snapshot_committed",
     ];
     expect(events.map((e) => e.type)).toEqual([

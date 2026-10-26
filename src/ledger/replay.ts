@@ -1,4 +1,5 @@
 import type {
+  AttemptRecovery,
   AttemptView,
   FailureClass,
   HandoffView,
@@ -51,8 +52,9 @@ export function findHandoff(
 const noRetriesSpent = (): RetryUsage => ({ retries: 0, transientRetries: 0, transientWaitMs: 0, rerouted: false });
 
 /**
- * What an exited attempt's record must show for it to have failed as each class. `rejected` has no attempt, and
- * `unknown` is not recorded for an attempt that exited; keyed by every class so a new one cannot be forgotten.
+ * What an attempt's record must show for it to have failed as each class. `rejected` has no attempt, and `unknown`
+ * is recorded only for an unknown attempt whose recovery aborted it; keyed by every class so a new one cannot be
+ * forgotten.
  */
 const ATTEMPT_SHOWS: Record<FailureClass, (attempt: AttemptView) => boolean> = {
   rejected: () => false,
@@ -61,8 +63,14 @@ const ATTEMPT_SHOWS: Record<FailureClass, (attempt: AttemptView) => boolean> = {
   agent_error: (a) => a.outcome === "error",
   verification_failed: (a) => a.verification?.state === "fail",
   inconclusive: (a) => a.verification?.state === "inconclusive",
-  unknown: () => false,
+  unknown: (a) => a.recovery?.decision?.policy === "abort",
 };
+
+/**
+ * Whether the attempt has a result in its workspace to snapshot and verify: its process exited, or its outcome is
+ * unknown and its workspace was adopted as the result.
+ */
+const hasResult = (a: AttemptView) => a.state === "exited" || a.recovery?.decision?.policy === "adopt";
 
 /** How a failure of each class may be retried; a class with none is never retried. */
 const RETRIED_WITH: Record<FailureClass, readonly RetryChange[]> = {
@@ -74,6 +82,15 @@ const RETRIED_WITH: Record<FailureClass, readonly RetryChange[]> = {
   inconclusive: [],
   unknown: [],
 };
+
+/** The recovery of an attempt whose outcome is unknown and not yet decided; an event about any other attempt is refused. */
+function undecidedRecovery(a: AttemptView, event: LedgerEvent): AttemptRecovery {
+  if (!a.recovery) throw new LedgerInconsistentError(event, `attempt "${a.id}" is ${a.state}, not unknown`);
+  if (a.recovery.decision) {
+    throw new LedgerInconsistentError(event, `attempt "${a.id}"'s recovery was already decided (${a.recovery.decision.policy})`);
+  }
+  return a.recovery;
+}
 
 /** The ledger's events do not describe a valid run. */
 export class LedgerInconsistentError extends Error {
@@ -118,6 +135,7 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
         attempts: [],
       })),
       ledgerTruncations: [],
+      resumptions: [],
     };
   }
   if (!state) throw new LedgerInconsistentError(event, "the first event must be run_created");
@@ -223,9 +241,12 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
         requestedModel: event.requestedModel,
         reportedModel: "unknown",
         workspace: event.workspace,
+        refs: { before: null, after: null },
         snapshot: null,
         verification: null,
         earlierVerifications: [],
+        retry: null,
+        recovery: null,
       });
       break;
     }
@@ -249,9 +270,48 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       a.error = event.error ?? null;
       break;
     }
+    case "attempt_unknown": {
+      const { step: s, attempt: a } = attemptWithStep(event.attemptId);
+      // Only a dispatched attempt can have done something nobody saw: one that never was dispatched ran no agent.
+      if (a.state !== "dispatching" && a.state !== "running") {
+        throw new LedgerInconsistentError(event, `attempt "${a.id}" is ${a.state}, not dispatched and unfinished`);
+      }
+      a.state = "unknown";
+      a.recovery = { reason: event.reason, detail: event.detail, report: null, awaited: false, decision: null };
+      s.state = "needs_recovery";
+      break;
+    }
+    case "recovery_report_written": {
+      const recovery = undecidedRecovery(attempt(event.attemptId), event);
+      if (recovery.report) throw new LedgerInconsistentError(event, `attempt "${event.attemptId}" already has a recovery report`);
+      recovery.report = event.report;
+      break;
+    }
+    case "recovery_awaited": {
+      const recovery = undecidedRecovery(attempt(event.attemptId), event);
+      if (!recovery.report || recovery.awaited) {
+        throw new LedgerInconsistentError(event, `attempt "${event.attemptId}" has ${recovery.report ? "already stopped the run" : "no recovery report"}`);
+      }
+      recovery.awaited = true;
+      run.state = "needs_recovery";
+      break;
+    }
+    case "recovery_decided": {
+      const { step: s, attempt: a } = attemptWithStep(event.attemptId);
+      const recovery = undecidedRecovery(a, event);
+      if (!recovery.report) throw new LedgerInconsistentError(event, `attempt "${a.id}" has no recovery report`);
+      // A person decides for a run that stopped to wait for one; the step's own policy decides at once, without stopping.
+      if (recovery.awaited !== (event.decidedBy === "human")) {
+        throw new LedgerInconsistentError(event, `attempt "${a.id}" ${recovery.awaited ? "awaits a person's decision" : "was not left to a person"}`);
+      }
+      recovery.decision = { policy: event.policy, decidedBy: event.decidedBy, user: event.user, time: event.time };
+      s.state = "in_progress";
+      run.state = "running";
+      break;
+    }
     case "attempt_failed": {
       const a = attempt(event.attemptId);
-      if (a.state !== "exited") throw new LedgerInconsistentError(event, `attempt "${a.id}" has not exited`);
+      if (a.state !== "exited" && a.state !== "unknown") throw new LedgerInconsistentError(event, `attempt "${a.id}" has not exited`);
       if (a.failureClass !== null) throw new LedgerInconsistentError(event, `attempt "${a.id}" is already classified ${a.failureClass}`);
       // The class must follow from what the ledger says happened to the attempt, so it cannot claim otherwise.
       if (!ATTEMPT_SHOWS[event.failureClass](a)) {
@@ -282,14 +342,27 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       } else {
         usage.retries += 1;
       }
+      failed.retry = { change: event.change, delayMs: event.delayMs, scheduledAt: event.time };
       s.state = "ready";
       break;
     }
-    case "workspace_snapshot_committed":
-      attempt(event.attemptId).snapshot = { commit: event.commit, ref: event.ref };
+    case "ref_snapshot_taken": {
+      const a = attempt(event.attemptId);
+      // Before: while the attempt waits to be dispatched. After: once its process has exited.
+      const when = event.phase === "before" ? "created" : "exited";
+      if (a.state !== when) throw new LedgerInconsistentError(event, `attempt "${a.id}" is ${a.state}, not ${when}`);
+      a.refs[event.phase] = event.refs;
       break;
+    }
+    case "workspace_snapshot_committed": {
+      const a = attempt(event.attemptId);
+      if (!hasResult(a)) throw new LedgerInconsistentError(event, `attempt "${a.id}" has no result to snapshot`);
+      a.snapshot = { commit: event.commit, ref: event.ref };
+      break;
+    }
     case "verification_started": {
       const { step: s, attempt: a } = attemptWithStep(event.attemptId);
+      if (!hasResult(a)) throw new LedgerInconsistentError(event, `attempt "${a.id}" has no result to verify`);
       // A verification that could not run is re-run once; any other verdict is final.
       if (a.verification) {
         if (a.verification.state !== "inconclusive" || a.earlierVerifications.length > 0) {
@@ -330,6 +403,10 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       break;
     case "ledger_truncated":
       run.ledgerTruncations.push({ seq: event.seq, time: event.time, droppedBytes: event.droppedBytes });
+      break;
+    case "run_resumed":
+      if (run.endedAt !== null) throw new LedgerInconsistentError(event, `the run already ended ${run.state}`);
+      run.resumptions.push({ seq: event.seq, time: event.time, takenOverFrom: event.takenOverFrom });
       break;
     default: {
       // A new event type must be handled here: state is derived from events alone.

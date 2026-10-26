@@ -87,7 +87,7 @@ A last ledger line that a write did not finish (no newline, or not JSON), as a c
 The file beside a run's ledger, created exclusively, that names the one process writing the run: its host, PID and start time.
 
 **Stale lock**:
-A ledger lock whose process is no longer running, so whatever it was doing stopped partway and the run needs recovery. AHP never takes one over by itself.
+A ledger lock whose process is no longer running, so whatever it was doing stopped partway and the run needs recovery. AHP never takes one over by itself: `ahp recover` does when a person asks, and records whose it was.
 
 ## Verification
 
@@ -170,10 +170,23 @@ An effect outside the workspace and shared repo, such as push, PR or merge, perf
 **Forbidden external action detected**:
 Verification evidence that a coding agent performed an external action; its absence is not proof that none occurred.
 
+**Shared refs**:
+The refs every worktree of a repository shares (branches, tags, remote-tracking refs, the stash), less AHP's own under `refs/ahp/`. They are recorded just before each attempt is dispatched and again once it has exited, so a ref an agent moved shows.
+
 ## Recovery and evaluation
 
+**Unknown attempt**:
+An attempt that was dispatched and has no record of how it ended: the runtime stopped while it ran, its adapter lost contact with the agent, or a kill could not be confirmed. Its agent may have done anything, and may still be running, so it is never dispatched or retried again; its step's recovery policy, or a person, decides what becomes of it.
+_Avoid_: Crashed attempt, failed attempt
+
+**Recovery report**:
+What AHP records about an unknown attempt for whoever decides on it: the last ledger events before it was found unknown, what its workspace holds against the step's base commit, how the shared refs moved since just before it was dispatched, the transport's tool-call log if the adapter keeps one, and the statement that host and external effects are undetermined.
+
 **Recovery policy**:
-The per-step rule for an attempt whose outcome is `unknown`: `manual` (default), `adopt` or `abort`.
+The per-step rule for an unknown attempt: `manual` (default: the run stops in `needs_recovery` and a person decides with `ahp recover <attempt> --policy adopt|abort`), `adopt` (its workspace is verified as the attempt's result) or `abort` (the step fails as `unknown`). `discard_and_retry` is deferred past release 1.
+
+**Resume**:
+A later process continuing a run whose process stopped, from wherever its ledger stops; `ahp recover <run>` does it, and records it as `run_resumed`.
 
 **Matched-budget baseline**:
 A single-agent condition given the same number of independent attempts as the condition it is compared with, counted as a success if any attempt passes.

@@ -1,8 +1,18 @@
 import { access } from "node:fs/promises";
 import { adapters } from "../adapters/index.ts";
 import { lockPathOf, readCheckedLedger, readLockState, replay, type LockState } from "../ledger/index.ts";
-import type { LedgerEvent, RunView, WorkflowDefinition } from "../protocol/index.ts";
-import { executeRun, isRunId, ledgerPath, locateRepo, type Clock, type RunResult } from "../runtime/index.ts";
+import type { LedgerEvent, RecoveryAction, RunView, WorkflowDefinition } from "../protocol/index.ts";
+import {
+  executeRun,
+  isRunId,
+  ledgerPath,
+  locateRepo,
+  recoverAttempt as recoverAttemptInRuntime,
+  resumeRun as resumeRunInRuntime,
+  type Clock,
+  type ResumeResult,
+  type RunResult,
+} from "../runtime/index.ts";
 import { defineWorkflow } from "./workflow.ts";
 
 export interface RunWorkflowOptions {
@@ -14,9 +24,42 @@ export interface RunWorkflowOptions {
   clock?: Clock;
 }
 
-/** Validates and runs a workflow to a terminal state; resolves with the run ID and its derived state. */
+/**
+ * Validates and runs a workflow until it ends, or until it stops for a person (`needs_recovery`); resolves with the
+ * run ID and its derived state.
+ */
 export async function runWorkflow(workflow: WorkflowDefinition, options: RunWorkflowOptions): Promise<RunResult> {
   return executeRun(defineWorkflow(workflow), { ...options, adapters });
+}
+
+export interface ResumeRunOptions extends RunWorkflowOptions {
+  runId: string;
+}
+
+/**
+ * Continues a run whose process stopped before it ended, from where its ledger says it got to, taking over the
+ * stale lock that process left; resolves once the run ends or stops for a person again. An attempt that was
+ * dispatched and has no record of how it ended is never dispatched again: it becomes `unknown`. A run that ended or
+ * awaits a decision is left as it is (`resumed: false`). Throws `LedgerLockedError` if a running process holds it.
+ */
+export async function resumeRun(options: ResumeRunOptions): Promise<ResumeResult> {
+  return resumeRunInRuntime({ ...options, adapters });
+}
+
+export interface RecoverAttemptOptions extends RunWorkflowOptions {
+  /** An attempt whose outcome is unknown and whose run stopped for a decision. */
+  attemptId: string;
+  /** `adopt` verifies the attempt's workspace as its result; `abort` ends its step. */
+  policy: RecoveryAction;
+}
+
+/**
+ * Decides an attempt that awaits recovery and resumes its run, until the run ends or stops again. Throws
+ * `RecoveryRefusedError`, writing nothing, unless the attempt awaits a decision; `LedgerLockedError` if a running
+ * process holds the run.
+ */
+export async function recoverAttempt(options: RecoverAttemptOptions): Promise<RunResult> {
+  return recoverAttemptInRuntime({ ...options, adapters });
 }
 
 export interface ReadRunOptions {

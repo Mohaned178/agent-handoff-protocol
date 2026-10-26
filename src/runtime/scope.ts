@@ -22,6 +22,26 @@ export async function changedPaths(repo: string, base: string, snapshot: string)
   return changed;
 }
 
+/**
+ * The paths that differ between `base` and the worktree as it is now, files git does not ignore but does not track
+ * included as added, whatever the worktree's HEAD (an agent may have committed). It only reads: git is told not to
+ * write back a refreshed index.
+ */
+export async function worktreeChanges(worktree: string, base: string): Promise<ChangedPath[]> {
+  const tracked = await git(worktree, ["--no-optional-locks", "diff", "--name-status", "--no-renames", "-z", base]);
+  const untracked = await git(worktree, ["--no-optional-locks", "ls-files", "--others", "--exclude-standard", "-z"]);
+  const changed = new Map<string, PathChange>();
+  const fields = tracked.split("\0").filter((field) => field !== "");
+  for (let i = 0; i + 1 < fields.length; i += 2) changed.set(fields[i + 1]!, CHANGE_OF_STATUS[fields[i]![0]!] ?? "modified");
+  for (const path of untracked.split("\0")) if (path !== "" && !changed.has(path)) changed.set(path, "added");
+  return [...changed].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([path, change]) => ({ path, change }));
+}
+
+/** The first of `items`, as many as a ledger event lists, and whether more were left out. */
+export function bounded<T>(items: readonly T[]): { items: T[]; truncated: boolean } {
+  return { items: items.slice(0, MAX_LISTED_PATHS), truncated: items.length > MAX_LISTED_PATHS };
+}
+
 export function diffScopeEvidence(changed: readonly ChangedPath[]): DiffScopeEvidence {
   return { kind: "diff_scope", changed: changed.slice(0, MAX_LISTED_PATHS), truncated: changed.length > MAX_LISTED_PATHS };
 }
