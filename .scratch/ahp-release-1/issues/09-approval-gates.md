@@ -43,3 +43,5 @@
 - The diff is truncated at 64 KiB in `inspect` (`git diff` gives the rest); binary files show as git shows them.
 - Evaluation runs have no gates (ticket 20 enforces that; nothing in the workflow format forbids one yet).
 - External actions (ticket 10) will read the approved commit from the request; the check that the commit pushed is the approved one is theirs.
+
+**Confirmed by the maintainer on 2026-10-26 ("do recommendation"): decisions 1 to 8 above stand as recommended; reopen one only with a new decision.**
