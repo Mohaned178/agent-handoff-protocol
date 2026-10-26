@@ -239,7 +239,7 @@ describe("terminate", () => {
 
     // The agent stops on SIGTERM, but its grandchild ignores it, so only killing the group ends the tree; on Windows
     // there is no signal to send without a console, so the tree is always killed.
-    expect(termination).toEqual({ confirmed: true, forced: true, via: "tree_kill" });
+    expect(termination).toEqual({ outcome: "stopped", forced: true, via: "tree_kill" });
     for (const pid of tree) expect(isRunning(pid)).toBe(false);
     await started.exited;
   });
@@ -251,7 +251,7 @@ describe("terminate", () => {
     const termination = await started.terminate({ graceMs: 5_000 });
 
     expect(termination).toEqual(
-      process.platform === "win32" ? { confirmed: true, forced: true, via: "tree_kill" } : { confirmed: true, forced: false, via: "signal" },
+      process.platform === "win32" ? { outcome: "stopped", forced: true, via: "tree_kill" } : { outcome: "stopped", forced: false, via: "signal" },
     );
     expect(isRunning(started.pid)).toBe(false);
   });
@@ -262,7 +262,7 @@ describe("terminate", () => {
 
     const termination = await started.terminate({ graceful: async () => writeFileSync(pidFile, "stop"), graceMs: 5_000 });
 
-    expect(termination).toEqual({ confirmed: true, forced: false, via: "transport" });
+    expect(termination).toEqual({ outcome: "stopped", forced: false, via: "transport" });
     expect(await started.exited).toEqual({ exitCode: 0, signal: null });
   });
 
@@ -273,7 +273,7 @@ describe("terminate", () => {
 
     const termination = await started.terminate({ graceful: async () => undefined, graceMs: 300 });
 
-    expect(termination).toEqual({ confirmed: true, forced: true, via: "tree_kill" });
+    expect(termination).toEqual({ outcome: "stopped", forced: true, via: "tree_kill" });
     for (const pid of tree) expect(isRunning(pid)).toBe(false);
   });
 
@@ -282,6 +282,6 @@ describe("terminate", () => {
     const { started } = await startScript(dir, "process.exit(0);");
     await started.exited;
 
-    expect(await started.terminate()).toEqual({ confirmed: true, forced: false, via: null });
+    expect(await started.terminate()).toEqual({ outcome: "already_gone" });
   });
 });

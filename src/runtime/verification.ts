@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { terminateTree } from "../process/index.ts";
+import { OWN_PROCESS_GROUP, terminateTree } from "../process/index.ts";
 import {
   isPresentOutputField,
   type EvidenceItem,
@@ -9,28 +9,30 @@ import {
   type ValidatorStage,
   type Verdict,
 } from "../protocol/index.ts";
+import { CANCELLED, cancelledAround, unlessCancelled, type RunCancel } from "./cancel.ts";
+import type { Clock } from "./clock.ts";
 
 /** Keeps the ledger bounded: only the tail of a longer output is recorded. */
 const MAX_OUTPUT_CHARS = 64 * 1024;
 
 /** Stops a verification command when the run is cancelled. */
-export interface CommandCancel {
-  signal: AbortSignal | undefined;
-  /** How long the command is given to stop gracefully before its process tree is killed. */
-  graceMs: number;
+export interface CommandCancel extends RunCancel {
+  clock: Clock;
+  /** Records that the run is being cancelled, before the command is stopped. */
+  beforeStop: () => Promise<void>;
 }
 
 /**
  * Runs the workflow's verification command through the system shell in `worktree`.
  * The evidence records the exit code; exit code 0 is a pass. If the run is cancelled meanwhile, the command and
- * everything it started are stopped, and this throws: a stopped command has no result.
+ * everything it started are stopped, and this throws: a stopped command has no result. So does a command that failed
+ * just as the run was cancelled, since the cancel may be why it failed.
  */
 export async function runVerificationCommand(command: string, worktree: string, cancel?: CommandCancel): Promise<TestOutputEvidence> {
-  const stopped = (how: string) => new Error(`the run was cancelled, so the command was stopped${how}`);
-  if (cancel?.signal?.aborted) throw stopped(" before it started");
+  if (cancel?.signal?.aborted) throw new Error("the run was cancelled, so the command was not started");
   const launchedAt = Date.now();
   // In a process group of its own on Linux and macOS, like an agent, so a cancel can stop everything it started.
-  const child = spawn(command, { cwd: worktree, shell: true, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  const child = spawn(command, { cwd: worktree, shell: true, detached: OWN_PROCESS_GROUP, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   let output = "";
   let truncated = false;
   const collect = (chunk: string) => {
@@ -49,16 +51,17 @@ export async function runVerificationCommand(command: string, worktree: string, 
     child.once("exit", () => (hasExited = true));
     child.once("close", (code, sig) => resolve({ exitCode: code, signal: sig }));
   });
-  const onAbort = new Promise<"aborted">((resolve) => cancel?.signal?.addEventListener("abort", () => resolve("aborted"), { once: true }));
-  const ended = await Promise.race([closed, onAbort]);
-  if (ended === "aborted") {
-    if (child.pid === undefined) throw stopped(" before it started");
-    const termination = await terminateTree({ pid: child.pid, launchedAt, hasExited: () => hasExited }, { graceMs: cancel!.graceMs });
-    throw stopped(
-      termination.confirmed
-        ? termination.via === null ? ", though it had already ended" : termination.forced ? " (its process tree was killed)" : " (it stopped when asked)"
-        : `, and it could still be running: ${termination.detail}`,
-    );
+  const ended = await unlessCancelled(closed, cancel?.signal);
+  const failedAtCancel = ended !== CANCELLED && cancel !== undefined && (await cancelledAround(ended.exitCode === 0, cancel, cancel.clock));
+  if (ended === CANCELLED || failedAtCancel) {
+    await cancel!.beforeStop();
+    const termination =
+      child.pid === undefined ? null : await terminateTree({ pid: child.pid, launchedAt, hasExited: () => hasExited }, { graceMs: cancel!.graceMs });
+    const what = failedAtCancel
+      ? "the run was cancelled as the command failed, which may be why it failed"
+      : "the run was cancelled, so the command was stopped";
+    const left = termination?.outcome === "unconfirmed" ? `; it could still be running: ${termination.detail}` : "";
+    throw new Error(`${what}${left}`);
   }
   const { exitCode, signal } = ended;
   return { kind: "test_output", command, exitCode, signal, output, truncated };

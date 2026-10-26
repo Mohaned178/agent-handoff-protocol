@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { readRun, readRunEvents, recoverAttempt, resumeRun, runWorkflow, type LedgerEvent, type MockAttemptScript, type RunView } from "../src/index.ts";
-import type { Adapter } from "../src/adapters/index.ts";
+import type { Adapter, StartedAttempt } from "../src/adapters/index.ts";
 import { mockAdapter } from "../src/adapters/mock/index.ts";
 import { executeRun } from "../src/runtime/index.ts";
 import { appendLedgerEvent, finishedRun, truncateLedgerAfter } from "./helpers/ledger.ts";
@@ -127,22 +127,31 @@ describe("cancelling a run", () => {
   });
 
   it("during verification: the command is stopped, which says nothing about the attempt, and the step is cancelled", async () => {
-    const repo = createTempRepo({ "verify.mjs": `setInterval(() => {}, 60000);\n` });
+    // The command writes its PID where the test can see it, then hangs.
+    const pids = pidFile();
+    const verify = `require("fs").writeFileSync(${JSON.stringify(pids.path)}, process.pid + "\\n"); setInterval(() => {}, 60000);\n`;
+    const repo = createTempRepo({ "verify.cjs": verify });
     const controller = new AbortController();
+    let command = 0;
 
-    const { state } = await runWorkflow(retryWorkflow([hello]), {
+    const { state, runId } = await runWorkflow(retryWorkflow([hello], { verification: { command: "node verify.cjs" } }), {
       repo,
       signal: controller.signal,
       cancelGraceMs: 500,
-      onEvent: abortOn(controller, "verification_started"),
+      onEvent: (event) => {
+        if (event.type === "verification_started") void pids.pids(1).then(([pid]) => ((command = pid!), controller.abort()));
+      },
     });
 
     expect(state.state).toBe("cancelled");
     const attempt = attemptOf(state);
     expect(attempt).toMatchObject({ outcome: "ok", failureClass: null, verification: { state: "inconclusive" } });
     expect(attempt.verification!.evidence).toEqual([
-      { kind: "validator_error", stage: "command", message: expect.stringMatching(/^the run was cancelled, so the command was stopped/) },
+      { kind: "validator_error", stage: "command", message: "the run was cancelled, so the command was stopped" },
     ]);
+    expect(isRunning(command)).toBe(false);
+    // The cancel is recorded before the command is stopped, so before its verdict.
+    expect(fromCancel(await readRunEvents({ repo, runId }))).toEqual(["run_cancel_requested", "verification_verdict", "step_terminal", "run_terminal"]);
   });
 
   it("an agent left dispatched by a process that stopped while cancelling is unknown, and waits for a person", async () => {
@@ -176,6 +185,64 @@ describe("cancelling a run", () => {
   });
 });
 
+/** The mock, with its attempts' `started` changed by `change`; each agent's PID is killed after the test if still there. */
+function wrappedMock(change: (started: StartedAttempt) => StartedAttempt): Adapter {
+  return {
+    ...mockAdapter,
+    async startAttempt(input) {
+      const started = await mockAdapter.startAttempt(input);
+      leftovers.push(started.pid);
+      return change(started);
+    },
+  };
+}
+
+describe("an agent that ends by itself as the run is cancelled", () => {
+  it("keeps its own outcome: nothing was sent to it, so it was not cancelled", async () => {
+    const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING });
+    const controller = new AbortController();
+    // Its exit is seen only once the cancel has found it gone, as when it ends just as the cancel reaches it.
+    let found = () => undefined as void;
+    const foundGone = new Promise<void>((resolve) => (found = resolve));
+    const endsByItself = wrappedMock((started) => ({
+      ...started,
+      exited: foundGone.then(() => started.exited),
+      cancel: async () => (found(), { outcome: "already_gone" as const }),
+    }));
+
+    const { state } = await executeRun(retryWorkflow([hello]), {
+      repo,
+      adapters: new Map([["mock", endsByItself]]),
+      signal: controller.signal,
+      onEvent: abortOn(controller, "attempt_running"),
+    });
+
+    expect(state.state).toBe("cancelled");
+    expect(attemptOf(state)).toMatchObject({ state: "exited", outcome: "ok", exitCode: 0, cancellation: { result: null } });
+    expect(implementOf(state).state).toBe("cancelled");
+  });
+
+  // A console's Ctrl+C reaches the agent at the same moment as ahp on Windows, so the agent can fail before ahp hears.
+  it.runIf(process.platform === "win32")("on Windows, failing just before the cancel arrives, is not retried", async () => {
+    const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING });
+    const controller = new AbortController();
+    const cancelSoonAfter = wrappedMock((started) => ({
+      ...started,
+      exited: started.exited.then((exit) => (setTimeout(() => controller.abort(), 50), exit)),
+    }));
+
+    const { state } = await executeRun(retryWorkflow([{ exitCode: 3 }, hello]), {
+      repo,
+      adapters: new Map([["mock", cancelSoonAfter]]),
+      signal: controller.signal,
+    });
+
+    expect(state.state).toBe("cancelled");
+    expect(implementOf(state).attempts).toHaveLength(1);
+    expect(attemptOf(state)).toMatchObject({ outcome: "error", exitCode: 3, failureClass: null, cancellation: { result: null } });
+  });
+});
+
 describe("a cancel whose kill is not confirmed", () => {
   it("makes the attempt unknown (unconfirmed_kill), never cancelled", async () => {
     const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING });
@@ -186,7 +253,7 @@ describe("a cancel whose kill is not confirmed", () => {
       async startAttempt(input) {
         const started = await mockAdapter.startAttempt(input);
         leftovers.push(started.pid);
-        return { ...started, cancel: async () => ({ confirmed: false, survivors: [started.pid], detail: "still there" }) };
+        return { ...started, cancel: async () => ({ outcome: "unconfirmed" as const, survivors: [started.pid], detail: "still there" }) };
       },
     };
 

@@ -73,8 +73,6 @@ function describeExit({ exitCode, signal }: { exitCode: number | null; signal: s
 /** How a cancelled attempt's agent was stopped. */
 function describeCancel({ via }: AttemptCancel): string {
   switch (via) {
-    case null:
-      return "it had already ended when the cancel reached it";
     case "transport":
       return "stopped gracefully by its transport's cancel";
     case "signal":
@@ -422,7 +420,12 @@ export function formatRun(inspection: RunInspection): string {
       if (attempt.error) lines.push(`    error (${attempt.error.kind}): ${attempt.error.message}`);
       if (attempt.cancellation) {
         const { requestedAt, result } = attempt.cancellation;
-        lines.push(`    cancel: from ${requestedAt}, ${result ? describeCancel(result) : "its processes were never seen gone"}`);
+        const how = result
+          ? describeCancel(result)
+          : attempt.state === "exited"
+            ? "it had ended by itself before anything was sent to it"
+            : "its processes were never seen gone";
+        lines.push(`    cancel: from ${requestedAt}, ${how}`);
       }
       if (attempt.recovery) lines.push(...describeRecovery(attempt.recovery));
       for (const earlier of attempt.earlierVerifications) {

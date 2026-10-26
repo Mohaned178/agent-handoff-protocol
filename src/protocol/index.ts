@@ -88,8 +88,7 @@ export type CancelPath = (typeof CANCEL_PATHS)[number];
 export interface AttemptCancel {
   /** True when it took a kill: the agent had no chance to stop by itself. */
   forced: boolean;
-  /** Null when the agent had already ended by itself before anything was sent to it. */
-  via: CancelPath | null;
+  via: CancelPath;
 }
 
 export const UNKNOWN_REASONS = ["no_terminal_record", "lost_contact", "unconfirmed_kill"] as const;
@@ -404,7 +403,10 @@ export type LedgerEventBody =
       stopReason: StopReason | null;
       /** What the adapter saw go wrong, if anything; its class decides how the failure is handled. */
       error: AttemptError | null;
-      /** How the agent was stopped, for the `cancelled` outcome only; null otherwise. */
+      /**
+       * How the agent was stopped, for the `cancelled` outcome only; null otherwise. An attempt that was being cancelled
+       * and had ended by itself before anything was sent to it exits with its own outcome.
+       */
       cancel: AttemptCancel | null;
     }
   /**
@@ -549,7 +551,11 @@ export interface AttemptView {
 export interface AttemptCancellation {
   /** When the runtime recorded that it was stopping the agent (ISO). */
   requestedAt: string;
-  /** How the agent was stopped; null until its processes were seen gone, and for good if they never were. */
+  /**
+   * How the agent was stopped, once its processes were seen gone. Null while it is being stopped, and for good when
+   * they never were seen gone (the attempt is unknown) or when it had ended by itself before anything was sent to it
+   * (it exited with its own outcome).
+   */
   result: AttemptCancel | null;
 }
 

@@ -29,7 +29,7 @@
 
 2026-10-26, implementation notes.
 
-**Decisions the ticket left open, made here; each needs the maintainer's confirmation:**
+**Decisions the ticket left open. Confirmed by the maintainer on 2026-10-26 ("do recommendation"), each as recommended; reopen one only with a new decision:**
 
 1. **Ctrl+C cancels the run, not just the attempt.** After a cancel no agent is dispatched again (replay refuses `attempt_created` and `attempt_dispatching` after `run_cancel_requested`), the step in hand ends `cancelled`, and the run ends `cancelled`. The spec's state machines already have `cancelled` for run and step; continuing with the next step after a Ctrl+C would surprise anyone who pressed it. *Recommended: keep.*
 2. **The cancel is recorded before anything is stopped** (`run_cancel_requested`, then `attempt_cancelling` before any signal), so a process that dies mid-cancel leaves a ledger that `ahp recover <run>` goes on cancelling. It does not resume the work. *Recommended: keep; it is the intent-before-effect rule.*
@@ -38,7 +38,7 @@
 5. **Exit code 130** for a cancelled run (what a shell reports for SIGINT), next to 0/1/2/3. *Recommended: keep.*
 6. **A second Ctrl+C does not interrupt the cancel.** It only prints that the cancel is under way. The cancel is bounded: the grace period (5 s) plus confirmation (10 s). Killing ahp mid-cancel would leave an `unknown` attempt to recover. *Recommended: keep.*
 7. **execa 10.1.1** (as the notes say), pinned to a release two weeks old. execa 10 resolves Windows commands itself and runs anything that is not an `.exe`/`.com` through `cmd.exe`, a file it cannot find included. So `launch` refuses anything but an existing `.exe`/`.com` on Windows, and `resolveExecutable` always produces one. *Recommended: keep execa, with that guard. Plain `child_process.spawn` would do the same job with no dependency, if you prefer fewer dependencies.*
-8. **Windows agents are not detached.** Node's `detached` on Windows gives the child no console, and console programs it starts then lose their output (the verification command's output vanished in testing). So on Windows an agent shares AHP's console, and a console Ctrl+C reaches it too. AHP still kills whatever is left of the tree and confirms it gone. If the agent stopped on its own first, the attempt is recorded `cancelled` with `via: null` ("it had already ended when the cancel reached it"), and never as graceful. *Recommended: keep.*
+8. **Windows agents are not detached.** Node's `detached` on Windows gives the child no console, and console programs it starts then lose their output (the verification command's output vanished in testing). So on Windows an agent shares AHP's console, and a console Ctrl+C reaches it too. AHP still kills whatever is left of the tree and confirms it gone. If the agent had already ended on its own, the attempt keeps its own outcome and is not recorded `cancelled` (changed after review; see below). A Windows agent that fails just before ahp hears of the cancel is given 250 ms for it to arrive, then treated the same way. *Recommended: keep.*
 9. **PATH order wins on Windows.** The directories are searched in order; within one directory a `.exe`/`.com` beats a `.cmd`/`.bat` shim; the first match is used, and an unusable shim is an error rather than a silent fall-through to a later directory. *Recommended: keep (it runs what the user's shell would run).*
 
 **Shapes:**
@@ -49,11 +49,11 @@
     - npm shims: both the cmd-shim ≥ 4 form and the older `%~dp0` form are read. A shim's `.exe` target runs directly, and a Node shim's entry point runs with `process.execPath`. Anything else is refused.
     - Linux and macOS: an executable regular file on PATH.
   - `launch({ executable, args, cwd, input, env })`: execa with `shell: false`, `reject: false`, `buffer: false`, `cleanup: false`, `forceKillAfterDelay: false`. Input goes on stdin (empty if none, so stdin is always closed). Linux and macOS get their own process group.
-  - `terminate`/`terminateTree(root, { graceful, graceMs, confirmMs })` returns a `Termination`: `{ confirmed: true, forced, via }` or `{ confirmed: false, survivors, detail }`.
-    - Linux and macOS: the graceful callback if given, then SIGTERM to the group, then SIGKILL to the group. "Gone" means `kill(-pgid, 0)` fails with ESRCH.
+  - `terminate`/`terminateTree(root, { graceful, graceMs, confirmMs })` returns a `Termination`: `{ outcome: "already_gone" }`, `{ outcome: "stopped", forced, via }` or `{ outcome: "unconfirmed", survivors, detail }` (shape changed after review).
+    - Linux and macOS: the graceful callback if given, or else SIGTERM to the group, then SIGKILL to the group. "Gone" means `kill(-pgid, 0)` fails, or `ps` shows only zombies left in the group.
     - Windows: the tree is read with PowerShell CIM (PID, parent PID, creation time). A child counts only if it was created after its parent, so a reused parent PID cannot pull in strangers, and orphans whose parent already exited still count. Then `taskkill /F /T /PID …` over every PID. Polling then checks that each is gone; a survivor counts only if its creation time still matches.
 - **Protocol**:
-  - `CANCEL_PATHS` (`transport`, `signal`, `tree_kill`) and `AttemptCancel { forced, via }`.
+  - `CANCEL_PATHS` (`transport`, `signal`, `tree_kill`) and `AttemptCancel { forced, via }`, where `via` is never null.
   - New events: `run_cancel_requested` and `attempt_cancelling { attemptId }`.
   - `attempt_exited.cancel` (null except for the `cancelled` outcome; an old ledger without it reads as null).
   - `step_terminal` and `run_terminal` accept `cancelled`.
@@ -62,7 +62,7 @@
 - **Replay rules:**
   - `run_cancel_requested` only on a running run, once.
   - `attempt_cancelling` only for a running attempt after it.
-  - The `cancelled` outcome exactly for an attempt being cancelled, with a `cancel` whose `forced` is exactly `via == tree_kill`.
+  - The `cancelled` outcome exactly when the event has a `cancel`, and only for an attempt being cancelled; that `cancel`'s `forced` is exactly `via == tree_kill`. An attempt being cancelled may still exit with its own outcome.
   - `unconfirmed_kill` only for an attempt being cancelled.
   - A `cancelled` step only after the cancel, with no failure class, and with its last attempt `created` or `exited`.
   - A `cancelled` run only after the cancel.
@@ -71,10 +71,10 @@
   - `StartedAttempt.cancel({ graceMs })`, returning a `Termination`.
   - `startAttempt` must launch through the process layer.
 - **Executor:**
-  - `ExecuteRunOptions` (and the SDK's run, resume and recover options) take `signal` and `cancelGraceMs` (default 5000).
+  - `ExecuteRunOptions` (and the SDK's run, resume and recover options) take `signal` and `cancelGraceMs` (default `DEFAULT_GRACE_MS`, 5000), carried as one `RunCancel` in the run context.
   - `drive` records `run_cancel_requested` at the top of a turn once the signal is aborted, then takes the cancelled path (`advanceCancelledStep`).
   - `executeAttempt` races the agent's exit against the abort.
-    - On abort: `attempt_cancelling`, then `cancel`, then `attempt_exited(cancelled)` with the exit code or signal the adapter reports within 5 s, and no reported output (a cancelled agent's report is not its result). An unconfirmed kill becomes `attempt_unknown(unconfirmed_kill)`.
+    - On abort: `attempt_cancelling`, then `cancel`, then `attempt_exited(cancelled)` with the exit code or signal the adapter reports within 5 s, and no reported output (a cancelled agent's report is not its result). An agent found already gone keeps its own exit. An unconfirmed kill becomes `attempt_unknown(unconfirmed_kill)`.
     - A cancel while `startAttempt` is pending gives the adapter 10 s to finish starting, so the agent can be stopped. If it never says, the attempt is `unknown (lost_contact)`.
   - A retry's backoff ends at the cancel.
   - The verification and install commands are stopped through `terminateTree`.
@@ -108,3 +108,31 @@
 - On Linux and macOS a grandchild that calls `setsid` leaves the process group and is not killed or seen. Tree confirmation covers the group only.
 - `launch` checks that the `.exe` exists before execa resolves it. If the file is removed in between, execa would fall back to `cmd.exe` with its own escaping.
 - Reading the Windows process table costs a PowerShell start (about 0.5–2 s) per cancel.
+
+2026-10-26, after review (Standards and Spec, on 1fc43dc). The maintainer adopted every recommendation ("do recommendation"): the nine decisions above and fixes A to E below.
+
+Fixed:
+
+- **A. The Windows Ctrl+C race.** A console Ctrl+C reaches the agent at the same moment as ahp, so the agent could exit before ahp heard of the cancel. Its exit was then recorded as an error, and nothing killed the rest of its tree. Now an agent, or a verification command, that ended with a failure on Windows while a signal is given waits up to 250 ms for the cancel (`cancelledAround`, `src/runtime/cancel.ts`). If the cancel comes, what is left of its tree is stopped as for any cancel. For a verification command, a failure at the cancel is recorded `inconclusive` ("the run was cancelled as the command failed, which may be why it failed"), never `fail`. Tested on Windows: an agent that exits 3, with the cancel 50 ms later, is not retried.
+- **B. No `cancelled` without a cancel sent.** `terminateTree` now says `already_gone` when every process had ended before anything was sent. The attempt then exits with its own outcome, recorded under `attempt_cancelling` with `cancel: null`. `AttemptCancel.via` is never null, and replay allows an attempt being cancelled to exit with its own outcome. Tested with a wrapped mock whose exit is seen only once the cancel has found it gone.
+- **C.** The transport's cancel takes SIGTERM's place, so there is one grace period, not two. On Linux and macOS, a group whose only members are zombies, which signal 0 still reaches (and which macOS can refuse with EPERM), counts as gone once `ps -A -o pgid=,stat=` shows only `Z` entries.
+- **D.**
+  - A cancel during verification records `run_cancel_requested` before the command is stopped (`CommandCancel.beforeStop`), so before its verdict (tested).
+  - The bounded waits during a cancel go through the `Clock`: `Clock.sleep` takes an optional `AbortSignal`, which also ends the backoff wait.
+  - One `requestCancel` records the request, at the top of a turn or just before a turn's effect is cut short.
+- **E. Clean-ups:**
+  - One `within` (on the clock) and one `unlessCancelled` replace the two `within`s and `aborted`; the `"aborted"` sentinel is now `CANCELLED`.
+  - One `answers` replaces `groupAlive`/`pidAlive`'s duplicate; `DEFAULT_GRACE_MS` and `OWN_PROCESS_GROUP` are shared.
+  - `signal` and `cancelGraceMs` travel as one `RunCancel` in the run context.
+  - The verification abort listener is removed.
+  - The termination prose is in `format.ts` only.
+  - Replay refuses a dispatch after the cancel before changing any state.
+  - The verification cancel test now waits until the command runs, and checks its PID is gone.
+
+Kept, with reasons:
+
+- **`AdapterDeclaration.gracefulCancel` and `TerminateOptions.graceful` have no caller yet.** The ticket requires the transport path, and the ACP adapters (tickets 18 and 19) are its callers. It is tested at the process-layer seam.
+- **`run_cancel_requested` is recorded from more than one place**, through one helper. A cancel that cuts an effect short partway through a turn must be recorded before the effect is stopped, by the rule that every effect has a prior intent event. It cannot wait for the next turn.
+- **An unconfirmed kill of a verification command is evidence, not `unknown`.** `unknown` is an attempt outcome; a verification is AHP's own validator. Its evidence message says the command could still be running.
+- **On Linux and macOS a `setsid` grandchild still escapes the group** (see "Not done").
+- **Decision 1 (cancel the run, not just the attempt) and the extra CLI behaviour** (SIGTERM, a cancellable `ahp recover`, exit code 130) were confirmed by the maintainer.

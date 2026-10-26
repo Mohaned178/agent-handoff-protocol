@@ -3,4 +3,4 @@
 
 export { ExecutableNotFoundError, resolveExecutable, type Executable, type ResolveOptions } from "./resolve.ts";
 export { launch, type LaunchedProcess, type LaunchOptions, type ProcessExit } from "./launch.ts";
-export { terminateTree, type TerminateOptions, type Termination } from "./tree.ts";
+export { DEFAULT_GRACE_MS, OWN_PROCESS_GROUP, terminateTree, type TerminateOptions, type Termination } from "./tree.ts";

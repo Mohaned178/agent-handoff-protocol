@@ -264,11 +264,13 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       });
       break;
     }
-    case "attempt_dispatching":
+    case "attempt_dispatching": {
       // An attempt is dispatched once: one with a dispatching record may have an agent running, and is never dispatched again.
-      attemptIn(event.attemptId, "created").state = "dispatching";
+      const a = attemptIn(event.attemptId, "created");
       refuseAfterCancel("no agent is dispatched");
+      a.state = "dispatching";
       break;
+    }
     case "attempt_running": {
       const a = attemptIn(event.attemptId, "dispatching");
       a.state = "running";
@@ -277,14 +279,13 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
     }
     case "attempt_exited": {
       const a = attemptIn(event.attemptId, "running");
-      // An attempt being cancelled ends cancelled, and only such an attempt does, with how its agent was stopped.
+      // Only an attempt being cancelled ends cancelled, saying how its agent was stopped. One being cancelled may still
+      // exit with its own outcome: it had ended by itself before anything was sent to it.
       const cancel = event.cancel ?? null;
-      if ((event.outcome === "cancelled") !== (a.cancellation !== null) || (event.outcome === "cancelled") !== (cancel !== null)) {
-        throw new LedgerInconsistentError(
-          event,
-          a.cancellation ? `attempt "${a.id}" was being cancelled, so it ends cancelled, saying how` : `attempt "${a.id}" was not being cancelled`,
-        );
+      if ((event.outcome === "cancelled") !== (cancel !== null)) {
+        throw new LedgerInconsistentError(event, `attempt "${a.id}": a cancelled outcome, and only one, says how the agent was stopped`);
       }
+      if (cancel && !a.cancellation) throw new LedgerInconsistentError(event, `attempt "${a.id}" was not being cancelled`);
       if (cancel && cancel.forced !== (cancel.via === "tree_kill")) {
         throw new LedgerInconsistentError(event, `attempt "${a.id}": a cancel is forced exactly when the process tree was killed`);
       }

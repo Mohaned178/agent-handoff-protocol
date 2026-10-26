@@ -1,7 +1,7 @@
 import type { Readable } from "node:stream";
 import { execa } from "execa";
 import { isFile, startsDirectly, type Executable } from "./resolve.ts";
-import { terminateTree, type TerminateOptions, type Termination } from "./tree.ts";
+import { OWN_PROCESS_GROUP, terminateTree, type TerminateOptions, type Termination } from "./tree.ts";
 
 export interface LaunchOptions {
   /** What `resolveExecutable` found. */
@@ -51,7 +51,7 @@ export async function launch(options: LaunchOptions): Promise<LaunchedProcess> {
     cwd: options.cwd,
     env: options.env,
     shell: false,
-    detached: process.platform !== "win32",
+    detached: OWN_PROCESS_GROUP,
     // AHP stops the process itself, through `terminate`, and records how.
     cleanup: false,
     forceKillAfterDelay: false,

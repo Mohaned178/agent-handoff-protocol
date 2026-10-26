@@ -5,7 +5,7 @@ import { clearStaleLock, findAttempt, LedgerWriter, lockPathOf, readCheckedLedge
 import { RECOVERY_ACTIONS, type LedgerEvent, type LockOwner, type RecoveryAction, type RunView } from "../protocol/index.ts";
 import { systemClock, type Clock } from "./clock.ts";
 import { isAttemptId, isRunId, ledgerPath, locateRepo, locateRun, prepareWorktreeRoot, runsDir, type RepoLocation } from "./paths.ts";
-import { cancelFields, drive, runContext, type RunContext, type RunResult } from "./run.ts";
+import { drive, runCancel, runContext, type RunContext, type RunResult } from "./run.ts";
 
 export interface ContinueRunOptions {
   /** Any directory inside the git repository the run works on. */
@@ -113,7 +113,7 @@ async function openRun(location: RepoLocation, runId: string, options: ContinueR
     await writer.close();
     throw new Error(`run ${runId}: the first event is ${created.type}, not run_created`);
   }
-  const fields = { runId, location, worktreeRoot, adapters: options.adapters, workflow: created.workflow, clock, ...cancelFields(options) };
+  const fields = { runId, location, worktreeRoot, adapters: options.adapters, workflow: created.workflow, clock, cancel: runCancel(options) };
   const run: RunContext = runContext(writer, events, fields, options.onEvent);
   return { run, writer, takenOverFrom };
 }
