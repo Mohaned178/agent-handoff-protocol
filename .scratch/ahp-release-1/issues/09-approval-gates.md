@@ -45,3 +45,9 @@
 - External actions (ticket 10) will read the approved commit from the request; the check that the commit pushed is the approved one is theirs.
 
 **Confirmed by the maintainer on 2026-10-26 ("do recommendation"): decisions 1 to 8 above stand as recommended; reopen one only with a new decision.**
+
+**After review (code-review against this ticket and the repo's standards):**
+
+- Fixed: the gate validator's no-op `continue` branch, the repeated "N paths changed" expression for approval requests (`describeChangedPaths`), CLAUDE.md's list of test files; a test now covers a step after a gate that fails and is retried (its retry starts from the result of the step before the gate).
+- Left as they are, on purpose: a rejection after a review sends back the review (decision 2, confirmed); the gate going `waiting_approval → blocked` after a send-back mirrors a review's, and the spec's gate machine has no such edge; the failed gate's class is `verification_failed` because the send-back spends that budget (ADR 0004); exit code 4 and the SDK's `approveStep`/`rejectStep` are surface the spec does not name; `ApprovalDefinition` stays an empty object so options can be added without a format change.
+- Known limits: the approver's name is the operating system's user, unauthenticated, as for `ahp recover`; the rejection reason has no length bound; `inspect` reads a diff in full before cutting it at 64 KiB, so a diff past git's 64 MiB buffer shows `diffError` instead; no test cancels during `approve`/`reject`.

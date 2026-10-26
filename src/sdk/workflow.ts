@@ -174,12 +174,12 @@ function validateGate(step: Record<string, unknown>, index: number, seen: Set<st
   for (const key of Object.keys(step)) {
     if (BRANCHING_KEYS.includes(key)) {
       problem(`\`${key}\` is not supported: release 1 workflows are linear, each step runs after the one before it (ADR 0004)`);
-    } else if (GATE_KEYS.includes(key)) {
-      continue;
-    } else if (STEP_KEYS.includes(key)) {
-      problem(`an approval gate has no coding agent and nothing to verify, so it takes no \`${key}\``);
-    } else {
-      problem(`unknown property \`${key}\``);
+    } else if (!GATE_KEYS.includes(key)) {
+      problem(
+        STEP_KEYS.includes(key)
+          ? `an approval gate has no coding agent and nothing to verify, so it takes no \`${key}\``
+          : `unknown property \`${key}\``,
+      );
     }
   }
   if (!isRecord(step.approval)) {

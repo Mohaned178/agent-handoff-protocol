@@ -135,6 +135,24 @@ describe("approving", () => {
   });
 });
 
+describe("a step after the gate that fails and is retried", () => {
+  it("starts its retry from the result of the step before the gate, not from the failed attempt", async () => {
+    const repo = fixture();
+    const spoil = { edits: [{ path: "greeting.txt", content: "goodbye\n" }], outputFields: { summary: "spoiled" } };
+    const workflow = gatedWorkflow(implementStep([implemented(1)]), afterGateStep([spoil, { outputFields: { summary: "published" } }]));
+    const { runId } = await runWorkflow(workflow, { repo, clock: fakeClock() });
+
+    const { state } = await approveStep({ repo, runId, stepId: "approve", clock: fakeClock() });
+
+    expect(state.state).toBe("succeeded");
+    const implement = stepOf(state, "implement").attempts[0]!;
+    const publish = stepOf(state, "publish");
+    expect(publish.attempts.map((a) => a.verification!.state)).toEqual(["fail", "pass"]);
+    expect(publish.handoffs.every((h) => h.handoff.base.commit === implement.snapshot!.commit)).toBe(true);
+    expect(git(repo, "rev-parse", `${publish.attempts[1]!.snapshot!.commit}^`)).toBe(implement.snapshot!.commit);
+  });
+});
+
 describe("rejecting", () => {
   it("sends the step before the gate back under a new handoff revision with the reason, then asks again on the new result", async () => {
     const { repo, runId } = await waitingAtGate(implementStep([implemented(1), implemented(2)]));

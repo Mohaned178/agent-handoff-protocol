@@ -261,7 +261,7 @@ export function formatEvent(event: LedgerEvent, state: Readonly<RunView>): strin
     }
     case "approval_requested": {
       const { step } = stepOfAttempt(state, event.attemptId);
-      const changed = event.changed.length === 0 ? "no changes" : `${quantity(event.changed.length, "path")} changed${event.truncated ? ", first only" : ""}`;
+      const changed = describeChangedPaths(event.changed, event.truncated);
       return [
         `run ${state.runId}: waiting for approval${mockTag(state.mock)}`,
         `  step ${event.stepId} awaits a person: step ${step.id}'s attempt ${event.attemptId} passed verification (snapshot ${short(event.commit)}; ${changed} against the run's base commit)`,
@@ -294,6 +294,10 @@ export function formatEvent(event: LedgerEvent, state: Readonly<RunView>): strin
     }
   }
 }
+
+/** How many paths an approval request lists as changed. */
+const describeChangedPaths = (changed: readonly ChangedPath[], truncated: boolean) =>
+  changed.length === 0 ? "no changes" : `${quantity(changed.length, "path")} changed${truncated ? ", first only" : ""}`;
 
 /** What a person can decide at a gate the run waits at, and how. */
 const describeApprovalChoices = (runId: string, gateId: string) =>
@@ -387,7 +391,7 @@ function describeApprovals(gate: StepView, state: Readonly<RunView>, pending: Pe
   const lines: string[] = [];
   for (const request of gate.approvals) {
     const found = findAttempt(state, request.attemptId);
-    const changed = request.changed.length === 0 ? "no changes" : `${quantity(request.changed.length, "path")} changed${request.truncated ? ", first only" : ""}`;
+    const changed = describeChangedPaths(request.changed, request.truncated);
     lines.push(
       `  approval requested: ${request.requestedAt}`,
       `    approving: attempt ${request.attemptId}${mockTag(found?.attempt.mock ?? false)} of step ${found?.step.id ?? "?"}, snapshot ${request.commit}`,
