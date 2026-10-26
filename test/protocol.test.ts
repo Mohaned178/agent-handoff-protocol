@@ -94,6 +94,22 @@ describe("the published protocol schemas", () => {
     expect(validate(withoutEvidence)).toBe(false);
   });
 
+  it("describe the evidence a send-back carries: a review's findings, or a verdict it must correct", async () => {
+    const validate = new Ajv2020({ strict: true }).compile(protocolJsonSchemas()["handoff-revision.schema.json"]!);
+    const handoff = (await issuedHandoff()) as Record<string, unknown>;
+    const second = { ...handoff, revision: 2, supersedes: 1 };
+    const withEvidence = (evidence: unknown[]) => ({ ...second, evidence });
+    const findings = { kind: "review_findings", reviewStepId: "review", findings: ["rename it"] };
+    const verdict = { kind: "review_verdict", reported: "maybe", allowed: ["approved", "changes_requested"] };
+
+    expect(validate(withEvidence([findings, verdict])), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate(withEvidence([{ ...findings, findings: [] }]))).toBe(false);
+    expect(validate(withEvidence([{ ...findings, findings: [""] }]))).toBe(false);
+    expect(validate(withEvidence([{ ...findings, reviewStepId: "Not A Step" }]))).toBe(false);
+    expect(validate(withEvidence([{ ...verdict, allowed: ["approved", "maybe"] }]))).toBe(false);
+    expect(validate(withEvidence([{ ...findings, extra: true }]))).toBe(false);
+  });
+
   it("carry the repository-path rules, so a third-party validator rejects paths the SDK rejects", async () => {
     const validate = new Ajv2020({ strict: true }).compile(protocolJsonSchemas()["handoff-revision.schema.json"]!);
     const handoff = (await issuedHandoff()) as { artifacts: { path: string; sha256: string }[] };

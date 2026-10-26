@@ -2,6 +2,8 @@ import {
   isPresentOutputField,
   parseHandoffRevision,
   PROTOCOL_VERSION,
+  requiredOutputFieldsOf,
+  REVIEW_VERDICTS,
   type ArtifactReference,
   type EvidenceItem,
   type HandoffEvidence,
@@ -42,7 +44,7 @@ export interface BuildHandoffInput {
  */
 export async function buildHandoff(input: BuildHandoffInput): Promise<HandoffRevision> {
   const { repo, runId, handoffId, step, sender, baseCommit } = input;
-  const handedOnFields = sender?.step.verification.requiredOutputFields ?? [];
+  const handedOnFields = sender ? requiredOutputFieldsOf(sender.step) : [];
   const fields: Record<string, OutputFieldValue> = {};
   for (const name of handedOnFields) {
     const value = sender?.reportedOutput[name];
@@ -67,7 +69,7 @@ export async function buildHandoff(input: BuildHandoffInput): Promise<HandoffRev
       instructions: step.instructions ?? null,
       acceptance: {
         verificationCommand: step.verification.command ?? null,
-        requiredOutputFields: step.verification.requiredOutputFields ?? [],
+        requiredOutputFields: requiredOutputFieldsOf(step),
       },
     },
     context: { fields },
@@ -108,6 +110,9 @@ export function retryEvidence(evidence: readonly EvidenceItem[], options: { hidd
         break;
       case "protected_paths":
         shown.push({ kind: "protected_paths", violations: item.violations.map((v) => ({ ...v })), truncated: item.truncated });
+        break;
+      case "review_verdict":
+        shown.push({ kind: "review_verdict", reported: item.reported, allowed: [...REVIEW_VERDICTS] });
         break;
       default:
         // The other kinds are never failing evidence.

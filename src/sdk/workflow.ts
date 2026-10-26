@@ -18,7 +18,8 @@ export class WorkflowValidationError extends Error {
 }
 
 const WORKFLOW_KEYS = ["name", "steps"];
-const STEP_KEYS = ["id", "agent", "verification", "artifacts", "instructions", "retry", "reroute", "recovery"];
+const STEP_KEYS = ["id", "agent", "verification", "artifacts", "instructions", "retry", "reroute", "recovery", "review"];
+const REVIEW_KEYS = ["sendBackTo"];
 const AGENT_KEYS = ["adapter", "model", "options"];
 const RETRY_KEYS = ["budget", "transientBudget", "backoff"];
 const BACKOFF_KEYS = ["initialMs", "factor", "maxTotalMs"];
@@ -108,7 +109,37 @@ function validateRetry(retry: Record<string, unknown>, problem: (message: string
   }
 }
 
-function validateStep(step: unknown, index: number, seen: Set<string>): string[] {
+/** Checks a review step's `review`: it names the step before it, the only one a send-back reaches (ADR 0004). */
+function validateReview(review: unknown, index: number, order: (string | undefined)[], problem: (message: string) => void): void {
+  if (!isRecord(review)) {
+    problem("`review` must be an object naming the step it sends back in `sendBackTo`");
+    return;
+  }
+  for (const name of Object.keys(review)) if (!REVIEW_KEYS.includes(name)) problem(`unknown property \`review.${name}\``);
+  const target = review.sendBackTo;
+  if (typeof target !== "string") {
+    problem("`review.sendBackTo` must name the step to send back");
+    return;
+  }
+  const position = order.indexOf(target);
+  if (index === 0) {
+    problem("a review needs a step before it to send back, and this is the first step");
+  } else if (position === -1) {
+    problem(`\`review.sendBackTo\` names ${JSON.stringify(target)}, which is not a step of the workflow`);
+  } else if (position === index) {
+    problem("`review.sendBackTo` names the review itself");
+  } else if (position > index) {
+    problem(`\`review.sendBackTo\` names ${JSON.stringify(target)}, which comes after the review: a send-back goes back, not forward`);
+  } else if (position !== index - 1) {
+    problem(
+      `\`review.sendBackTo\` names ${JSON.stringify(target)}, ${index - position} steps back: a review sends back only the step immediately before it, ` +
+        `${JSON.stringify(order[index - 1])} (ADR 0004)`,
+    );
+  }
+}
+
+/** `order` is every step's id by position, undefined for one that has none (it is not an object, or its id is not a string). */
+function validateStep(step: unknown, index: number, seen: Set<string>, order: (string | undefined)[]): string[] {
   if (!isRecord(step)) return [`step ${index + 1}: must be an object`];
   const problems: string[] = [];
   const label = typeof step.id === "string" ? `step "${step.id}"` : `step ${index + 1}`;
@@ -129,6 +160,7 @@ function validateStep(step: unknown, index: number, seen: Set<string>): string[]
     }
   }
 
+  if (step.review !== undefined) validateReview(step.review, index, order, problem);
   validateAgent(step.agent, "agent", problem);
   if (step.reroute !== undefined) validateAgent(step.reroute, "reroute", problem);
   if (step.retry !== undefined) {
@@ -153,8 +185,8 @@ function validateStep(step: unknown, index: number, seen: Set<string>): string[]
       if (typeof verification.command !== "string" || verification.command.trim() === "") {
         problem("needs a non-empty `verification.command`");
       }
-    } else if (!Array.isArray(fields) || fields.length === 0) {
-      // A step with nothing to check would succeed on nothing.
+    } else if (step.review === undefined && (!Array.isArray(fields) || fields.length === 0)) {
+      // A step with nothing to check would succeed on nothing. A review checks its verdict and findings.
       problem("needs a `verification.command` or at least one required output field in `verification.requiredOutputFields`");
     }
     if (fields !== undefined && !Array.isArray(fields)) {
@@ -223,6 +255,7 @@ export function validateWorkflow(workflow: unknown): string[] {
     return problems;
   }
   const seen = new Set<string>();
+  const order = workflow.steps.map((step: unknown) => (isRecord(step) && typeof step.id === "string" ? step.id : undefined));
   workflow.steps.forEach((step: unknown, index) => {
     if (Array.isArray(step)) {
       const ids = step.map((member) => (isRecord(member) ? member.id : undefined)).filter((id) => typeof id === "string");
@@ -231,7 +264,7 @@ export function validateWorkflow(workflow: unknown): string[] {
           "release 1 workflows are linear, so list steps one after another (ADR 0004)",
       );
     } else {
-      problems.push(...validateStep(step, index, seen));
+      problems.push(...validateStep(step, index, seen, order));
     }
   });
   return problems;

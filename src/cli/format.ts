@@ -1,3 +1,4 @@
+import { reviewVerdictOf } from "../protocol/index.ts";
 import type {
   AttemptCancel,
   AttemptRecovery,
@@ -95,6 +96,12 @@ function describeEvidence(item: EvidenceItem): string[] {
           item.missing.length === 0 ? "all present" : `missing ${item.missing.join(", ")}`
         }`,
       ];
+    case "review_verdict":
+      return [
+        item.verdict === null
+          ? `      evidence: review verdict: not understood (reported ${JSON.stringify(item.reported)}; it must be approved or changes_requested)`
+          : `      evidence: review verdict: ${item.verdict}`,
+      ];
     case "diff_scope":
       return [
         `      evidence: diff scope (${item.changed.length === 0 ? "no changes" : `${item.changed.length} changed${item.truncated ? ", first only" : ""}`})`,
@@ -126,8 +133,13 @@ function describeAttempt(attempt: AttemptView): string {
 }
 
 /** Why a failed step stopped, as one line: the failure class says what happened, this says what was done about it. */
-function describeStop(step: StepView): string | null {
+function describeStop(step: StepView, state: Readonly<RunView>): string | null {
   const last = step.attempts.at(-1);
+  // A review that passed verification and asked for changes, with nothing left to send the step before it back with.
+  if (last?.verification?.state === "pass" && reviewVerdictOf(last.reportedOutput) === "changes_requested") {
+    const before = state.steps[state.steps.indexOf(step) - 1];
+    return `changes requested, and the retry budget of step ${before?.id ?? "before it"} is spent, so it cannot be sent back again`;
+  }
   if (last?.recovery?.decision?.policy === "adopt") {
     return "not retried: the adopted workspace failed, and the attempt's agent, whose outcome was unknown, may still be running";
   }
@@ -235,10 +247,17 @@ export function formatEvent(event: LedgerEvent, state: Readonly<RunView>): strin
       const wait = delayMs > 0 ? `, waiting ${delayMs} ms first` : "";
       return `step ${stepId}: ${change === "reroute" ? "rerouting" : "retrying"} after attempt ${attemptId} (${failureClass}): ${what}${wait}`;
     }
+    case "step_sent_back": {
+      const { step, attempt } = stepOfAttempt(state, event.attemptId);
+      return [
+        `step ${event.reviewStepId}: changes requested: step ${step.id} is sent back (retry ${step.retryUsage.retries} spent), and a new handoff revision carries the findings`,
+        ...(attempt.sentBack?.findings ?? []).map((finding) => `  | ${finding}`),
+      ].join("\n");
+    }
     case "step_terminal": {
       const step = state.steps.find((s) => s.id === event.stepId)!;
       const line = `step ${step.id}: ${describeStep(step)}${mockTag(step.mock)}`;
-      const stop = step.state === "failed" ? describeStop(step) : null;
+      const stop = step.state === "failed" ? describeStop(step, state) : null;
       return stop ? `${line}\n  ${stop}` : line;
     }
     case "run_terminal":
@@ -399,7 +418,7 @@ export function formatRun(inspection: RunInspection): string {
         `  retries used: ${retries} (agent error and failed verification), ${transientRetries} (transient, ${transientWaitMs} ms waited), rerouted: ${rerouted ? "yes" : "no"}`,
       );
     }
-    const stop = step.state === "failed" ? describeStop(step) : null;
+    const stop = step.state === "failed" ? describeStop(step, state) : null;
     if (stop) lines.push(`  ${stop}`);
     for (const handoff of step.handoffs) lines.push(...describeHandoff(handoff));
     for (const attempt of step.attempts) {
@@ -416,6 +435,10 @@ export function formatRun(inspection: RunInspection): string {
         `    snapshot: ${attempt.snapshot ? `${attempt.snapshot.commit} (${attempt.snapshot.ref})` : "-"}`,
       );
       if (attempt.failureClass) lines.push(`    failure class: ${attempt.failureClass}`);
+      if (attempt.sentBack) {
+        const { reviewStepId, reviewAttemptId, findings } = attempt.sentBack;
+        lines.push(`    sent back by step ${reviewStepId} (attempt ${reviewAttemptId}); its findings:`, ...findings.map((finding) => `      | ${finding}`));
+      }
       if (attempt.stopReason) lines.push(`    stop reason: ${attempt.stopReason}`);
       if (attempt.error) lines.push(`    error (${attempt.error.kind}): ${attempt.error.message}`);
       if (attempt.cancellation) {

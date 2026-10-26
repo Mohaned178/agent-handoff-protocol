@@ -56,8 +56,14 @@ One of a closed set of machine-readable codes saying why a handoff revision was 
 A rejection reason: something the handoff requires, such as a field, an artifact or the base commit, is not there.
 
 **Send-back**:
-A later step returning the immediately preceding agent step for a retry, with its findings or rejection reason as evidence; the only backward edge in a workflow.
+A later step returning the immediately preceding agent step for a retry, with its findings or rejection reason as evidence; the only backward edge in a workflow. A review's send-back spends one retry of the preceding step's shared budget, exactly as a failed verification would, and with none left the review step fails and so does the run. The step sent back starts a new attempt in a new workspace from its base commit, not from the result that was reviewed.
 _Avoid_: Loop, rework edge
+
+**Review step**:
+A step that declares `review: { sendBackTo }` naming the step immediately before it. Besides what its verification lists, it must report `verdict` (`approved` or `changes_requested`) and `findings`, both required output fields. `changes_requested` sends the named step back; `approved` lets the run go on. A verdict that is neither fails verification, and so do changes requested without findings, so a send-back never carries empty evidence.
+
+**Review findings**:
+What a review step reported in `findings`, carried as `review_findings` evidence in the new handoff revision of the step it sent back. Written by the reviewing agent, so unlike a hidden test's output they are shown to the agent whole.
 
 **Approval gate**:
 A step with no coding agent that waits for a human to approve or reject before the run continues.
@@ -114,7 +120,7 @@ The result of verification: `pass`, `fail` or `inconclusive`, each with evidence
 A verdict meaning the validator could not run to a result, so it says nothing about the attempt: the command ended on a signal or exited 126 or 127, or AHP could not set verification up (the worktree, the install, the hidden tests). Never counted as pass or fail; re-run once on the same snapshot, then escalated.
 
 **Structural verification**:
-Verification of a step that declares no command, which checks only that its required output fields are present, as for a review step outside evaluation; it says nothing about quality.
+Verification of a step that declares no command, which checks only that its required output fields are present (for a review step: that it reported a verdict AHP understood, and findings), as for a review step outside evaluation; it says nothing about the quality of the review. Reports label it so.
 
 ## Failures and retries
 
@@ -137,7 +143,7 @@ How many retries a step may spend, counted from the ledger so a restart sees wha
 The wait before a transient retry: exponential, and capped in total for the step, so a rate limit does not burn a whole quota. A retry that would pass the cap is not made.
 
 **Retry evidence**:
-The failing parts of a verification, trimmed to what the coding agent may see, carried in the `evidence` of the next handoff revision (empty for revision 1): a failing command's exit code and the end of its output, the required output fields it left out, the changed paths that violated a protected path. The output of a command that runs hidden tests is withheld, and the list of protected paths is never shown, since it holds the hidden tests' paths; the ledger keeps the full evidence.
+For a send-back, the review's findings instead. For a failed verification, the failing parts of a verification, trimmed to what the coding agent may see, carried in the `evidence` of the next handoff revision (empty for revision 1): a failing command's exit code and the end of its output, the required output fields it left out, the changed paths that violated a protected path. The output of a command that runs hidden tests is withheld, and the list of protected paths is never shown, since it holds the hidden tests' paths; the ledger keeps the full evidence.
 
 **Reroute**:
 Handing a step whose retry budget is spent to its alternative coding agent, under the same contract, in a new handoff revision. Off by default; a step is rerouted at most once, and the alternative starts on budgets of its own. Never offered for `rejected`, `config_auth`, `inconclusive` or `unknown`.

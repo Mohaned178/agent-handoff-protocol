@@ -21,6 +21,13 @@ export type HandoffState = (typeof HANDOFF_STATES)[number];
 export const HANDOFF_REJECTION_REASONS = ["schema_invalid", "artifact_hash_mismatch", "unmet_dependency"] as const;
 export type HandoffRejectionReason = (typeof HANDOFF_REJECTION_REASONS)[number];
 
+/**
+ * What a review concludes. `changes_requested` sends the step before the review back (ADR 0004); `approved` lets the
+ * run go on. A closed list: a new verdict is a protocol change.
+ */
+export const REVIEW_VERDICTS = ["approved", "changes_requested"] as const;
+export type ReviewVerdict = (typeof REVIEW_VERDICTS)[number];
+
 /** How an attempt changed a path, from the step's base commit to the attempt's snapshot. */
 export const PATH_CHANGES = ["added", "modified", "deleted"] as const;
 export type PathChange = (typeof PATH_CHANGES)[number];
@@ -99,8 +106,8 @@ export const ArtifactReferenceSchema = z
 
 /**
  * What a retry tells the coding agent about why the step's last attempt failed: the failing parts of its
- * verification, trimmed to what the agent may see. AHP extension: no A2A counterpart. A new kind (for example
- * review findings, with ticket 08) is a protocol change.
+ * verification, trimmed to what the agent may see, or the findings of the review that sent it back. AHP extension:
+ * no A2A counterpart. A new kind (for example an approver's rejection, with ticket 09) is a protocol change.
  */
 export const HandoffEvidenceSchema = z
   .discriminatedUnion("kind", [
@@ -121,6 +128,16 @@ export const HandoffEvidenceSchema = z
     z.strictObject({
       kind: z.literal("required_output_fields"),
       missing: z.array(fieldNameSchema).min(1).describe("The required output fields the attempt did not report, or reported blank."),
+    }),
+    z.strictObject({
+      kind: z.literal("review_findings"),
+      reviewStepId: stepIdSchema.describe("The review step that sent this step back."),
+      findings: z.array(z.string().min(1)).min(1).describe("What the review found, in its words."),
+    }),
+    z.strictObject({
+      kind: z.literal("review_verdict"),
+      reported: outputFieldValueSchema.describe("What the review reported as its verdict."),
+      allowed: z.array(z.enum(REVIEW_VERDICTS)).min(1).describe("The verdicts a review may report."),
     }),
     z.strictObject({
       kind: z.literal("protected_paths"),

@@ -1,9 +1,10 @@
 // AHP protocol: workflow definitions, ledger events and the state derived from them.
 // State names and failure classes are closed enumerations; adding a value is a protocol change.
 
-import type { HandoffRevision, HandoffState, OutputFieldValue, PathChange, RejectionReason } from "./handoff.ts";
+import type { HandoffRevision, HandoffState, OutputFieldValue, PathChange, RejectionReason, ReviewVerdict } from "./handoff.ts";
 
 export * from "./handoff.ts";
+export * from "./review.ts";
 export { protocolJsonSchemas } from "./schemas.ts";
 export { PROTOCOL_VERSION } from "./version.ts";
 
@@ -136,7 +137,8 @@ export interface AgentRef {
 
 /**
  * A step's acceptance criteria. It needs a command, required output fields, or both: with only fields the
- * verification is structural, checking that the output is complete and nothing about its quality.
+ * verification is structural, checking that the output is complete and nothing about its quality. A review step
+ * (`StepDefinition.review`) already requires `verdict` and `findings`, so it may list nothing here.
  */
 export interface VerificationDefinition {
   /** Run through the system shell in the verification worktree; exit code 0 is `pass`. */
@@ -193,10 +195,21 @@ export interface RetryPolicy {
   backoff?: BackoffPolicy;
 }
 
+/**
+ * Makes a step a review. Besides what its verification lists, it must report a `verdict` (`approved` or
+ * `changes_requested`) and its `findings`. When it requests changes, the step it names is sent back (ADR 0004).
+ */
+export interface ReviewDefinition {
+  /** The step to send back: the step immediately before the review, which is the only one a send-back can reach. */
+  sendBackTo: string;
+}
+
 export interface StepDefinition {
   id: string;
   agent: AgentRef;
   verification: VerificationDefinition;
+  /** Present on a review step. Without a `verification.command`, a review is verified structurally only. */
+  review?: ReviewDefinition;
   /** Retry budgets; the defaults apply to whatever is left out. */
   retry?: RetryPolicy;
   /**
@@ -256,6 +269,17 @@ export interface DiffScopeEvidence {
   truncated: boolean;
 }
 
+/**
+ * The verdict a review step reported. `verdict` is null when what it reported (`reported`) is neither `approved` nor
+ * `changes_requested`, which fails verification: a send-back must rest on a verdict that was understood. Recorded
+ * only when the review reported a `verdict` at all; a missing one is the required output fields evidence's to report.
+ */
+export interface ReviewVerdictEvidence {
+  kind: "review_verdict";
+  verdict: ReviewVerdict | null;
+  reported: OutputFieldValue;
+}
+
 /** Whether the attempt changed a protected path. Any violation fails verification. */
 export interface ProtectedPathsEvidence {
   kind: "protected_paths";
@@ -286,6 +310,7 @@ export interface ValidatorErrorEvidence {
 export type EvidenceItem =
   | TestOutputEvidence
   | RequiredOutputFieldsEvidence
+  | ReviewVerdictEvidence
   | DiffScopeEvidence
   | ProtectedPathsEvidence
   | ValidatorErrorEvidence;
@@ -435,6 +460,13 @@ export type LedgerEventBody =
   /** The failure class of an attempt that did not pass, recorded once its verdict (if it had one) is final. */
   | { type: "attempt_failed"; attemptId: string; failureClass: FailureClass }
   /**
+   * A review step asked for changes: the step before it (`stepId`), which had succeeded, goes back to `ready` for a
+   * new attempt under a new handoff revision carrying the review's findings, and spends one retry of its budget
+   * (ADR 0004). The review step goes back to `blocked`, to review the new result when there is one. Recorded before
+   * the revision or the attempt begins; the findings are those the review attempt reported, which replay reads.
+   */
+  | { type: "step_sent_back"; stepId: string; attemptId: string; reviewStepId: string; reviewAttemptId: string }
+  /**
    * The step will be tried again: recorded before any wait and before the next attempt (or the new handoff
    * revision) begins. Retry budgets are counted from these events.
    */
@@ -540,8 +572,13 @@ export interface AttemptView {
   verification: VerificationView | null;
   /** Inconclusive verifications that were re-run, oldest first. */
   earlierVerifications: VerificationView[];
-  /** The retry scheduled after this attempt failed, if one was: what it changes, and the wait it starts with. */
+  /**
+   * The retry scheduled after this attempt failed, or after a review sent the step back (`sentBack`), if one was:
+   * what it changes, and the wait it starts with.
+   */
   retry: ScheduledRetry | null;
+  /** Set when a review asked for changes to this attempt's result, which passed verification. */
+  sentBack: SentBack | null;
   /** Set once the attempt's outcome is unknown: why, its report, and what was decided. */
   recovery: AttemptRecovery | null;
   /** Set once the runtime set out to stop the attempt's agent: when, and how it was stopped once that is confirmed. */
@@ -574,6 +611,14 @@ export interface RecoveryDecision {
   decidedBy: RecoveryDecider;
   user: string | null;
   time: string;
+}
+
+/** A send-back, as the review step's attempt reported it. */
+export interface SentBack {
+  reviewStepId: string;
+  reviewAttemptId: string;
+  /** What the review found, in its words. */
+  findings: string[];
 }
 
 export interface ScheduledRetry {

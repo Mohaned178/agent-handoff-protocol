@@ -1,3 +1,4 @@
+import { reviewFindingsOf, reviewVerdictOf } from "../protocol/index.ts";
 import type {
   AttemptRecovery,
   AttemptState,
@@ -259,6 +260,7 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
         verification: null,
         earlierVerifications: [],
         retry: null,
+        sentBack: null,
         recovery: null,
         cancellation: null,
       });
@@ -378,6 +380,38 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       }
       failed.retry = { change: event.change, delayMs: event.delayMs, scheduledAt: event.time };
       s.state = "ready";
+      break;
+    }
+    case "step_sent_back": {
+      const target = step(event.stepId);
+      const reviewer = step(event.reviewStepId);
+      refuseAfterCancel("no step is sent back");
+      // A send-back reaches the step immediately before the review, which had succeeded, and no other.
+      if (run.steps.indexOf(target) !== run.steps.indexOf(reviewer) - 1) {
+        throw new LedgerInconsistentError(event, `step "${target.id}" is not the step immediately before "${reviewer.id}", the only one it sends back`);
+      }
+      const sent = target.attempts.at(-1);
+      if (target.state !== "succeeded" || sent?.id !== event.attemptId) {
+        throw new LedgerInconsistentError(event, `step "${target.id}" is ${target.state}, not succeeded with attempt "${event.attemptId}" as its last`);
+      }
+      if (sent.sentBack !== null) throw new LedgerInconsistentError(event, `attempt "${sent.id}" was already sent back`);
+      // The review's own verification passed, and what it reported asks for changes and says what: a send-back never
+      // carries empty evidence.
+      const review = reviewer.attempts.at(-1);
+      if (reviewer.state !== "verifying" || review?.id !== event.reviewAttemptId || review.state !== "exited" || review.verification?.state !== "pass") {
+        throw new LedgerInconsistentError(event, `attempt "${event.reviewAttemptId}" is not the passed verified last attempt of review step "${reviewer.id}"`);
+      }
+      const findings = reviewFindingsOf(review.reportedOutput);
+      if (reviewVerdictOf(review.reportedOutput) !== "changes_requested" || findings.length === 0) {
+        throw new LedgerInconsistentError(event, `attempt "${review.id}" did not request changes with findings`);
+      }
+      // The same budget as a failed verification: a send-back is that retry (ADR 0004).
+      target.retryUsage.retries += 1;
+      sent.sentBack = { reviewStepId: reviewer.id, reviewAttemptId: review.id, findings };
+      sent.retry = { change: "evidence", delayMs: 0, scheduledAt: event.time };
+      target.state = "ready";
+      // The review is done again, on the new result, once there is one.
+      reviewer.state = "blocked";
       break;
     }
     case "ref_snapshot_taken": {

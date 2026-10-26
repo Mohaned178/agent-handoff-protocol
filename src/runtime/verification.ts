@@ -2,8 +2,11 @@ import { spawn } from "node:child_process";
 import { OWN_PROCESS_GROUP, terminateTree } from "../process/index.ts";
 import {
   isPresentOutputField,
+  reviewVerdictOf,
   type EvidenceItem,
+  type OutputFieldValue,
   type RequiredOutputFieldsEvidence,
+  type ReviewVerdictEvidence,
   type TestOutputEvidence,
   type ValidatorErrorEvidence,
   type ValidatorStage,
@@ -91,6 +94,16 @@ export function checkRequiredOutputFields(
 }
 
 /**
+ * Checks that a review step's verdict is one of the two it may report. Null when it reported none: a missing
+ * verdict is for the required output fields to fail, and is not reported twice.
+ */
+export function checkReviewVerdict(reported: Readonly<Record<string, OutputFieldValue>>): ReviewVerdictEvidence | null {
+  const verdict = reported.verdict;
+  if (!isPresentOutputField(verdict)) return null;
+  return { kind: "review_verdict", verdict: reviewVerdictOf(reported), reported: verdict! };
+}
+
+/**
  * Exit codes by which the shell, or a validator that knows it is broken, says the command could not be run:
  * 126 (found but not executable) and 127 (not found). Together with a process that ended on a signal they are
  * the only evidence that the validator, not the attempt, is at fault. Any other non-zero exit is a failure. On
@@ -109,6 +122,8 @@ export function evidenceVerdict(item: EvidenceItem): Verdict {
       return "inconclusive";
     case "required_output_fields":
       return item.missing.length === 0 ? "pass" : "fail";
+    case "review_verdict":
+      return item.verdict === null ? "fail" : "pass";
     case "diff_scope":
       return "pass";
     case "protected_paths":

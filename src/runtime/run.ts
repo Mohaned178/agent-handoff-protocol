@@ -5,10 +5,13 @@ import { CANCELLED, cancelledAround, TIMED_OUT, unlessCancelled, within, type Ru
 import { applyEvent, LedgerWriter } from "../ledger/index.ts";
 import {
   PROTOCOL_VERSION,
+  requiredOutputFieldsOf,
+  reviewVerdictOf,
   type AgentRef,
   type AttemptView,
   type EvidenceItem,
   type FailureClass,
+  type HandoffEvidence,
   type HandoffRevision,
   type LedgerEvent,
   type LedgerEventBody,
@@ -32,6 +35,7 @@ import { sharedRefs } from "./refs.ts";
 import { changedPaths, checkProtectedPaths, diffScopeEvidence } from "./scope.ts";
 import {
   checkRequiredOutputFields,
+  checkReviewVerdict,
   installDependencies,
   messageOf,
   runVerificationCommand,
@@ -283,7 +287,10 @@ async function advanceCancelledStep(step: StepDefinition, index: number, run: Ru
 async function advanceReadyStep(step: StepDefinition, index: number, run: RunContext): Promise<void> {
   const view = stepOf(run, index);
   const handoff = view.handoffs.at(-1);
-  if (!handoff) return issueHandoff(step, await firstHandoff(step, index, run), run);
+  // A step a review sent back is reviewed again on the result that replaced the one its last handoff handed on.
+  if (!handoff || !handsOnLatestResult(handoff.handoff, index, run)) {
+    return issueHandoff(step, await firstHandoff(step, index, run), run);
+  }
   if (handoff.state === "issued") return decideHandoff(step, handoff.handoff, run);
   if (handoff.state === "rejected") {
     return run.record({ type: "step_terminal", stepId: step.id, state: "failed", failureClass: "rejected" });
@@ -299,6 +306,10 @@ async function advanceReadyStep(step: StepDefinition, index: number, run: RunCon
   if (run.cancel.signal?.aborted) return requestCancel(run);
   return executeAttempt(step, index, run);
 }
+
+/** Whether a handoff hands on the result of the step before its recipient as it is now: the recipient's first step has none. */
+const handsOnLatestResult = (handoff: HandoffRevision, index: number, run: RunContext) =>
+  (handoff.from?.attemptId ?? null) === (senderOf(index, run)?.id ?? null);
 
 /** Waits for what is left of a retry's backoff, which runs from when the retry was scheduled, or until a cancel. */
 async function waitOut(retry: ScheduledRetry, run: RunContext): Promise<void> {
@@ -323,13 +334,16 @@ async function firstHandoff(step: StepDefinition, index: number, run: RunContext
 
 /**
  * The next revision of the step's handoff, for a retry whose input changed. It carries what the failed
- * verification showed (an attempt that taught nothing leaves the evidence the step already had) and, on a reroute,
- * names the alternative agent, which starts on budgets of its own.
+ * verification showed (an attempt that taught nothing leaves the evidence the step already had) or, for a step a
+ * review sent back, what the review found, and, on a reroute, names the alternative agent, which starts on budgets
+ * of its own.
  */
 function revisedHandoff(step: StepDefinition, view: StepView, failed: AttemptView, change: RetryChange): HandoffRevision {
   const accepted = view.handoffs.at(-1)!.handoff;
   const hiddenTests = (step.verification.hiddenTests ?? []).length > 0;
-  const learned = retryEvidence(failed.verification?.evidence ?? [], { hiddenTests });
+  const learned: HandoffEvidence[] = failed.sentBack
+    ? [{ kind: "review_findings", reviewStepId: failed.sentBack.reviewStepId, findings: failed.sentBack.findings }]
+    : retryEvidence(failed.verification?.evidence ?? [], { hiddenTests });
   const alternative = change === "reroute" ? step.reroute! : null;
   return reviseHandoff(accepted, {
     evidence: learned.length > 0 ? learned : accepted.evidence,
@@ -596,8 +610,9 @@ async function snapshotAttempt(step: StepDefinition, attempt: AttemptView, run: 
 }
 
 /**
- * Ends an attempt whose verdict, if it had one, is final: a pass ends the step; a failure is recorded with its
- * class, and then the failure policy decides whether the step is retried, rerouted or ends.
+ * Ends an attempt whose verdict, if it had one, is final: a pass ends the step, unless it is a review that asks for
+ * changes; a failure is recorded with its class, and then the failure policy decides whether the step is retried,
+ * rerouted or ends.
  */
 async function concludeAttempt(
   step: StepDefinition,
@@ -608,6 +623,9 @@ async function concludeAttempt(
 ): Promise<void> {
   const { record } = run;
   if (failureClass === null) {
+    if (step.review && reviewVerdictOf(attempt.reportedOutput) === "changes_requested") {
+      return sendBack(step, index, attempt, run);
+    }
     return record({ type: "step_terminal", stepId: step.id, state: "succeeded", failureClass: null });
   }
   if (attempt.failureClass === null) return record({ type: "attempt_failed", attemptId: attempt.id, failureClass });
@@ -631,6 +649,30 @@ async function concludeAttempt(
       return record({ type: "retry_scheduled", stepId: step.id, attemptId: attempt.id, failureClass, change, delayMs });
     }
   }
+}
+
+/**
+ * A review that passed verification and asks for changes sends the step before it back, as a `verification_failed`
+ * retry that spends the same budget (ADR 0004). With nothing left of it the review step fails instead, and the run
+ * with it: there is no reroute for a step that succeeded, and nobody left to ask.
+ */
+async function sendBack(step: StepDefinition, index: number, attempt: AttemptView, run: RunContext): Promise<void> {
+  const target = run.workflow.steps[index - 1];
+  if (target?.id !== step.review!.sendBackTo) {
+    throw new Error(`review step "${step.id}" sends back "${step.review!.sendBackTo}", which is not the step before it`);
+  }
+  const decision = decide({ ...target, reroute: undefined }, stepOf(run, index - 1), "verification_failed", 1);
+  if (decision.action !== "retry") {
+    return run.record({ type: "step_terminal", stepId: step.id, state: "failed", failureClass: "verification_failed" });
+  }
+  const sent = stepOf(run, index - 1).attempts.at(-1)!;
+  return run.record({
+    type: "step_sent_back",
+    stepId: target.id,
+    attemptId: sent.id,
+    reviewStepId: step.id,
+    reviewAttemptId: attempt.id,
+  });
 }
 
 /** Runs one verification of an attempt's snapshot and records it and its verdict. */
@@ -691,8 +733,10 @@ async function verifyAttempt(step: StepDefinition, index: number, attempt: Attem
       if (created) await removeWorktree(location.repo, commandRun.worktree);
     }
   }
-  const requiredFields = step.verification.requiredOutputFields ?? [];
+  const requiredFields = requiredOutputFieldsOf(step);
   if (requiredFields.length > 0) evidence.push(checkRequiredOutputFields(requiredFields, attempt.reportedOutput));
+  const reviewed = step.review ? checkReviewVerdict(attempt.reportedOutput) : null;
+  if (reviewed) evidence.push(reviewed);
   const verdict = verdictOf(evidence);
   await record({ type: "verification_verdict", verificationId, verdict, evidence });
 }

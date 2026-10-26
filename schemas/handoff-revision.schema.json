@@ -300,6 +300,76 @@
             "properties": {
               "kind": {
                 "type": "string",
+                "const": "review_findings"
+              },
+              "reviewStepId": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]*$",
+                "description": "The review step that sent this step back."
+              },
+              "findings": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "What the review found, in its words."
+              }
+            },
+            "required": [
+              "kind",
+              "reviewStepId",
+              "findings"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "review_verdict"
+              },
+              "reported": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "description": "What the review reported as its verdict."
+              },
+              "allowed": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "approved",
+                    "changes_requested"
+                  ]
+                },
+                "description": "The verdicts a review may report."
+              }
+            },
+            "required": [
+              "kind",
+              "reported",
+              "allowed"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
                 "const": "protected_paths"
               },
               "violations": {
