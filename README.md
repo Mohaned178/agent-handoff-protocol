@@ -98,7 +98,7 @@ Every effect is recorded before it happens: an attempt's `dispatching` event is 
 
 What happens next is the step's `recovery` policy:
 
-- `manual` (the default): the run stops in `needs_recovery` and you decide. `ahp recover <attempt-id> --policy adopt` verifies the attempt's workspace as its result (a result that fails is retried like any failed verification); `--policy abort` fails the step as `unknown`. `ahp recover` refuses an attempt that is not awaiting a decision.
+- `manual` (the default): the run stops in `needs_recovery` and you decide. `ahp recover <attempt-id> --policy adopt` verifies the attempt's workspace as its result (a result that fails ends the step as `verification_failed`: no new agent starts while the old one may still be running); `--policy abort` fails the step as `unknown`. `ahp recover` refuses an attempt that is not awaiting a decision.
 - `adopt` or `abort`: applied at once, without stopping.
 
 `discard_and_retry` is deferred past release 1: its only safety check would be the ref diff, which cannot see a push that leaves no local ref behind. The shared refs are recorded just before every attempt is dispatched and again once it has exited or been found unknown, so a moved ref shows in the ledger.

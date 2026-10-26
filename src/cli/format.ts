@@ -113,6 +113,9 @@ function describeAttempt(attempt: AttemptView): string {
 /** Why a failed step stopped, as one line: the failure class says what happened, this says what was done about it. */
 function describeStop(step: StepView): string | null {
   const last = step.attempts.at(-1);
+  if (last?.recovery?.decision?.policy === "adopt") {
+    return "not retried: the adopted workspace failed, and the attempt's agent, whose outcome was unknown, may still be running";
+  }
   switch (step.failureClass) {
     case "config_auth":
       return `not retried: ${last?.error?.message ?? "the coding agent's login or configuration is wrong"}. This needs your attention: fix the tool's login or configuration, then run again.`;

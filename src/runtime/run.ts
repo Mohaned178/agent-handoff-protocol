@@ -488,7 +488,10 @@ async function concludeAttempt(
   }
   if (attempt.failureClass === null) return record({ type: "attempt_failed", attemptId: attempt.id, failureClass });
 
-  const decision = decide(step, stepOf(run, index), failureClass, verificationRuns(attempt));
+  // An unknown attempt's agent may still be running, so nothing follows it with a new agent: an adopted workspace
+  // that fails ends the step, whoever adopted it, as an aborted one does.
+  const decision: FailureDecision =
+    attempt.state === "unknown" ? { action: "stop", reason: "not_retryable" } : decide(step, stepOf(run, index), failureClass, verificationRuns(attempt));
   switch (decision.action) {
     case "stop":
       return record({ type: "step_terminal", stepId: step.id, state: "failed", failureClass });

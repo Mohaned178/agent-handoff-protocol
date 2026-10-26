@@ -183,7 +183,7 @@ _Avoid_: Crashed attempt, failed attempt
 What AHP records about an unknown attempt for whoever decides on it: the last ledger events before it was found unknown, what its workspace holds against the step's base commit, how the shared refs moved since just before it was dispatched, the transport's tool-call log if the adapter keeps one, and the statement that host and external effects are undetermined.
 
 **Recovery policy**:
-The per-step rule for an unknown attempt: `manual` (default: the run stops in `needs_recovery` and a person decides with `ahp recover <attempt> --policy adopt|abort`), `adopt` (its workspace is verified as the attempt's result) or `abort` (the step fails as `unknown`). `discard_and_retry` is deferred past release 1.
+The per-step rule for an unknown attempt: `manual` (default: the run stops in `needs_recovery` and a person decides with `ahp recover <attempt> --policy adopt|abort`), `adopt` (its workspace is verified as the attempt's result; a result that fails ends the step, never retried) or `abort` (the step fails as `unknown`). `discard_and_retry` is deferred past release 1.
 
 **Resume**:
 A later process continuing a run whose process stopped, from wherever its ledger stops; `ahp recover <run>` does it, and records it as `run_resumed`.

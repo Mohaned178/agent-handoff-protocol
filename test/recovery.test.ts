@@ -276,19 +276,33 @@ describe("deciding an attempt that awaits recovery", () => {
     expect(state.resumptions).toEqual([{ seq: expect.any(Number), time: expect.any(String), takenOverFrom: null }]);
   });
 
-  it("adopt treats a workspace that fails verification like any failed attempt: retried with the evidence", async () => {
-    const { repo, attemptId } = await awaitingRecovery([{ ...goodbye, loseContact: true }, hello]);
+  it.each([
+    {
+      who: "a person",
+      adopt: async (attempts: MockAttemptScript[]) => {
+        const { repo, attemptId } = await awaitingRecovery(attempts);
+        return (await recoverAttempt({ repo, attemptId, policy: "adopt" })).state;
+      },
+    },
+    {
+      who: "the step's policy",
+      adopt: async (attempts: MockAttemptScript[]) => {
+        const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING });
+        return (await runWorkflow(retryWorkflow(attempts, { recovery: "adopt" }), { repo })).state;
+      },
+    },
+  ])(
+    "adopt by $who of a workspace that fails verification ends the step: no new agent starts while the old one may still run",
+    async ({ adopt }) => {
+      const state = await adopt([{ ...goodbye, loseContact: true }, hello]);
 
-    const { state } = await recoverAttempt({ repo, attemptId, policy: "adopt" });
-
-    expect(state.state).toBe("succeeded");
-    const step = implementOf(state);
-    expect(step.attempts.map((attempt) => [attempt.state, attempt.failureClass])).toEqual([
-      ["unknown", "verification_failed"],
-      ["exited", null],
-    ]);
-    expect(step.handoffs.map((handoff) => handoff.revision)).toEqual([1, 2]);
-  });
+      expect(state.state).toBe("failed");
+      const step = implementOf(state);
+      expect(step).toMatchObject({ state: "failed", failureClass: "verification_failed", retryUsage: { retries: 0 } });
+      expect(step.attempts.map((attempt) => [attempt.state, attempt.failureClass])).toEqual([["unknown", "verification_failed"]]);
+      expect(step.handoffs).toHaveLength(1);
+    },
+  );
 
   it("abort ends the step as unknown, never retried although its budget is untouched, and the run fails", async () => {
     const { repo, attemptId } = await awaitingRecovery([helloLost, hello]);

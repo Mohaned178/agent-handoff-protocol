@@ -337,6 +337,8 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       if (failed?.id !== event.attemptId || failed.failureClass !== event.failureClass) {
         throw new LedgerInconsistentError(event, `attempt "${event.attemptId}" is not the failed last attempt of step "${s.id}"`);
       }
+      // Its agent may still be running, so no new agent follows it, adopted or not.
+      if (failed.state === "unknown") throw new LedgerInconsistentError(event, `attempt "${failed.id}" is unknown, so it is never retried`);
       if (!RETRIED_WITH[event.failureClass].includes(event.change)) {
         throw new LedgerInconsistentError(event, `${event.failureClass} failures are not retried with change "${event.change}"`);
       }
