@@ -4,7 +4,7 @@
 
 **Blocked by:** 04, 05
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Model:** Opus 5.5 · xhigh
 
@@ -122,3 +122,5 @@ Kept, with reasons:
 - **`(step, index, run)` travels through the executor's functions.** A step cursor would rework the whole executor and change no behaviour.
 - **A config error before spawn becomes `unknown` (decision 5).** Ticket 07's process layer is where an adapter can say that nothing was spawned.
 - **`recoverAttempt` checks before taking the lock, and that pass writes nothing.** Only in a race, where the run changes between that check and the one under the lock, can a refusal follow a torn-tail truncation or a stale-lock takeover by `LedgerWriter.open`.
+
+First green CI run after review: GitHub Actions run 40251704512 (commit 015378d), 225 tests on Linux and macOS and 224 (1 skipped: the signal test) on Windows; `test/recovery.test.ts` (25) and `test/cli-recovery.test.ts` (10), the child-process crash tests included, passed on all three. Typecheck and build pass on all three.
