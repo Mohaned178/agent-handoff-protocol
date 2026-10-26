@@ -205,8 +205,9 @@ const TREE_AGENT = `const { spawn } = require("child_process");
 const fs = require("fs");
 const ignore = () => { for (const s of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(s, () => {}); };
 if (process.argv[3] === "ignore") ignore();
-const grandchild = spawn(process.execPath, ["-e", 'for (const s of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(s, () => {}); setTimeout(() => {}, 600000);'], { stdio: "ignore", windowsHide: true });
-grandchild.once("spawn", () => fs.writeFileSync(process.argv[2], process.pid + "\\n" + grandchild.pid + "\\n"));
+const grandchild = spawn(process.execPath, ["-e", 'for (const s of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(s, () => {}); process.stdout.write("ready"); setTimeout(() => {}, 600000);'], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+// Only once it ignores the signals: a test that terminates the tree as soon as it reads the PIDs must find it so.
+grandchild.stdout.once("data", () => { grandchild.stdout.destroy(); fs.writeFileSync(process.argv[2], process.pid + "\\n" + grandchild.pid + "\\n"); });
 setInterval(() => {}, 60000);
 `;
 

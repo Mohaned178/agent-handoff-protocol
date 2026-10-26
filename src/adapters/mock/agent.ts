@@ -26,10 +26,12 @@ const TERMINATION_SIGNALS = ["SIGTERM", "SIGINT", "SIGHUP"] as const;
 if (script.ignoreSignals) for (const signal of TERMINATION_SIGNALS) process.on(signal, () => undefined);
 let grandchild: number | null = null;
 if (script.spawnGrandchild) {
-  // It holds none of the agent's pipes, so the agent's exit is still seen as soon as it happens.
-  const ignoring = `for (const s of ${JSON.stringify(TERMINATION_SIGNALS)}) process.on(s, () => {}); setTimeout(() => {}, 600000);`;
-  const child = spawn(process.execPath, ["-e", ignoring], { stdio: "ignore", windowsHide: true });
-  await new Promise((resolve, reject) => child.once("spawn", resolve).once("error", reject));
+  // It says when it ignores the signals, so a cancel sent after the PID file is written finds it doing so. It holds
+  // none of the adapter's pipes, so the agent's exit is still seen as soon as it happens.
+  const ignoring = `for (const s of ${JSON.stringify(TERMINATION_SIGNALS)}) process.on(s, () => {}); process.stdout.write("ready"); setTimeout(() => {}, 600000);`;
+  const child = spawn(process.execPath, ["-e", ignoring], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+  await new Promise((resolve, reject) => child.stdout.once("data", resolve).once("error", reject));
+  child.stdout.destroy();
   grandchild = child.pid!;
   console.error(`mock agent: started grandchild ${grandchild}`);
 }
