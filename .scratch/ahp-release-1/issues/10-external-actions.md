@@ -4,7 +4,7 @@
 
 **Blocked by:** 09
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Model:** Opus 5.5 · high
 
@@ -60,3 +60,5 @@
 - Not done, assigned elsewhere: telling coding agents not to push, open or merge (ADR 0003's "instructed, and configured where the tool allows") belongs to how each adapter renders the handoff and applies capabilities, tickets 11 and 15 to 19; nothing in the mock adapter or the core does it yet.
 
 **Confirmed by the maintainer on 2026-10-27 ("do recommendation"): decisions 1 to 9 above stand as recommended; reopen one only with a new decision.** Decision 9 is done: `test/pull-requests.test.ts` runs `githubCli()` against a fake `gh` (`test/helpers/fake-gh.ts`, a Node script given as `file`/`prefixArgs`) and checks the arguments it passes (`--repo` read from the remote's URL, `--match-head-commit`), that `GH_PROMPT_DISABLED` is set, its parsing of `gh pr list --json`, a remote URL that names no hosted repository, and a failure's message. Real `gh` still never runs in a test.
+
+First green CI run: GitHub Actions run 40403664608 (commit eefbfc2). 352 tests passed on Linux and macOS (1 skipped: the signal test). Windows had 350 passed and 3 skipped: the signal test, the POSIX resolution test and the Ctrl+C CLI test. The kill-mid-push crash test (`test/cli-external.test.ts`, a `post-receive` hook run by git's own sh) passed on all three.
