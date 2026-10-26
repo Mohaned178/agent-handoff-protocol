@@ -4,6 +4,7 @@ import type { Adapter } from "../adapters/index.ts";
 import { clearStaleLock, findAttempt, LedgerWriter, lockPathOf, readCheckedLedger, readLedger, replay } from "../ledger/index.ts";
 import { RECOVERY_ACTIONS, type LedgerEvent, type LockOwner, type RecoveryAction, type RunView } from "../protocol/index.ts";
 import { systemClock, type Clock } from "./clock.ts";
+import { githubCli, type PullRequestProvider } from "./pull-requests.ts";
 import { isAttemptId, isRunId, ledgerPath, locateRepo, locateRun, prepareWorktreeRoot, runsDir, type RepoLocation } from "./paths.ts";
 import { drive, runCancel, runContext, type RunContext, type RunResult } from "./run.ts";
 
@@ -17,6 +18,8 @@ export interface ContinueRunOptions {
   /** Cancels the run once aborted, as in `ExecuteRunOptions`. */
   signal?: AbortSignal;
   cancelGraceMs?: number;
+  /** Pull requests for external actions, as in `ExecuteRunOptions`. */
+  pullRequests?: PullRequestProvider;
 }
 
 export interface RecoverAttemptOptions extends ContinueRunOptions {
@@ -113,7 +116,16 @@ export async function openRun(location: RepoLocation, runId: string, options: Co
     await writer.close();
     throw new Error(`run ${runId}: the first event is ${created.type}, not run_created`);
   }
-  const fields = { runId, location, worktreeRoot, adapters: options.adapters, workflow: created.workflow, clock, cancel: runCancel(options) };
+  const fields = {
+    runId,
+    location,
+    worktreeRoot,
+    adapters: options.adapters,
+    workflow: created.workflow,
+    clock,
+    cancel: runCancel(options),
+    pullRequests: options.pullRequests ?? githubCli(),
+  };
   const run: RunContext = runContext(writer, events, fields, options.onEvent);
   return { run, writer, takenOverFrom };
 }

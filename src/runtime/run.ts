@@ -4,7 +4,9 @@ import { DEFAULT_GRACE_MS, type Termination } from "../process/index.ts";
 import { CANCELLED, cancelledAround, TIMED_OUT, unlessCancelled, within, type RunCancel } from "./cancel.ts";
 import { applyEvent, LedgerWriter } from "../ledger/index.ts";
 import {
+  isAgentStep,
   isApprovalGate,
+  isExternalAction,
   PROTOCOL_VERSION,
   requiredOutputFieldsOf,
   reviewVerdictOf,
@@ -29,12 +31,14 @@ import {
   type WorkflowStepDefinition,
 } from "../protocol/index.ts";
 import { systemClock, type Clock } from "./clock.ts";
+import { advanceCancelledExternalAction, advanceExternalAction } from "./external.ts";
 import { classifyAttempt, decideAfterFailure, resolveRetryPolicy, verdictFailure, type FailureDecision } from "./failure.ts";
 import { git } from "./git.ts";
 import { introduceHiddenTests } from "./hidden-tests.ts";
 import { buildHandoff, retryEvidence, reviseHandoff, validateHandoffRevision } from "./handoff.ts";
 import { ledgerPath, locateRepo, prepareWorktreeRoot, snapshotRef, worktreePath, type RepoLocation } from "./paths.ts";
-import { buildRecoveryReport } from "./recovery.ts";
+import { githubCli, type PullRequestProvider } from "./pull-requests.ts";
+import { buildRecoveryReport, refChanges } from "./recovery.ts";
 import { sharedRefs } from "./refs.ts";
 import { bounded, changedPaths, checkProtectedPaths, diffScopeEvidence } from "./scope.ts";
 import {
@@ -63,6 +67,8 @@ export interface ExecuteRunOptions {
   signal?: AbortSignal;
   /** How long a cancelled agent is given to stop gracefully before its process tree is killed. Default 5000 ms. */
   cancelGraceMs?: number;
+  /** Finds, opens and merges pull requests for external actions. Default: the GitHub CLI, under the user's own login. */
+  pullRequests?: PullRequestProvider;
 }
 
 /** How long an adapter still starting an agent when the run is cancelled is given to say whether it did. */
@@ -95,6 +101,7 @@ export interface RunContext {
   workflow: WorkflowDefinition;
   clock: Clock;
   cancel: RunCancel;
+  pullRequests: PullRequestProvider;
   /** The state derived from the ledger so far. */
   state: () => Readonly<RunView>;
   /** The ledger's events so far, in append order. */
@@ -139,7 +146,7 @@ export async function executeRun(workflow: WorkflowDefinition, options: ExecuteR
   const clock = options.clock ?? systemClock;
   const runId = newId("run");
   const ledger = await LedgerWriter.create(ledgerPath(location, runId), () => clock.now());
-  const fields = { runId, location, worktreeRoot, adapters: options.adapters, workflow, clock, cancel: runCancel(options) };
+  const fields = { runId, location, worktreeRoot, adapters: options.adapters, workflow, clock, cancel: runCancel(options), pullRequests: options.pullRequests ?? githubCli() };
   const run = runContext(ledger, [], fields, options.onEvent);
   try {
     await run.record({
@@ -218,23 +225,24 @@ const currentAgent = (step: StepDefinition, view: StepView): AgentRef => (view.r
 /** The step at `index`, which the caller knows is performed by a coding agent. */
 function agentStepAt(run: RunContext, index: number): StepDefinition {
   const step = run.workflow.steps[index];
-  if (!step || isApprovalGate(step)) throw new Error(`step ${index + 1} of the workflow is not performed by a coding agent`);
+  if (!step || !isAgentStep(step)) throw new Error(`step ${index + 1} of the workflow is not performed by a coding agent`);
   return step;
 }
 
 /**
- * The position of the step whose result step `index` receives: the nearest step before it that is not an approval
- * gate, since a gate passes on what it was shown unchanged. -1 for a step with nothing before it.
+ * The position of the step whose result step `index` receives: the nearest step before it that a coding agent
+ * performs, since an approval gate or an external action passes on what it was given unchanged. -1 for a step with
+ * nothing before it.
  */
 function senderIndex(index: number, run: RunContext): number {
   let before = index - 1;
-  while (before >= 0 && isApprovalGate(run.workflow.steps[before]!)) before -= 1;
+  while (before >= 0 && !isAgentStep(run.workflow.steps[before]!)) before -= 1;
   return before;
 }
 
 /**
  * The attempt whose result step `index` receives: the last attempt of the agent step before it (past any approval
- * gate), which has succeeded, so that attempt is the verified one. None for the first step.
+ * gate or external action), which has succeeded, so that attempt is the verified one. None for the first step.
  */
 const senderOf = (index: number, run: RunContext): AttemptView | undefined => {
   const before = senderIndex(index, run);
@@ -271,6 +279,7 @@ function decide(step: StepDefinition, view: StepView, failureClass: FailureClass
  */
 async function advanceStep(step: WorkflowStepDefinition, index: number, run: RunContext): Promise<void> {
   if (isApprovalGate(step)) return advanceGate(step, index, run);
+  if (isExternalAction(step)) return advanceExternalAction(step, index, run);
   const view = stepOf(run, index);
   switch (view.state) {
     case "blocked":
@@ -298,6 +307,7 @@ async function advanceStep(step: WorkflowStepDefinition, index: number, run: Run
 async function advanceCancelledStep(step: WorkflowStepDefinition, index: number, run: RunContext): Promise<void> {
   // A gate has no agent to stop; a run waiting for a person is not running, so is not cancelled.
   if (isApprovalGate(step)) return run.record({ type: "step_terminal", stepId: step.id, state: "cancelled", failureClass: null });
+  if (isExternalAction(step)) return advanceCancelledExternalAction(step, index, run);
   const attempt = stepOf(run, index).attempts.at(-1);
   switch (attempt?.state) {
     case "dispatching":
@@ -791,15 +801,24 @@ async function verifyAttempt(step: StepDefinition, index: number, attempt: Attem
   // Whether the attempt stayed out of the protected paths is known before anything runs. A violation fails
   // verification whatever the command says, so the command, which would run the attempt's changes to the test
   // runner and scripts, is not run. If the check itself cannot be made, the command is not run either.
+  // So is whether a shared ref moved while the agent ran: only AHP pushes, opens or merges (ADR 0003), and a moved ref
+  // fails verification the same way. That none moved proves nothing: a push to a URL or through an API leaves no ref.
+  let scopeClear = true;
+  const { before, after } = attempt.refs;
+  if (!before || !after) throw new Error(`attempt "${attempt.id}" has no snapshot of the shared refs ${before ? "after" : "before"} its agent ran`);
+  const { items: moved, truncated: movedTruncated } = bounded(refChanges(before, after));
+  if (moved.length > 0) {
+    evidence.push({ kind: "forbidden_external_action_detected", changed: moved, truncated: movedTruncated });
+    scopeClear = false;
+  }
   const hiddenTests = step.verification.hiddenTests ?? [];
   const protectedPaths = [...new Set([...(step.verification.protectedPaths ?? []), ...hiddenTests.map((test) => test.path)])];
-  let scopeClear = true;
   if (protectedPaths.length > 0) {
     try {
       const changed = await changedPaths(location.repo, base, snapshot);
       const check = checkProtectedPaths(changed, protectedPaths);
       evidence.push(diffScopeEvidence(changed), check);
-      scopeClear = check.violations.length === 0;
+      scopeClear &&= check.violations.length === 0;
     } catch (error) {
       evidence.push(validatorError("diff_scope", error));
       scopeClear = false;

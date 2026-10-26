@@ -33,7 +33,12 @@ export function createTempRepo(files: Record<string, string>, config: Record<str
   return repo;
 }
 
-/** Removes every repository created by `createTempRepo`. */
+/** Has `removeTempRepos` remove `dir` too. */
+export function trackForRemoval(dir: string): void {
+  created.push(dir);
+}
+
+/** Removes every repository created by `createTempRepo`, and every directory given to `trackForRemoval`. */
 export function removeTempRepos(): void {
   for (const repo of created.splice(0)) {
     rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });

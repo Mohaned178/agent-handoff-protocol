@@ -5,10 +5,14 @@ import type {
   AttemptView,
   ChangedPath,
   EvidenceItem,
+  ExternalActionTarget,
+  ExternalActionView,
+  ExternalObservation,
   HandoffView,
   LedgerEvent,
   RecoveryDecision,
   RecoveryReport,
+  RefChange,
   RunView,
   StepView,
   VerificationView,
@@ -121,8 +125,26 @@ function describeEvidence(item: EvidenceItem): string[] {
         ...item.violations.map((change) => `        | ${describeChange(change)}`),
         ...(item.truncated ? ["        | ..."] : []),
       ];
+    case "forbidden_external_action_detected":
+      return [
+        `      evidence: forbidden external action detected: ${quantity(item.changed.length, "shared ref")} changed while the agent ran${item.truncated ? ", first only" : ""}; ` +
+          "only AHP pushes, opens or merges, so the verification command was not run",
+        ...item.changed.map((change) => `        | ${describeRefChange(change)}`),
+        `        ${REF_CHANGE_NOTE}`,
+      ];
   }
 }
+
+/** What a changed shared ref can and cannot say. */
+const REF_CHANGE_NOTE = "AHP cannot tell who changed them: a person working in the repository, or an editor fetching, meanwhile shows the same.";
+
+/**
+ * Why no evidence of an agent's external action proves nothing, said wherever its absence is reported (ADR 0003).
+ */
+const DETECTION_PARTIAL =
+  "detection is partial: only changes to the shared repository's refs are seen, so a push to a URL or through a service's API leaves no trace, and the absence of this evidence is not proof that no agent performed an external action";
+
+const describeRefChange = ({ name, before, after }: RefChange) => `${name}: ${before ? short(before) : "(none)"} -> ${after ? short(after) : "(none)"}`;
 
 const describeChange = ({ path, change }: ChangedPath) => `${change} ${path}`;
 
@@ -136,6 +158,7 @@ function describeAttempt(attempt: AttemptView): string {
 /** Why a failed step stopped, as one line: the failure class says what happened, this says what was done about it. */
 function describeStop(step: StepView, state: Readonly<RunView>): string | null {
   const before = state.steps[state.steps.indexOf(step) - 1];
+  if (step.kind === "external_action") return step.action ? describeActionFailure(step.action) : null;
   if (step.kind === "approval_gate") {
     return `rejected, and the retry budget of step ${before?.id ?? "before it"} is spent, so it cannot be sent back again`;
   }
@@ -292,7 +315,68 @@ export function formatEvent(event: LedgerEvent, state: Readonly<RunView>): strin
       const { attempt } = stepOfAttempt(state, event.attemptId);
       return attemptLine(event.attemptId, `cancelling: stopping the agent (PID ${attempt.pid}) and every process it started`);
     }
+    case "external_action_intended":
+      return `step ${event.stepId}: about to ${describeTarget(event.target)}`;
+    case "external_action_checked":
+      return `step ${event.stepId}: checked the remote: ${describeObserved(event.observed)}${event.done ? "; already done, so it is not done again" : ""}`;
+    case "external_action_performed":
+      return `step ${event.stepId}: done: ${describeObserved(event.observed)}`;
+    case "external_action_failed":
+      return `step ${event.stepId}: could not be done: ${event.error}`;
   }
+}
+
+/** What an external action sets out to do, in words. */
+function describeTarget(target: ExternalActionTarget): string {
+  const where = `on remote ${target.remote}`;
+  switch (target.kind) {
+    case "push_branch":
+      return `push commit ${short(target.commit)}, approved at gate ${target.gateStepId}, to branch ${target.branch} ${where}`;
+    case "open_pr":
+      return `open a pull request from branch ${target.branch} into ${target.base} ${where} ("${target.title}")`;
+    case "merge_pr":
+      return `merge the pull request from branch ${target.branch} ${where} (${target.method}), only while commit ${short(target.commit)} is its head`;
+  }
+}
+
+function describeObserved(observed: ExternalObservation): string {
+  if (observed.kind === "remote_branch") return observed.commit === null ? "the remote has no such branch" : `the remote's branch is at ${short(observed.commit)}`;
+  const pr = observed.pullRequest;
+  return pr === null ? "no pull request from the branch" : `pull request #${pr.number} (${pr.state}, head ${short(pr.headCommit)}, into ${pr.base}): ${pr.url}`;
+}
+
+/** Why an external action failed, and what is left to do about it: nothing retries it. */
+function describeActionFailure({ target, failure }: ExternalActionView): string | null {
+  if (!failure) return null;
+  const byHand =
+    target.kind === "push_branch"
+      ? `\`git push ${target.remote} ${target.commit}:refs/heads/${target.branch}\` publishes it by hand`
+      : "it can be published by hand";
+  return `not retried: ${failure.error}. The approved commit ${target.commit} stays pinned in this repository; once the cause is fixed, ${byHand}.`;
+}
+
+/** An external-action step's record: what it set out to do, each look at the remote, and how it ended. */
+function describeAction(action: ExternalActionView): string[] {
+  const lines = [`  action: ${describeTarget(action.target)}`, `    approved commit: ${action.target.commit}`, `    intended: ${action.intendedAt}`];
+  if (action.target.kind === "open_pr") lines.push("    body:", ...action.target.body.split(/\r?\n/).map((line) => `      | ${line}`));
+  for (const { time, done, observed } of action.checks) lines.push(`    checked: ${time}: ${describeObserved(observed)}${done ? " (already done)" : ""}`);
+  if (action.performed) lines.push(`    performed: ${action.performed.time}: ${describeObserved(action.performed.observed)}`);
+  if (action.failure) lines.push(`    failed: ${action.failure.time}: ${action.failure.error}`);
+  return lines;
+}
+
+/** Whether any coding agent was seen performing an external action, said with what that cannot show. */
+function describeAgentExternalActions(state: Readonly<RunView>): string | null {
+  const verified = state.steps.flatMap((step) => step.attempts.map((attempt) => ({ step, attempt }))).filter(({ attempt }) => attempt.verification);
+  if (verified.length === 0) return null;
+  const detected = verified.filter(({ attempt }) =>
+    [attempt.verification!, ...attempt.earlierVerifications].some((v) => v.evidence.some((item) => item.kind === "forbidden_external_action_detected")),
+  );
+  const seen =
+    detected.length === 0
+      ? "none detected"
+      : `detected in ${detected.map(({ step, attempt }) => `attempt ${attempt.id} of step ${step.id}`).join(", ")}`;
+  return `external actions by coding agents: ${seen}; ${DETECTION_PARTIAL}`;
 }
 
 /** How many paths an approval request lists as changed. */
@@ -345,7 +429,7 @@ function describeReport(report: RecoveryReport, indent: string): string[] {
   } else {
     lines.push(
       `shared refs: ${refs.changed.length} changed since just before the attempt was dispatched${refs.truncated ? ", first only" : ""}`,
-      ...refs.changed.map(({ name, before, after }) => `  | ${name}: ${before ? short(before) : "(none)"} -> ${after ? short(after) : "(none)"}`),
+      ...refs.changed.map((change) => `  | ${describeRefChange(change)}`),
     );
   }
   lines.push(report.toolCallLog === null ? "tool-call log: none, the attempt's adapter keeps none" : "tool-call log:", report.undetermined);
@@ -487,6 +571,8 @@ export function formatRun(inspection: RunInspection): string {
     ...describeLedger(inspection),
   ];
   if (state.mock) lines.push(`  ${MOCK_NOTE}`);
+  const agentActions = describeAgentExternalActions(state);
+  if (agentActions) lines.push(`  ${agentActions}`);
   for (const step of state.steps) {
     lines.push("", `step ${step.id}: ${describeStep(step)}${mockTag(step.mock)}`);
     const { retries, transientRetries, transientWaitMs, rerouted } = step.retryUsage;
@@ -498,6 +584,7 @@ export function formatRun(inspection: RunInspection): string {
     const stop = step.state === "failed" ? describeStop(step, state) : null;
     if (stop) lines.push(`  ${stop}`);
     lines.push(...describeApprovals(step, state, inspection.approval));
+    if (step.action) lines.push(...describeAction(step.action));
     for (const handoff of step.handoffs) lines.push(...describeHandoff(handoff));
     for (const attempt of step.attempts) {
       const reported = Object.keys(attempt.reportedOutput);

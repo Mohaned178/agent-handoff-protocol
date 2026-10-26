@@ -25,7 +25,7 @@ An ACP adapter for a tool that is maintained by someone other than that tool's v
 One execution of a workflow from start to a terminal state.
 
 **Step**:
-One unit of work in a run, assigned to one coding agent, that succeeds only when its verification passes.
+One unit of work in a run, assigned to one coding agent, that succeeds only when its verification passes. Approval gates and external-action steps are steps with no coding agent.
 _Avoid_: Task (reserved for the A2A-aligned task shape), stage
 
 **Attempt**:
@@ -66,7 +66,7 @@ A step that declares `review: { sendBackTo }` naming the step immediately before
 What a review step reported in `findings`, carried as `review_findings` evidence in the new handoff revision of the step it sent back. Written by the reviewing agent, so unlike a hidden test's output they are shown to the agent whole.
 
 **Approval gate**:
-A step declared `approval: {}` (and nothing else but its ID) with no coding agent, no handoff, no attempt and nothing to verify, placed after an agent step. When the step before it has succeeded, the run records an approval request, stops in `waiting_approval` and its process exits. `ahp approve` lets the run go on; `ahp reject --reason` sends back the step immediately before the gate, which in a workflow that has a review right before the gate is the review. There is no edit. A step after a gate receives the result of the agent step before the gate.
+A step declared `approval: {}` (and nothing else but its ID) with no coding agent, no handoff, no attempt and nothing to verify, placed after an agent step. When the step before it has succeeded, the run records an approval request, stops in `waiting_approval` and its process exits. `ahp approve` lets the run go on; `ahp reject --reason` sends back the step immediately before the gate, which in a workflow that has a review right before the gate is the review. There is no edit. A step after a gate (past any external actions) receives the result of the agent step before the gate.
 _Avoid_: Approval checkpoint, approvals inbox
 
 **Approval request**:
@@ -131,7 +131,7 @@ Verification of a step that declares no command, which checks only that its requ
 ## Failures and retries
 
 **Failure class**:
-One of a closed set of codes saying why an attempt, or the step it belongs to, failed, which decides how the failure is handled: `rejected`, `config_auth`, `transient`, `agent_error`, `verification_failed`, `inconclusive` or `unknown`. An attempt whose coding agent did not end cleanly (non-zero exit, a stop reason of `refusal`, `max_tokens` or `max_turn_requests`, or an error its adapter reported) is classified before verification and is not verified.
+One of a closed set of codes saying why an attempt, or the step it belongs to, failed, which decides how the failure is handled: `rejected`, `config_auth`, `transient`, `agent_error`, `verification_failed`, `inconclusive`, `unknown` or `external_action_failed` (an external-action step, which has no attempt). An attempt whose coding agent did not end cleanly (non-zero exit, a stop reason of `refusal`, `max_tokens` or `max_turn_requests`, or an error its adapter reported) is classified before verification and is not verified.
 
 **Adapter error**:
 What an adapter observed go wrong with its tool, with the failure class it belongs to (`config_auth`, `transient` or `agent_error`) and a message for the user. It outranks the exit code and the stop reason when an attempt is classified.
@@ -149,7 +149,7 @@ How many retries a step may spend, counted from the ledger so a restart sees wha
 The wait before a transient retry: exponential, and capped in total for the step, so a rate limit does not burn a whole quota. A retry that would pass the cap is not made.
 
 **Retry evidence**:
-For a send-back, the review's findings instead. For a failed verification, the failing parts of a verification, trimmed to what the coding agent may see, carried in the `evidence` of the next handoff revision (empty for revision 1): a failing command's exit code and the end of its output, the required output fields it left out, the changed paths that violated a protected path. The output of a command that runs hidden tests is withheld, and the list of protected paths is never shown, since it holds the hidden tests' paths; the ledger keeps the full evidence.
+For a send-back, the review's findings instead. For a failed verification, the failing parts of a verification, trimmed to what the coding agent may see, carried in the `evidence` of the next handoff revision (empty for revision 1): a failing command's exit code and the end of its output, the required output fields it left out, the changed paths that violated a protected path, the shared refs it changed. The output of a command that runs hidden tests is withheld, and the list of protected paths is never shown, since it holds the hidden tests' paths; the ledger keeps the full evidence.
 
 **Reroute**:
 Handing a step whose retry budget is spent to its alternative coding agent, under the same contract, in a new handoff revision. Off by default; a step is rerouted at most once, and the alternative starts on budgets of its own. Never offered for `rejected`, `config_auth`, `inconclusive` or `unknown`.
@@ -179,8 +179,12 @@ The network access a step permits to the coding agent's own tool use (web fetch 
 **External action**:
 An effect outside the workspace and shared repo, such as push, PR or merge, performed only by AHP after verification and approval. Deploy is not an external action AHP performs in release 1.
 
+**External-action step**:
+A step declared `action: { kind, ... }` (and nothing else but its ID) that AHP performs itself: `push_branch` (the approved commit, as it is, to a branch; never forced), `open_pr` or `merge_pr` (through the GitHub CLI under the user's own login, the merge only while the approved commit is the pull request's head). It follows an approval gate, with nothing but external actions between them, and publishes the commit that gate approved; a pull request needs a push of its branch after the same gate, and a merge an opened pull request. AHP records its intent, checks the remote, and performs it only when the check finds it not done, so a resumed run never acts twice. One that cannot be done fails as `external_action_failed`, never retried.
+_Avoid_: Publish step, deploy step
+
 **Forbidden external action detected**:
-Verification evidence that a coding agent performed an external action; its absence is not proof that none occurred.
+Verification evidence that a coding agent performed an external action: a shared ref changed while its agent ran. It fails verification like any other failing evidence (the command is not run, and a retry is told which refs changed). AHP cannot tell who changed them, so a person or an editor fetching meanwhile shows the same; and detection is partial (a push to a URL or through an API leaves no ref), so its absence is not proof that none occurred.
 
 **Shared refs**:
 The refs every worktree of a repository shares (branches, tags, remote-tracking refs, the stash), less AHP's own under `refs/ahp/`. They are recorded just before each attempt is dispatched and again once it has exited or been found unknown, so a ref an agent moved shows.

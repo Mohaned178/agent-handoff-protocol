@@ -114,6 +114,9 @@ export function retryEvidence(evidence: readonly EvidenceItem[], options: { hidd
       case "review_verdict":
         shown.push({ kind: "review_verdict", reported: item.reported, allowed: [...REVIEW_VERDICTS] });
         break;
+      case "forbidden_external_action_detected":
+        shown.push({ kind: "forbidden_external_action_detected", changed: item.changed.map((c) => ({ ...c })), truncated: item.truncated });
+        break;
       default:
         // The other kinds are never failing evidence.
         break;

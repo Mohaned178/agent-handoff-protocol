@@ -52,6 +52,8 @@ export type Verdict = Exclude<VerificationState, "pending">;
  * - `verification_failed`: verification failed. Retried with the evidence, within the shared budget.
  * - `inconclusive`: the validator could not run. Re-run once, then escalated; never counted.
  * - `unknown`: the attempt's outcome is not known. Never retried: the step's recovery policy, or a person, decides.
+ * - `external_action_failed`: AHP could not perform an external-action step (a push refused, a pull request it could
+ *   not open or merge), and checking again showed it not done. No attempt is involved. Never retried.
  */
 export const FAILURE_CLASSES = [
   "rejected",
@@ -61,6 +63,7 @@ export const FAILURE_CLASSES = [
   "verification_failed",
   "inconclusive",
   "unknown",
+  "external_action_failed",
 ] as const;
 export type FailureClass = (typeof FAILURE_CLASSES)[number];
 
@@ -252,10 +255,91 @@ export interface ApprovalGateDefinition {
   approval: ApprovalDefinition;
 }
 
-/** A step of a workflow: one a coding agent performs, or an approval gate. */
-export type WorkflowStepDefinition = StepDefinition | ApprovalGateDefinition;
+/**
+ * The external actions AHP performs itself, after a passed verification and an approved gate (ADR 0003). A closed
+ * list: a new kind is a protocol change. There is no deploy in release 1.
+ */
+export const EXTERNAL_ACTION_KINDS = ["push_branch", "open_pr", "merge_pr"] as const;
+export type ExternalActionKind = (typeof EXTERNAL_ACTION_KINDS)[number];
+
+/** How `merge_pr` merges: a merge commit, one squashed commit, or the commits rebased. */
+export const MERGE_METHODS = ["merge", "squash", "rebase"] as const;
+export type MergeMethod = (typeof MERGE_METHODS)[number];
+
+/** The git remote an external action works on when it names none. */
+export const DEFAULT_REMOTE = "origin";
+
+/**
+ * A branch name an external action may name: a stricter subset of what `git check-ref-format --branch` allows, so it
+ * can be passed to git and the GitHub CLI as an argument and never read as an option or a revision expression.
+ */
+export function isBranchName(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0 || value.length > 200 || value === "HEAD") return false;
+  if (!/^[A-Za-z0-9._/-]+$/.test(value) || value.endsWith(".")) return false;
+  return value.split("/").every((part) => part !== "" && !part.startsWith(".") && !part.startsWith("-") && !part.endsWith(".lock") && !part.includes(".."));
+}
+
+/** A git remote's name, as an external action may name it: never read as an option. */
+export const isRemoteName = (value: unknown): value is string => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(value);
+
+/**
+ * Pushes the approved commit, exactly as it was approved, to `refs/heads/<branch>` on the remote. Never forced: a
+ * branch the push would not fast-forward fails the step.
+ */
+export interface PushBranchAction {
+  kind: "push_branch";
+  branch: string;
+  /** A configured git remote. Default `origin`. */
+  remote?: string;
+}
+
+/**
+ * Opens a pull request from `branch` into `base`, both in the repository at the remote, with the GitHub CLI under
+ * the user's own login. The branch must have been pushed by an earlier `push_branch` after the same gate.
+ */
+export interface OpenPullRequestAction {
+  kind: "open_pr";
+  branch: string;
+  base: string;
+  title: string;
+  /** Default: a body naming the run, the approval and the commit. */
+  body?: string;
+  remote?: string;
+}
+
+/**
+ * Merges the pull request from `branch`, only while its head is the approved commit. It must have been opened by an
+ * earlier `open_pr` after the same gate.
+ */
+export interface MergePullRequestAction {
+  kind: "merge_pr";
+  branch: string;
+  /** Default `merge`. */
+  method?: MergeMethod;
+  remote?: string;
+}
+
+export type ExternalActionDefinition = PushBranchAction | OpenPullRequestAction | MergePullRequestAction;
+
+/**
+ * A step AHP performs itself: no coding agent, nothing to verify. It follows an approval gate, with nothing but
+ * other external actions between them, and publishes the commit that gate approved. Intent is recorded before
+ * anything is done, and the remote is checked first, so a resumed run never performs it twice.
+ */
+export interface ExternalActionStepDefinition {
+  id: string;
+  action: ExternalActionDefinition;
+}
+
+/** A step of a workflow: one a coding agent performs, an approval gate, or an external action. */
+export type WorkflowStepDefinition = StepDefinition | ApprovalGateDefinition | ExternalActionStepDefinition;
 
 export const isApprovalGate = (step: WorkflowStepDefinition): step is ApprovalGateDefinition => "approval" in step;
+
+export const isExternalAction = (step: WorkflowStepDefinition): step is ExternalActionStepDefinition => "action" in step;
+
+/** A step a coding agent performs: neither an approval gate nor an external action. */
+export const isAgentStep = (step: WorkflowStepDefinition): step is StepDefinition => !isApprovalGate(step) && !isExternalAction(step);
 
 export interface WorkflowDefinition {
   name: string;
@@ -333,13 +417,60 @@ export interface ValidatorErrorEvidence {
   message: string;
 }
 
+/**
+ * The shared repository's refs changed while the attempt's agent ran: a branch, a tag, or a remote-tracking ref that
+ * a push or a fetch moves. Only AHP performs external actions (ADR 0003), so this fails verification, and the
+ * verification command is not run. AHP cannot tell who changed them: a person working in the repository, or an
+ * editor fetching, meanwhile shows the same. Detection is partial, so an attempt without this evidence is not proven
+ * to have performed none: a push to a URL, or through a service's API, leaves no local ref behind.
+ */
+export interface ForbiddenExternalActionEvidence {
+  kind: "forbidden_external_action_detected";
+  /** The shared refs that differ between the snapshots taken before the agent was dispatched and after it ended. */
+  changed: RefChange[];
+  /** True when `changed` lists only the first of more. */
+  truncated: boolean;
+}
+
 export type EvidenceItem =
   | TestOutputEvidence
   | RequiredOutputFieldsEvidence
   | ReviewVerdictEvidence
   | DiffScopeEvidence
   | ProtectedPathsEvidence
+  | ForbiddenExternalActionEvidence
   | ValidatorErrorEvidence;
+
+/**
+ * An external action as AHP set out to perform it, recorded before anything is done: the step's action with its
+ * defaults filled in, the approval gate it follows, and the commit that gate approved, which is what it publishes.
+ */
+export type ExternalActionTarget = (
+  | { kind: "push_branch"; branch: string }
+  | { kind: "open_pr"; branch: string; base: string; title: string; body: string }
+  | { kind: "merge_pr"; branch: string; method: MergeMethod }
+) & { remote: string; gateStepId: string; commit: string };
+
+export const PULL_REQUEST_STATES = ["open", "closed", "merged"] as const;
+export type PullRequestState = (typeof PULL_REQUEST_STATES)[number];
+
+/** A pull request as its host reported it. */
+export interface PullRequestRecord {
+  number: number;
+  url: string;
+  state: PullRequestState;
+  /** The commit at the head of its branch. */
+  headCommit: string;
+  /** The branch it merges into. */
+  base: string;
+}
+
+/** What AHP saw of the remote when it checked an external action, or once it had performed it. */
+export type ExternalObservation =
+  /** The commit the remote's branch points at; null when it has no such branch. */
+  | { kind: "remote_branch"; commit: string | null }
+  /** The pull request from the branch that decides the action; null when there is none. */
+  | { kind: "pull_request"; pullRequest: PullRequestRecord | null };
 
 /** The process that holds a run's ledger lock, and so is the one process writing the run. */
 export interface LockOwner {
@@ -521,6 +652,20 @@ export type LedgerEventBody =
    * `blocked`. Recorded before the revision or the attempt begins; the reason is the decision's, which replay reads.
    */
   | { type: "approval_sent_back"; stepId: string; attemptId: string; gateStepId: string }
+  /**
+   * AHP is about to perform an external-action step: recorded before the remote is looked at or anything is done, so a
+   * process that stops from here on leaves a record, and the process that resumes the run checks before it acts.
+   */
+  | { type: "external_action_intended"; stepId: string; target: ExternalActionTarget }
+  /**
+   * What the remote showed when AHP looked: `done` when the action is already performed there, which is then recorded
+   * and not repeated. Recorded before every attempt to perform it.
+   */
+  | { type: "external_action_checked"; stepId: string; done: boolean; observed: ExternalObservation }
+  /** AHP performed the action, after a check that found it not done. */
+  | { type: "external_action_performed"; stepId: string; observed: ExternalObservation }
+  /** AHP could not check or perform the action, and a check after the failure did not find it done. */
+  | { type: "external_action_failed"; stepId: string; error: string }
   /**
    * The step will be tried again: recorded before any wait and before the next attempt (or the new handoff
    * revision) begins. Retry budgets are counted from these events.
@@ -712,8 +857,24 @@ export interface ApprovalView {
   decision: ApprovalDecision | null;
 }
 
-/** What a step is: one a coding agent performs, a review (an agent step that can send the one before it back), or an approval gate. */
-export type StepKind = "agent" | "review" | "approval_gate";
+/**
+ * What a step is: one a coding agent performs, a review (an agent step that can send the one before it back), an
+ * approval gate, or an external action AHP performs.
+ */
+export type StepKind = "agent" | "review" | "approval_gate" | "external_action";
+
+/** An external-action step's record: what AHP set out to do, each look at the remote, and how it ended. */
+export interface ExternalActionView {
+  target: ExternalActionTarget;
+  intendedAt: string;
+  /** Every check of the remote, oldest first. */
+  checks: { time: string; done: boolean; observed: ExternalObservation }[];
+  performed: { time: string; observed: ExternalObservation } | null;
+  failure: { time: string; error: string } | null;
+}
+
+/** Whether the action is done: AHP performed it, or the last check found it already performed. */
+export const isExternalActionDone = (action: ExternalActionView) => action.performed !== null || action.checks.at(-1)?.done === true;
 
 export interface ScheduledRetry {
   change: RetryChange;
@@ -761,6 +922,8 @@ export interface StepView {
   attempts: AttemptView[];
   /** The requests for approval of an approval gate, in order; empty for any other step. */
   approvals: ApprovalView[];
+  /** An external-action step's record once its intent is recorded; null before that, and for any other step. */
+  action: ExternalActionView | null;
 }
 
 /** A torn tail truncated from the ledger, as its `ledger_truncated` event records it. */

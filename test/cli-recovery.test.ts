@@ -68,7 +68,7 @@ describe("ahp recover, after the runtime was killed", () => {
     }
   });
 
-  it("mid-attempt: the report shows what the attempt left, and adopt verifies its workspace as the result", async () => {
+  it("mid-attempt: the report shows what the attempt left, and adopt verifies its workspace, which catches the ref it moved", async () => {
     const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING, "workflow.mjs": workflowFile([{ ...hello, hang: true }]) });
     const runtime = startRun(["workflow.mjs"], repo);
     let agentPid: number | undefined;
@@ -104,10 +104,13 @@ describe("ahp recover, after the runtime was killed", () => {
       const adopt = ahp(["recover", attemptId, "--policy", "adopt"], repo);
 
       expect(adopt.stderr).toBe("");
-      expect(adopt.code).toBe(0);
+      // Its workspace is verified, and the ref its push moved fails that verification: only AHP pushes. An adopted
+      // attempt that fails is not retried.
+      expect(adopt.code).toBe(1);
       expect(adopt.stdout).toContain(`recovery of attempt ${attemptId}: adopt (its workspace is verified as its result), decided by `);
-      expect(adopt.stdout).toContain("step implement: verification pass [mock]");
-      expect(adopt.stdout).toContain(`run ${runId}: succeeded [mock]`);
+      expect(adopt.stdout).toContain("step implement: verification fail [mock]");
+      expect(adopt.stdout).toContain(`run ${runId}: failed [mock]`);
+      expect(ahp(["inspect", runId], repo).stdout).toContain(`| refs/remotes/origin/main: (none) -> ${head.slice(0, 12)}`);
       expect(countOf(eventsOf(repo, runId, attemptId), "attempt_dispatching")).toBe(1);
     } finally {
       runtime.child.kill("SIGKILL");

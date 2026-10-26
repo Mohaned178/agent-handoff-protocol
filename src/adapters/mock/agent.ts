@@ -57,6 +57,15 @@ if (script.commit) {
   );
   console.error("mock agent: committed");
 }
+for (const args of script.git ?? []) {
+  try {
+    execFileSync("git", args, { stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+  } catch (error) {
+    console.error(`mock agent: git ${args.join(" ")} failed: ${(error as { stderr?: Buffer }).stderr?.toString() ?? error}`);
+    process.exit(2);
+  }
+  console.error(`mock agent: ran git ${args.join(" ")}`);
+}
 if (script.hang) {
   console.error("mock agent: hanging until killed");
   // The timer keeps the process alive; the promise never settles.

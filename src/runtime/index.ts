@@ -12,4 +12,5 @@ export {
 } from "./failure.ts";
 export { validateHandoffRevision, type HandoffValidation } from "./handoff.ts";
 export { isAttemptId, isRunId, locateRepo, locateRun } from "./paths.ts";
+export { githubCli, githubRepositoryOf, type GithubCliOptions, type PullRequestProvider, type PullRequestTarget } from "./pull-requests.ts";
 export { ApprovalRefusedError, decideApproval, pendingApprovalOf, type DecideApprovalOptions, type PendingApproval } from "./approval.ts";

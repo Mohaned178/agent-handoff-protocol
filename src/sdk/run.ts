@@ -10,6 +10,7 @@ import {
   recoverAttempt as recoverAttemptInRuntime,
   resumeRun as resumeRunInRuntime,
   type Clock,
+  type PullRequestProvider,
   type ResumeResult,
   type RunResult,
 } from "../runtime/index.ts";
@@ -29,6 +30,11 @@ export interface RunWorkflowOptions {
   signal?: AbortSignal;
   /** How long a cancelled agent is given to stop gracefully before its process tree is killed. Default 5000 ms. */
   cancelGraceMs?: number;
+  /**
+   * Finds, opens and merges the pull requests of `open_pr` and `merge_pr` steps. Default: `githubCli()`, the GitHub CLI
+   * under your own login; AHP stores no credentials.
+   */
+  pullRequests?: PullRequestProvider;
 }
 
 /**

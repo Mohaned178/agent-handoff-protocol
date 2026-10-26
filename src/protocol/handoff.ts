@@ -106,8 +106,9 @@ export const ArtifactReferenceSchema = z
 
 /**
  * What a retry tells the coding agent about why the step's last attempt failed: the failing parts of its
- * verification, trimmed to what the agent may see, the findings of the review that sent it back, or the reason a
- * person rejected its result at an approval gate. AHP extension: no A2A counterpart. A new kind is a protocol change.
+ * verification, trimmed to what the agent may see (shared refs it changed among them: only AHP performs external
+ * actions), the findings of the review that sent it back, or the reason a person rejected its result at an approval
+ * gate. AHP extension: no A2A counterpart. A new kind is a protocol change.
  */
 export const HandoffEvidenceSchema = z
   .discriminatedUnion("kind", [
@@ -158,6 +159,20 @@ export const HandoffEvidenceSchema = z
         .min(1)
         .describe("The paths the attempt changed that it must not change. The other protected paths are not listed."),
       truncated: z.boolean().describe("True when `violations` lists only the first of more."),
+    }),
+    z.strictObject({
+      kind: z.literal("forbidden_external_action_detected"),
+      changed: z
+        .array(
+          z.strictObject({
+            name: z.string().min(1).describe("The ref, such as refs/heads/main or refs/remotes/origin/main."),
+            before: z.string().nullable().describe("The object it pointed at before the attempt; null when it did not exist."),
+            after: z.string().nullable().describe("The object it pointed at after the attempt; null when it was deleted."),
+          }),
+        )
+        .min(1)
+        .describe("The shared repository's refs that changed while the attempt ran. Only AHP pushes, opens or merges."),
+      truncated: z.boolean().describe("True when `changed` lists only the first of more."),
     }),
   ])
   .describe("One failing part of the verification of the attempt this revision follows.");

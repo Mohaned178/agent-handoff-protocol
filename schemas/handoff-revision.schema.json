@@ -434,6 +434,60 @@
               "truncated"
             ],
             "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "forbidden_external_action_detected"
+              },
+              "changed": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The ref, such as refs/heads/main or refs/remotes/origin/main."
+                    },
+                    "before": {
+                      "description": "The object it pointed at before the attempt; null when it did not exist.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "after": {
+                      "description": "The object it pointed at after the attempt; null when it was deleted.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "before",
+                    "after"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "The shared repository's refs that changed while the attempt ran. Only AHP pushes, opens or merges."
+              },
+              "truncated": {
+                "type": "boolean",
+                "description": "True when `changed` lists only the first of more."
+              }
+            },
+            "required": [
+              "kind",
+              "changed",
+              "truncated"
+            ],
+            "additionalProperties": false
           }
         ],
         "description": "One failing part of the verification of the attempt this revision follows."

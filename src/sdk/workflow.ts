@@ -1,9 +1,16 @@
 import { adapters } from "../adapters/index.ts";
 import {
+  DEFAULT_REMOTE,
+  EXTERNAL_ACTION_KINDS,
+  isBranchName,
   isOutputFieldName,
+  isRemoteName,
   isRepoPath,
   isStepId,
+  MERGE_METHODS,
   RECOVERY_POLICIES,
+  type ExternalActionKind,
+  type MergeMethod,
   type RecoveryPolicy,
   type WorkflowDefinition,
 } from "../protocol/index.ts";
@@ -114,7 +121,7 @@ function validateRetry(retry: Record<string, unknown>, problem: (message: string
 function validateReview(
   review: unknown,
   index: number,
-  { order, gates }: Positions,
+  { order, gates, actions }: Positions,
   problem: (message: string) => void,
 ): void {
   if (!isRecord(review)) {
@@ -141,8 +148,8 @@ function validateReview(
       `\`review.sendBackTo\` names ${JSON.stringify(target)}, ${index - position} steps back: a review sends back only the step immediately before it, ` +
         `${JSON.stringify(order[index - 1])} (ADR 0004)`,
     );
-  } else if (gates[position]) {
-    problem(`\`review.sendBackTo\` names ${JSON.stringify(target)}, an approval gate: it has no coding agent to send back`);
+  } else if (gates[position] || actions[position] !== undefined) {
+    problem(`\`review.sendBackTo\` names ${JSON.stringify(target)}, ${gates[position] ? "an approval gate" : "an external action"}: it has no coding agent to send back`);
   }
 }
 
@@ -152,6 +159,91 @@ interface Positions {
   order: (string | undefined)[];
   /** Whether the step at each position declares `approval`, so is an approval gate. */
   gates: boolean[];
+  /** The `action` of the step at each position that declares one, so is an external action; undefined for any other. */
+  actions: unknown[];
+}
+
+const ACTION_KEYS: Record<ExternalActionKind, string[]> = {
+  push_branch: ["kind", "branch", "remote"],
+  open_pr: ["kind", "branch", "base", "title", "body", "remote"],
+  merge_pr: ["kind", "branch", "method", "remote"],
+};
+
+/** What an earlier external action after the same gate must be for a later one to have what it needs. */
+const NEEDS: Partial<Record<ExternalActionKind, { kind: ExternalActionKind; why: string }>> = {
+  open_pr: { kind: "push_branch", why: "the pull request's branch must be the approved commit, pushed by AHP" },
+  merge_pr: { kind: "open_pr", why: "the pull request it merges must be one AHP opened for the approved commit" },
+};
+
+/**
+ * Checks a step that declares `action`: an external action AHP performs, which takes nothing but its id and action.
+ * It follows an approval gate, with nothing but external actions between them, since it publishes what that gate
+ * approved (ADR 0003): an agent step in between would publish work nobody approved.
+ */
+function validateExternalAction(step: Record<string, unknown>, index: number, seen: Set<string>, { order, gates, actions }: Positions): string[] {
+  const problems: string[] = [];
+  const label = typeof step.id === "string" ? `step "${step.id}"` : `step ${index + 1}`;
+  const problem = (message: string) => problems.push(`${label}: ${message}`);
+  checkStepId(step.id, seen, problem);
+  for (const key of Object.keys(step)) {
+    if (BRANCHING_KEYS.includes(key)) {
+      problem(`\`${key}\` is not supported: release 1 workflows are linear, each step runs after the one before it (ADR 0004)`);
+    } else if (key !== "id" && key !== "action") {
+      problem(
+        STEP_KEYS.includes(key)
+          ? `an external action is performed by AHP, with no coding agent and nothing to verify, so it takes no \`${key}\``
+          : `unknown property \`${key}\``,
+      );
+    }
+  }
+  const action = step.action;
+  if (!isRecord(action)) {
+    problem(`\`action\` must be an object with a \`kind\`: ${EXTERNAL_ACTION_KINDS.join(", ")}`);
+    return problems;
+  }
+  const kind = action.kind as ExternalActionKind;
+  if (action.kind === "deploy") {
+    problem("deploy is not an external action AHP performs in release 1 (ADR 0003)");
+    return problems;
+  }
+  if (!EXTERNAL_ACTION_KINDS.includes(kind)) {
+    problem(`\`action.kind\` must be one of ${EXTERNAL_ACTION_KINDS.join(", ")}`);
+    return problems;
+  }
+  for (const name of Object.keys(action)) if (!ACTION_KEYS[kind].includes(name)) problem(`unknown property \`action.${name}\` for ${kind}`);
+  const branchProblem = (name: string) =>
+    `\`action.${name}\` must be a branch name: letters, digits, ".", "_", "-" and "/" between parts, no part starting with "." or "-" or ending in ".lock", no ".."`;
+  if (!isBranchName(action.branch)) problem(branchProblem("branch"));
+  if (action.remote !== undefined && !isRemoteName(action.remote)) problem("`action.remote` must name a configured git remote (letters, digits, \".\", \"_\" and \"-\")");
+  if (kind === "open_pr") {
+    if (!isBranchName(action.base)) problem(branchProblem("base"));
+    else if (action.base === action.branch) problem("`action.base` names the pull request's own branch");
+    if (typeof action.title !== "string" || action.title.trim() === "") problem("needs a non-empty `action.title`");
+    if (action.body !== undefined && typeof action.body !== "string") problem("`action.body` must be a string");
+  }
+  if (kind === "merge_pr" && action.method !== undefined && !MERGE_METHODS.includes(action.method as MergeMethod)) {
+    problem(`\`action.method\` must be one of ${MERGE_METHODS.join(", ")}`);
+  }
+
+  // Back past the other external actions, to the gate whose approval this one acts on.
+  let gate = index - 1;
+  while (gate >= 0 && actions[gate] !== undefined) gate -= 1;
+  if (gate < 0 || !gates[gate]) {
+    const what = gate < 0 ? "nothing" : `step ${JSON.stringify(order[gate])}, which is not an approval gate,`;
+    problem(
+      `an external action needs an approval gate before it, with nothing but external actions in between, and ${what} comes before it: ` +
+        "AHP publishes only what a person approved (ADR 0003)",
+    );
+  }
+  const needed = NEEDS[kind];
+  if (needed) {
+    const remote = action.remote ?? DEFAULT_REMOTE;
+    const earlier = actions.slice(Math.max(gate, 0), index).filter(isRecord);
+    if (!earlier.some((other) => other.kind === needed.kind && other.branch === action.branch && (other.remote ?? DEFAULT_REMOTE) === remote)) {
+      problem(`${kind} needs a ${needed.kind} of branch ${JSON.stringify(action.branch)} to remote "${remote}" before it, after the same gate: ${needed.why}`);
+    }
+  }
+  return problems;
 }
 
 /** Checks a step's `id` and records it as seen; the problems it finds go to `problem`. */
@@ -166,7 +258,7 @@ function checkStepId(id: unknown, seen: Set<string>, problem: (message: string) 
 }
 
 /** Checks a step that declares `approval`: a gate takes nothing but its id, and sits after a step that a rejection can send back. */
-function validateGate(step: Record<string, unknown>, index: number, seen: Set<string>, { order, gates }: Positions): string[] {
+function validateGate(step: Record<string, unknown>, index: number, seen: Set<string>, { order, gates, actions }: Positions): string[] {
   const problems: string[] = [];
   const label = typeof step.id === "string" ? `step "${step.id}"` : `step ${index + 1}`;
   const problem = (message: string) => problems.push(`${label}: ${message}`);
@@ -189,10 +281,10 @@ function validateGate(step: Record<string, unknown>, index: number, seen: Set<st
   }
   if (index === 0) {
     problem("an approval gate needs a step before it, which a rejection sends back, and this is the first step");
-  } else if (gates[index - 1]) {
+  } else if (gates[index - 1] || actions[index - 1] !== undefined) {
     problem(
-      `follows approval gate ${JSON.stringify(order[index - 1])}: a rejection sends back the step immediately before the gate, ` +
-        "which must be performed by a coding agent (ADR 0004)",
+      `follows ${gates[index - 1] ? "approval gate" : "external action"} ${JSON.stringify(order[index - 1])}: a rejection sends back the step ` +
+        "immediately before the gate, which must be performed by a coding agent (ADR 0004)",
     );
   }
   return problems;
@@ -201,6 +293,7 @@ function validateGate(step: Record<string, unknown>, index: number, seen: Set<st
 function validateStep(step: unknown, index: number, seen: Set<string>, positions: Positions): string[] {
   if (!isRecord(step)) return [`step ${index + 1}: must be an object`];
   if ("approval" in step) return validateGate(step, index, seen, positions);
+  if ("action" in step) return validateExternalAction(step, index, seen, positions);
   const problems: string[] = [];
   const label = typeof step.id === "string" ? `step "${step.id}"` : `step ${index + 1}`;
   const problem = (message: string) => problems.push(`${label}: ${message}`);
@@ -312,6 +405,7 @@ export function validateWorkflow(workflow: unknown): string[] {
   const positions: Positions = {
     order: workflow.steps.map((step: unknown) => (isRecord(step) && typeof step.id === "string" ? step.id : undefined)),
     gates: workflow.steps.map((step: unknown) => isRecord(step) && "approval" in step),
+    actions: workflow.steps.map((step: unknown) => (isRecord(step) && "action" in step && !("approval" in step) ? (step.action ?? null) : undefined)),
   };
   workflow.steps.forEach((step: unknown, index) => {
     if (Array.isArray(step)) {

@@ -15,6 +15,7 @@ describe("the failure classes", () => {
       "verification_failed",
       "inconclusive",
       "unknown",
+      "external_action_failed",
     ]);
   });
 });
@@ -70,8 +71,8 @@ describe("what to do after a failure", () => {
     expect(resolveRetryPolicy({ transientBudget: 1 })).toMatchObject({ budget: 2, transientBudget: 1 });
   });
 
-  it("never retries a rejected handoff, a config/auth failure or an unknown outcome, even with a reroute configured", () => {
-    for (const failureClass of ["rejected", "config_auth", "unknown"] as const) {
+  it("never retries a rejected handoff, a config/auth failure, an unknown outcome or a failed external action, even with a reroute configured", () => {
+    for (const failureClass of ["rejected", "config_auth", "unknown", "external_action_failed"] as const) {
       expect(decide(failureClass, { reroute: true }), failureClass).toEqual(stop("not_retryable"));
     }
   });

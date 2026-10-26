@@ -128,6 +128,8 @@ export function evidenceVerdict(item: EvidenceItem): Verdict {
       return "pass";
     case "protected_paths":
       return item.violations.length === 0 ? "pass" : "fail";
+    case "forbidden_external_action_detected":
+      return item.changed.length === 0 ? "pass" : "fail";
   }
 }
 

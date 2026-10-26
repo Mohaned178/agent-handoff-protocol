@@ -19,6 +19,11 @@ export interface MockAttemptScript {
   edits?: MockEdit[];
   /** Commit the changes in the workspace, as a coding agent that commits its own work does. */
   commit?: boolean;
+  /**
+   * Git commands the agent runs in its workspace, each as its arguments, after its edits and commit: a push, a new
+   * branch or tag, which only AHP may do. A command that fails makes the agent exit 2.
+   */
+  git?: string[][];
   /** The output fields the agent reports, by name. Defaults to none. */
   outputFields?: Record<string, OutputFieldValue>;
   /** Defaults to 0. */
@@ -80,6 +85,10 @@ export const mockAdapter: Adapter = {
         if (script?.[flag] !== undefined && typeof script[flag] !== "boolean") {
           problems.push(`mock attempt ${index + 1}: \`${flag}\` must be a boolean`);
         }
+      }
+      const commands = script?.git;
+      if (commands !== undefined && !(Array.isArray(commands) && commands.every((args) => Array.isArray(args) && args.every((arg) => typeof arg === "string")))) {
+        problems.push(`mock attempt ${index + 1}: \`git\` must be an array of commands, each an array of arguments`);
       }
       if (script?.pidFile !== undefined && !(typeof script.pidFile === "string" && isAbsolute(script.pidFile))) {
         problems.push(`mock attempt ${index + 1}: \`pidFile\` must be an absolute path`);

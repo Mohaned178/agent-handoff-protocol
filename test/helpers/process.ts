@@ -28,8 +28,11 @@ export function isRunning(pid: number): boolean {
 export const untilGone = (pid: number, what: string) => until(() => (isRunning(pid) ? undefined : true), what);
 
 /** `ahp run` started as a child process in `cwd`, for a test to watch and kill. */
-export function startRun(args: string[], cwd: string, env: NodeJS.ProcessEnv = {}) {
-  const child = spawn(process.execPath, [cliEntry, "run", ...args], {
+export const startRun = (args: string[], cwd: string, env: NodeJS.ProcessEnv = {}) => startAhp(["run", ...args], cwd, env);
+
+/** An `ahp` command started as a child process in `cwd`, for a test to watch and kill. */
+export function startAhp(args: string[], cwd: string, env: NodeJS.ProcessEnv = {}) {
+  const child = spawn(process.execPath, [cliEntry, ...args], {
     cwd,
     env: { ...process.env, ...env },
     stdio: ["ignore", "pipe", "pipe"],

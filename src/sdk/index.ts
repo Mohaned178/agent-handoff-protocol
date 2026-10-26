@@ -19,6 +19,10 @@ export {
 } from "./run.ts";
 export {
   ApprovalRefusedError,
+  githubCli,
+  type GithubCliOptions,
+  type PullRequestProvider,
+  type PullRequestTarget,
   isAttemptId,
   isRunId,
   RecoveryRefusedError,

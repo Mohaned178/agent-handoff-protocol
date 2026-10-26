@@ -1,8 +1,9 @@
-import { isApprovalGate, isPresentOutputField, reviewFindingsOf, reviewVerdictOf } from "../protocol/index.ts";
+import { isApprovalGate, isExternalAction, isExternalActionDone, isPresentOutputField, reviewFindingsOf, reviewVerdictOf } from "../protocol/index.ts";
 import type {
   AttemptRecovery,
   AttemptState,
   AttemptView,
+  ExternalActionView,
   FailureClass,
   HandoffView,
   LedgerEvent,
@@ -54,9 +55,9 @@ export function findHandoff(
 const noRetriesSpent = (): RetryUsage => ({ retries: 0, transientRetries: 0, transientWaitMs: 0, rerouted: false });
 
 /**
- * What an attempt's record must show for it to have failed as each class. `rejected` has no attempt, and `unknown`
- * is recorded only for an unknown attempt whose recovery aborted it; keyed by every class so a new one cannot be
- * forgotten.
+ * What an attempt's record must show for it to have failed as each class. `rejected` and `external_action_failed`
+ * have no attempt, and `unknown` is recorded only for an unknown attempt whose recovery aborted it; keyed by every
+ * class so a new one cannot be forgotten.
  */
 const ATTEMPT_SHOWS: Record<FailureClass, (attempt: AttemptView) => boolean> = {
   rejected: () => false,
@@ -66,6 +67,7 @@ const ATTEMPT_SHOWS: Record<FailureClass, (attempt: AttemptView) => boolean> = {
   verification_failed: (a) => a.verification?.state === "fail",
   inconclusive: (a) => a.verification?.state === "inconclusive",
   unknown: (a) => a.recovery?.decision?.policy === "abort",
+  external_action_failed: () => false,
 };
 
 /**
@@ -83,6 +85,7 @@ const RETRIED_WITH: Record<FailureClass, readonly RetryChange[]> = {
   verification_failed: ["evidence", "reroute"],
   inconclusive: [],
   unknown: [],
+  external_action_failed: [],
 };
 
 /** The recovery of an attempt whose outcome is unknown and not yet decided; an event about any other attempt is refused. */
@@ -129,7 +132,7 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       endedAt: null,
       steps: event.workflow.steps.map((step) => ({
         id: step.id,
-        kind: isApprovalGate(step) ? "approval_gate" : step.review ? "review" : "agent",
+        kind: isApprovalGate(step) ? "approval_gate" : isExternalAction(step) ? "external_action" : step.review ? "review" : "agent",
         state: "blocked",
         failureClass: null,
         retryUsage: noRetriesSpent(),
@@ -137,6 +140,7 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
         handoffs: [],
         attempts: [],
         approvals: [],
+        action: null,
       })),
       ledgerTruncations: [],
       resumptions: [],
@@ -167,11 +171,28 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
   const refuseAfterCancel = (what: string) => {
     if (run.cancelRequestedAt !== null) throw new LedgerInconsistentError(event, `the run is being cancelled, so ${what}`);
   };
-  /** The step, which an event that needs a coding agent refuses to be about an approval gate. */
+  /** The step, which an event that needs a coding agent refuses to be about an approval gate or an external action. */
   const agentStep = (stepId: string): StepView => {
     const found = step(stepId);
-    if (found.kind === "approval_gate") throw new LedgerInconsistentError(event, `step "${found.id}" is an approval gate, which has no coding agent`);
+    if (found.kind === "approval_gate" || found.kind === "external_action") {
+      throw new LedgerInconsistentError(event, `step "${found.id}" is ${found.kind === "approval_gate" ? "an approval gate" : "an external action"}, which has no coding agent`);
+    }
     return found;
+  };
+  /**
+   * The external-action step's record, which the event requires to be under way: intended, not yet performed or
+   * failed, and not found done by its last check.
+   */
+  const actionUnderWay = (stepId: string): ExternalActionView => {
+    const s = step(stepId);
+    const action = s.action;
+    if (s.kind !== "external_action" || s.state !== "in_progress" || !action) {
+      throw new LedgerInconsistentError(event, `step "${s.id}" is not an external action under way`);
+    }
+    if (action.failure || isExternalActionDone(action)) {
+      throw new LedgerInconsistentError(event, `external action "${s.id}" already ${action.failure ? "failed" : "is done"}`);
+    }
+    return action;
   };
   /** The step, which an approval event requires to be an approval gate. */
   const gateStep = (stepId: string): StepView => {
@@ -495,6 +516,44 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       gate.state = "blocked";
       break;
     }
+    case "external_action_intended": {
+      const s = step(event.stepId);
+      refuseAfterCancel("no external action is started");
+      if (s.kind !== "external_action" || s.state !== "ready" || run.state !== "running") {
+        throw new LedgerInconsistentError(event, `step "${s.id}" is not an external action ready in a running run`);
+      }
+      // It publishes what the gate before it approved: the nearest gate back, past other external actions, which a
+      // person approved for this commit.
+      let before = run.steps.indexOf(s) - 1;
+      while (before >= 0 && run.steps[before]!.kind === "external_action") before -= 1;
+      const gate = run.steps[before];
+      const approval = gate?.approvals.at(-1);
+      if (
+        gate?.kind !== "approval_gate" ||
+        gate.state !== "succeeded" ||
+        approval?.decision?.decision !== "approved" ||
+        gate.id !== event.target.gateStepId ||
+        approval.commit !== event.target.commit
+      ) {
+        throw new LedgerInconsistentError(event, `step "${s.id}" does not publish the commit approved at the gate before it`);
+      }
+      s.action = { target: event.target, intendedAt: event.time, checks: [], performed: null, failure: null };
+      s.state = "in_progress";
+      break;
+    }
+    case "external_action_checked":
+      actionUnderWay(event.stepId).checks.push({ time: event.time, done: event.done, observed: event.observed });
+      break;
+    case "external_action_performed": {
+      const action = actionUnderWay(event.stepId);
+      // Performed only after a look at the remote that found it not done, so it is never done twice.
+      if (action.checks.length === 0) throw new LedgerInconsistentError(event, `external action "${event.stepId}" was performed without a check`);
+      action.performed = { time: event.time, observed: event.observed };
+      break;
+    }
+    case "external_action_failed":
+      actionUnderWay(event.stepId).failure = { time: event.time, error: event.error };
+      break;
     case "ref_snapshot_taken": {
       const a = attempt(event.attemptId);
       // Before: while the attempt waits to be dispatched. After: once its process has exited or been found unknown.
@@ -548,6 +607,16 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
         if (event.state === "failed" && (s.state !== "waiting_approval" || decided !== "rejected")) {
           throw new LedgerInconsistentError(event, `gate "${s.id}" failed without a rejection`);
         }
+      } else if (s.kind === "external_action") {
+        // An external action succeeds only once it is seen done, fails only once it could not be done, and is
+        // cancelled only when a check found it not done: an intent with no outcome may have been carried out.
+        const action = s.action;
+        const done = action !== null && isExternalActionDone(action);
+        if (event.state === "succeeded" && !done) throw new LedgerInconsistentError(event, `external action "${s.id}" succeeded without being done`);
+        if (event.state === "failed" && !action?.failure) throw new LedgerInconsistentError(event, `external action "${s.id}" failed without a failure`);
+        if (event.state === "cancelled" && action && (done || action.failure || action.checks.length === 0)) {
+          throw new LedgerInconsistentError(event, `external action "${s.id}" is not known to be undone`);
+        }
       } else if (event.state === "succeeded" && s.attempts.at(-1)?.verification?.state !== "pass") {
         throw new LedgerInconsistentError(event, `step "${s.id}" succeeded without a passing verification`);
       }
@@ -559,6 +628,9 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
           throw new LedgerInconsistentError(event, `step "${s.id}"'s attempt "${last.id}" is ${last.state}`);
         }
         if (event.failureClass !== null) throw new LedgerInconsistentError(event, "a cancelled step has no failure class");
+      }
+      if ((event.failureClass === "external_action_failed") !== (s.kind === "external_action" && event.state === "failed")) {
+        throw new LedgerInconsistentError(event, "external_action_failed is the class of a failed external action, and its only one");
       }
       s.state = event.state;
       s.failureClass = event.failureClass;

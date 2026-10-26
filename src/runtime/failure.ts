@@ -110,6 +110,7 @@ export function decideAfterFailure(context: FailureContext): FailureDecision {
     case "rejected":
     case "config_auth":
     case "unknown":
+    case "external_action_failed":
       return { action: "stop", reason: "not_retryable" };
     case "inconclusive":
       return context.validatorRuns < MAX_VALIDATOR_RUNS ? { action: "rerun_validator" } : { action: "stop", reason: "escalate" };
