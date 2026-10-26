@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Model:** Opus 5.5 · high
 
@@ -136,3 +136,7 @@ Kept, with reasons:
 - **An unconfirmed kill of a verification command is evidence, not `unknown`.** `unknown` is an attempt outcome; a verification is AHP's own validator. Its evidence message says the command could still be running.
 - **On Linux and macOS a `setsid` grandchild still escapes the group** (see "Not done").
 - **Decision 1 (cancel the run, not just the attempt) and the extra CLI behaviour** (SIGTERM, a cancellable `ahp recover`, exit code 130) were confirmed by the maintainer.
+
+First green CI run: GitHub Actions run 40303830006 (commit c4ec411). 251 tests passed on Linux and macOS (1 skipped: the signal test). Windows had 249 passed and 3 skipped: the signal test, the POSIX resolution test and the Ctrl+C CLI test. `test/process.test.ts`, `test/cancel.test.ts` and, on Linux and macOS, `test/cli-cancel.test.ts` passed on all three. Typecheck and build pass on all three.
+
+The run before it (40303342673, on de543ce) failed one test each on Linux and macOS. The mock agent wrote its grandchild's PID before the grandchild had installed its signal handlers, so a cancel sent at once stopped it with SIGTERM and read as graceful. c4ec411 writes the PIDs only once the grandchild says it ignores the signals.
