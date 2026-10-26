@@ -4,7 +4,7 @@
 
 **Blocked by:** 05, 08
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Model:** Sonnet 5.5 · high
 
@@ -51,3 +51,5 @@
 - Fixed: the gate validator's no-op `continue` branch, the repeated "N paths changed" expression for approval requests (`describeChangedPaths`), CLAUDE.md's list of test files; a test now covers a step after a gate that fails and is retried (its retry starts from the result of the step before the gate).
 - Left as they are, on purpose: a rejection after a review sends back the review (decision 2, confirmed); the gate going `waiting_approval → blocked` after a send-back mirrors a review's, and the spec's gate machine has no such edge; the failed gate's class is `verification_failed` because the send-back spends that budget (ADR 0004); exit code 4 and the SDK's `approveStep`/`rejectStep` are surface the spec does not name; `ApprovalDefinition` stays an empty object so options can be added without a format change.
 - Known limits: the approver's name is the operating system's user, unauthenticated, as for `ahp recover`; the rejection reason has no length bound; `inspect` reads a diff in full before cutting it at 64 KiB, so a diff past git's 64 MiB buffer shows `diffError` instead; no test cancels during `approve`/`reject`.
+
+First green CI run: GitHub Actions run 40387488597 (commit f6db7fe). 317 tests passed on Linux and macOS (1 skipped: the signal test). Windows had 315 passed and 3 skipped: the signal test, the POSIX resolution test and the Ctrl+C CLI test. Two earlier runs of this ticket failed on Windows only: 40385111153 (a test of mine started two decisions and awaited them one after the other, leaving a rejection unhandled for a moment; fixed in 4c2065f) and 40386181216 (an existing race: an adapter rejecting `exited` while `attempt_running` was still being recorded was an unhandled rejection that killed `cli-recovery`'s `ahp run`; fixed in f6db7fe by marking the rejection handled when the agent starts).
