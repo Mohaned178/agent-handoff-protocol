@@ -10,7 +10,7 @@
 
 - [x] `dispatching` is durably recorded before the agent process is spawned; every effect has a prior intent event
 - [x] Replay never re-dispatches an attempt that has a `dispatching` record
-- [x] Attempts with no terminal record after restart, an unconfirmed kill, or lost contact become `unknown`
+- [x] Attempts with no terminal record after restart, an unconfirmed kill, or lost contact become `unknown` (an unconfirmed kill needs a kill: ticket 07 produces `unconfirmed_kill`)
 - [x] Shared-repo ref snapshot (including remote-tracking refs) taken before and after each attempt
 - [x] Recovery report: last ledger events, worktree diff, ref diff, transport tool-call log if any, explicit statement that host and external effects are undetermined
 - [x] Recovery policies per step: `manual` (default), `adopt`, `abort`; `discard_and_retry` rejected as deferred
@@ -87,3 +87,38 @@
 - Events lost from the very end of a ledger (ticket 05's note) are still undetectable.
 
 Checked by mutation: re-dispatching an attempt found dispatching or running, and releasing a lock without checking its owner, each make tests fail.
+
+2026-10-26, after review (Standards and Spec, on 255034d).
+
+**Reopened for the maintainer: decision 4.** The Spec review points out a problem with retrying a failed adopt. When the step's own policy adopts an unknown attempt and its verification fails, the retry starts a fresh agent with nobody deciding, while the old agent "may still be running". That is `discard_and_retry` under another name. It also cuts against the rule that `unknown` outcomes are never retried automatically, and against user story 61 ("never retried automatically, so that work is never silently run twice"). The alternative: a failed adopt ends the step as `verification_failed` with no retry, whoever adopted. It is cheaper by one agent attempt, and it is a single branch in `concludeAttempt`. Until the maintainer decides, the behaviour stays as confirmed.
+
+Fixed:
+
+- `runOfAttempt` searched each ledger's raw text with a read that swallowed every error, so a busy file gave a false "no attempt". It now reads each ledger through `readLedger`, which retries busy files and checks the chain up to any corruption, and skips only a run directory with no ledger.
+- `resumeRun` removed the stale lock of a run awaiting a decision without a record. Now only the stale lock of a run that has ended, which takes no more events, is removed that way, as ticket 05 allowed. An awaiting run keeps its stale lock until the decision takes it over and records it in `run_resumed` (tested).
+- An unknown attempt now gets its "after" ref snapshot too, taken when it is found unknown, and the report's ref diff compares the two recorded snapshots. Replay accepts `after` for an exited or unknown attempt.
+- Replay now refuses `attempt_dispatching` unless the attempt is `created`, `attempt_running` unless it is `dispatching`, and `attempt_exited` unless it is `running`. A ledger that dispatches an attempt twice no longer replays (tested).
+- An interrupted verification's `inconclusive` verdict is recorded before its leftover worktree is removed.
+- `DISCARD_AND_RETRY_DEFERRED` moved from `protocol` to the SDK, because it is a message, not a protocol shape.
+- `decidedBy` and the ref snapshot's phase are closed lists (`RECOVERY_DECIDERS`, `REF_SNAPSHOT_PHASES`), like their siblings.
+- Duplicate code removed:
+  - One `locateRun` serves `resumeRun` and the SDK's readers.
+  - One `messageOf` replaces the four copies.
+  - One `parseNameStatus` and one `bounded` serve every diff list.
+  - `senderOf` does the lookup that `stepBase` and `firstHandoff` repeated.
+- Names: `followRun`'s callback is `execute`. The runtime no longer exports option types that share the SDK's names. `runsDir` is a function declaration. The test helper `ledgersOf` uses `ledgerFile`.
+
+Kept, with reasons:
+
+- **The snapshot has no intent event, and a retaken `created` attempt rebuilds its workspace before recording anything.** Both are decision 7. The rebuild is the effect `attempt_created` already announced, at the path it named.
+- **No recovery report when nothing is in doubt.** After a crash at a safe point (between events, during a backoff, after an exit), `ahp recover <run>` records the takeover in `run_resumed`, with the stale owner, and carries on. That makes the takeover explicit and recorded. A report is about an unknown attempt (user story 62), and at a safe point there is none.
+- **The report lists the workspace's changed paths, not their content.** The workspace is kept, so the content is one `git diff` away, and the ledger stays bounded.
+- **`unconfirmed_kill` is defined now, though only ticket 07 produces it.** That ticket's criteria require it, and the design names three causes of `unknown`. Defining the closed list once keeps that protocol change in one place.
+- **The adopt/abort and `discard_and_retry` checks appear in three places**, each for a different caller:
+  - the CLI turns them into usage errors (exit 2) before any work;
+  - `recoverAttempt` guards SDK callers;
+  - workflow validation checks a step's policy, `manual` included.
+- **The mock's "never settle" timer appears twice**, once in each of two processes (the adapter and the agent). Sharing it would load the adapter module into the agent process.
+- **`(step, index, run)` travels through the executor's functions.** A step cursor would rework the whole executor and change no behaviour.
+- **A config error before spawn becomes `unknown` (decision 5).** Ticket 07's process layer is where an adapter can say that nothing was spawned.
+- **`recoverAttempt` checks before taking the lock, and that pass writes nothing.** Only in a race, where the run changes between that check and the one under the lock, can a refusal follow a torn-tail truncation or a stale-lock takeover by `LedgerWriter.open`.

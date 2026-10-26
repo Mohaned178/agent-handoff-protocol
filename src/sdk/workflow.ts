@@ -1,6 +1,5 @@
 import { adapters } from "../adapters/index.ts";
 import {
-  DISCARD_AND_RETRY_DEFERRED,
   isOutputFieldName,
   isRepoPath,
   isStepId,
@@ -24,6 +23,10 @@ const AGENT_KEYS = ["adapter", "model", "options"];
 const RETRY_KEYS = ["budget", "transientBudget", "backoff"];
 const BACKOFF_KEYS = ["initialMs", "factor", "maxTotalMs"];
 const VERIFICATION_KEYS = ["command", "requiredOutputFields", "protectedPaths", "hiddenTests", "install"];
+/** Why the design's fourth recovery policy is not one, for whoever asks for it. */
+export const DISCARD_AND_RETRY_DEFERRED =
+  "`discard_and_retry` is deferred past release 1: its only safety check, the diff of the shared refs, cannot see a push that leaves no local ref behind (to a URL rather than a configured remote, or through a service's API), so AHP cannot tell that running the step again is safe";
+
 /** Properties authors reach for to run steps side by side or out of order; release 1 workflows are linear (ADR 0004). */
 const BRANCHING_KEYS = ["parallel", "dependsOn", "needs", "after"];
 

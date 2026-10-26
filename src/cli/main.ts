@@ -2,8 +2,17 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { DISCARD_AND_RETRY_DEFERRED, RECOVERY_ACTIONS, type LedgerEvent, type RecoveryAction, type RunView } from "../protocol/index.ts";
-import { inspectRun, isAttemptId, isRunId, recoverAttempt, resumeRun, runWorkflow, validateWorkflow } from "../sdk/index.ts";
+import { RECOVERY_ACTIONS, type LedgerEvent, type RecoveryAction, type RunView } from "../protocol/index.ts";
+import {
+  DISCARD_AND_RETRY_DEFERRED,
+  inspectRun,
+  isAttemptId,
+  isRunId,
+  recoverAttempt,
+  resumeRun,
+  runWorkflow,
+  validateWorkflow,
+} from "../sdk/index.ts";
 import { formatEvent, formatRun, formatUnresumed, MOCK_NOTE } from "./format.ts";
 
 const USAGE = `Usage: ahp <command> [options]
@@ -96,13 +105,13 @@ function exitCodeOf(state: Readonly<RunView>): number {
 }
 
 /**
- * Streams a progress line for each event `go` records, and the mock note at the end if any came from the mock
- * adapter, also when `go` throws partway.
+ * Streams a progress line for each event `execute` records, and the mock note at the end if any came from the mock
+ * adapter, also when `execute` throws partway.
  */
-async function followRun<R>(io: Io, go: (onEvent: (event: LedgerEvent, state: Readonly<RunView>) => void) => Promise<R>): Promise<R> {
+async function followRun<R>(io: Io, execute: (onEvent: (event: LedgerEvent, state: Readonly<RunView>) => void) => Promise<R>): Promise<R> {
   let usedMock = false;
   try {
-    return await go((event, current) => {
+    return await execute((event, current) => {
       usedMock = current.mock;
       io.stdout(formatEvent(event, current));
     });

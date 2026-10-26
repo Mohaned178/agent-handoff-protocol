@@ -1,7 +1,7 @@
 import { access } from "node:fs/promises";
 import type { AttemptView, LedgerEvent, RecoveryReport, RefChange, SharedRef } from "../protocol/index.ts";
-import { sharedRefs } from "./refs.ts";
 import { bounded, worktreeChanges } from "./scope.ts";
+import { messageOf } from "./verification.ts";
 
 /** How many of the events before an attempt was found unknown its report lists. */
 const LAST_EVENTS = 10;
@@ -11,11 +11,8 @@ const UNDETERMINED =
   "the shared repository's refs, such as files elsewhere on this machine, global installs and caches, network calls, " +
   "pushes and pull requests.";
 
-const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
-
 export interface RecoveryReportInput {
-  /** The shared repository. */
-  repo: string;
+  /** The attempt, with the shared refs recorded before it was dispatched and when it was found unknown. */
   attempt: AttemptView;
   /** The step's base commit: the workspace's changes are measured from it. */
   base: string;
@@ -25,11 +22,11 @@ export interface RecoveryReportInput {
 
 /**
  * Gathers what can be known about an attempt whose outcome is unknown: the events recorded before it was found so,
- * what its workspace holds now against the step's base commit, how the shared refs moved since just before it was
- * dispatched, and the statement that host and external effects are undetermined. It reads and changes nothing:
- * whatever is wrong with the workspace or the refs is reported in the report itself.
+ * what its workspace holds now against the step's base commit, how the shared refs moved between the two snapshots
+ * recorded for it, and the statement that host and external effects are undetermined. It changes nothing: whatever
+ * is wrong with the workspace or the refs is reported in the report itself.
  */
-export async function buildRecoveryReport({ repo, attempt, base, events }: RecoveryReportInput): Promise<RecoveryReport> {
+export async function buildRecoveryReport({ attempt, base, events }: RecoveryReportInput): Promise<RecoveryReport> {
   const found = events.findLastIndex((event) => event.type === "attempt_unknown" && event.attemptId === attempt.id);
   const before = found === -1 ? events : events.slice(0, found);
   const process =
@@ -39,7 +36,7 @@ export async function buildRecoveryReport({ repo, attempt, base, events }: Recov
   return {
     lastEvents: before.slice(-LAST_EVENTS).map(({ seq, time, type }) => ({ seq, time, type })),
     workspace: await workspaceDiff(attempt.workspace, base),
-    refs: await refDiff(repo, attempt.refs.before),
+    refs: refDiff(attempt.refs),
     toolCallLog: null,
     undetermined: `${UNDETERMINED}${process}`,
   };
@@ -59,14 +56,12 @@ async function workspaceDiff(path: string, base: string): Promise<RecoveryReport
   }
 }
 
-async function refDiff(repo: string, before: SharedRef[] | null): Promise<RecoveryReport["refs"]> {
-  if (!before) return { changed: [], truncated: false, error: "no snapshot of the shared refs was recorded before the attempt" };
-  try {
-    const { items, truncated } = bounded(refChanges(before, await sharedRefs(repo)));
-    return { changed: items, truncated, error: null };
-  } catch (error) {
-    return { changed: [], truncated: false, error: messageOf(error) };
+function refDiff({ before, after }: AttemptView["refs"]): RecoveryReport["refs"] {
+  if (!before || !after) {
+    return { changed: [], truncated: false, error: `no snapshot of the shared refs was recorded ${before ? "after" : "before"} the attempt` };
   }
+  const { items, truncated } = bounded(refChanges(before, after));
+  return { changed: items, truncated, error: null };
 }
 
 /** The refs that were added, removed or moved between two snapshots, by name. */

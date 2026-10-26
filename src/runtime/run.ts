@@ -28,7 +28,14 @@ import { ledgerPath, locateRepo, prepareWorktreeRoot, snapshotRef, worktreePath,
 import { buildRecoveryReport } from "./recovery.ts";
 import { sharedRefs } from "./refs.ts";
 import { changedPaths, checkProtectedPaths, diffScopeEvidence } from "./scope.ts";
-import { checkRequiredOutputFields, installDependencies, runVerificationCommand, validatorError, verdictOf } from "./verification.ts";
+import {
+  checkRequiredOutputFields,
+  installDependencies,
+  messageOf,
+  runVerificationCommand,
+  validatorError,
+  verdictOf,
+} from "./verification.ts";
 import { addWorktree, discardWorktree, removeWorktree, snapshotWorktree } from "./workspace.ts";
 
 export interface ExecuteRunOptions {
@@ -158,13 +165,18 @@ const stepOf = (run: RunContext, index: number): StepView => run.state().steps[i
 const currentAgent = (step: StepDefinition, view: StepView): AgentRef => (view.retryUsage.rerouted ? step.reroute! : step.agent);
 
 /**
+ * The attempt whose result step `index` receives: the last attempt of the step before it, which has succeeded, so
+ * that attempt is the verified one. None for the first step.
+ */
+const senderOf = (index: number, run: RunContext): AttemptView | undefined =>
+  index > 0 ? run.state().steps[index - 1]?.attempts.at(-1) : undefined;
+
+/**
  * The commit every attempt of the step starts from, retries included, so a failed attempt's files never leak: the
  * previous step's verified snapshot, which holds the work so far and every artifact it passes, or the run's base.
  */
 function stepBase(index: number, run: RunContext): string {
-  const state = run.state();
-  const sender = index > 0 ? state.steps[index - 1]?.attempts.at(-1) : undefined;
-  return sender?.snapshot?.commit ?? state.baseCommit;
+  return senderOf(index, run)?.snapshot?.commit ?? run.state().baseCommit;
 }
 
 /** How many times an attempt's verification ran, as the ledger shows it. */
@@ -233,8 +245,7 @@ async function waitOut(retry: ScheduledRetry, clock: Clock): Promise<void> {
 
 /** Revision 1 of the step's handoff: the previous step's verified result, handed on. */
 async function firstHandoff(step: StepDefinition, index: number, run: RunContext): Promise<HandoffRevision> {
-  // The previous step has succeeded, so its last attempt is the verified one whose result is handed on.
-  const senderAttempt = index > 0 ? run.state().steps[index - 1]?.attempts.at(-1) : undefined;
+  const senderAttempt = senderOf(index, run);
   return buildHandoff({
     repo: run.location.repo,
     runId: run.runId,
@@ -351,8 +362,6 @@ async function executeAttempt(step: StepDefinition, index: number, run: RunConte
   await record({ type: "attempt_exited", attemptId, outcome: endedCleanly ? "ok" : "error", ...exit });
 }
 
-const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
-
 /** Works through the step's last attempt from wherever its record stops. */
 async function advanceAttempt(step: StepDefinition, index: number, run: RunContext): Promise<void> {
   const attempt = stepOf(run, index).attempts.at(-1)!;
@@ -380,11 +389,14 @@ async function advanceAttempt(step: StepDefinition, index: number, run: RunConte
  * it gave up, an error its adapter reported) is not verified: it has no finished result to check.
  */
 async function advanceExitedAttempt(step: StepDefinition, index: number, attempt: AttemptView, run: RunContext): Promise<void> {
-  if (!attempt.refs.after) {
-    const refs = await sharedRefs(run.location.repo);
-    return run.record({ type: "ref_snapshot_taken", attemptId: attempt.id, phase: "after", refs });
-  }
+  if (!attempt.refs.after) return recordRefsAfter(attempt, run);
   return advanceResult(step, index, attempt, classifyAttempt({ ...attempt, verdict: null }), run);
+}
+
+/** Records the shared refs once the attempt's agent has exited, or once the attempt was found unknown. */
+async function recordRefsAfter(attempt: AttemptView, run: RunContext): Promise<void> {
+  const refs = await sharedRefs(run.location.repo);
+  await run.record({ type: "ref_snapshot_taken", attemptId: attempt.id, phase: "after", refs });
 }
 
 /**
@@ -396,7 +408,8 @@ async function advanceUnknownAttempt(step: StepDefinition, index: number, attemp
   const { record } = run;
   const recovery = attempt.recovery!;
   if (!recovery.report) {
-    const report = await buildRecoveryReport({ repo: run.location.repo, attempt, base: stepBase(index, run), events: run.events() });
+    if (!attempt.refs.after) return recordRefsAfter(attempt, run);
+    const report = await buildRecoveryReport({ attempt, base: stepBase(index, run), events: run.events() });
     return record({ type: "recovery_report_written", attemptId: attempt.id, report });
   }
   if (!recovery.decision) {
@@ -438,11 +451,10 @@ async function advanceResult(
 
 /**
  * Records the verdict of a verification an earlier process stopped during: it never reached one, so the validator
- * did not run to a result, which is inconclusive and re-run like any other. Whatever of its worktree is left is
- * removed if it can be; a verification command that outlived that process can still hold it on Windows.
+ * did not run to a result, which is inconclusive and re-run like any other. Then whatever of its worktree is left
+ * is removed if it can be; a verification command that outlived that process can still hold it on Windows.
  */
 async function recordInterruptedVerification(verification: VerificationView, run: RunContext): Promise<void> {
-  if (verification.worktree) await discardWorktree(run.location.repo, verification.worktree).catch(() => undefined);
   const message = "the runtime stopped during this verification, which never reached a verdict";
   await run.record({
     type: "verification_verdict",
@@ -450,6 +462,7 @@ async function recordInterruptedVerification(verification: VerificationView, run
     verdict: "inconclusive",
     evidence: [{ kind: "validator_error", stage: "runtime_stopped", message }],
   });
+  if (verification.worktree) await discardWorktree(run.location.repo, verification.worktree).catch(() => undefined);
 }
 
 async function snapshotAttempt(step: StepDefinition, attempt: AttemptView, run: RunContext): Promise<void> {

@@ -90,7 +90,7 @@ A step succeeds only when its verification passes: the command exits 0 in a fres
 
 A run's ledger is one JSONL file, `.git/ahp/runs/<run>/ledger.jsonl`, appended to and flushed to disk after every event, and never rewritten or renamed. Each event carries a sequence number, the previous event's hash and its own SHA-256 over its canonical JSON, so an event changed, reordered or missing anywhere but at the end breaks the chain: `ahp inspect` then names the line and exits 1 without showing any state, and `readRun` in the SDK throws `LedgerCorruptError`. Events lost from the very end leave a valid, shorter chain, which the file alone cannot reveal. A last line that a write did not finish, a *torn tail* such as a crash leaves, was never recorded: readers leave it out and `ahp inspect` reports it, and the next process to open the run for writing (`ahp recover`) truncates it and records the truncation.
 
-Only one process writes a run. It holds `ledger.lock` beside the ledger, created exclusively and naming its host, PID and start time, until it finishes. `ahp inspect` says who is writing a run, and flags a run whose writer is gone (a stale lock, or an unfinished run with no lock) as needing recovery. AHP never takes a stale lock over by itself: `ahp recover` does when you ask, and records whose it was. `ahp inspect --json` prints `{ state, ledger, lock }`.
+Only one process writes a run. It holds `ledger.lock` beside the ledger, created exclusively and naming its host, PID and start time, until it finishes. `ahp inspect` says who is writing a run, and flags a run whose writer is gone (a stale lock, or an unfinished run with no lock) as needing recovery. AHP never takes a stale lock over by itself: `ahp recover` does when you ask, and records whose it was (a run that had already ended takes no more events, so its stale lock is just removed, and `ahp recover` says so). `ahp inspect --json` prints `{ state, ledger, lock }`.
 
 ### Crashes and recovery
 
@@ -101,7 +101,7 @@ What happens next is the step's `recovery` policy:
 - `manual` (the default): the run stops in `needs_recovery` and you decide. `ahp recover <attempt-id> --policy adopt` verifies the attempt's workspace as its result (a result that fails is retried like any failed verification); `--policy abort` fails the step as `unknown`. `ahp recover` refuses an attempt that is not awaiting a decision.
 - `adopt` or `abort`: applied at once, without stopping.
 
-`discard_and_retry` is deferred past release 1: its only safety check would be the ref diff, which cannot see a push that leaves no local ref behind. The shared refs are recorded just before every attempt is dispatched and again once it has exited, so a moved ref shows in the ledger.
+`discard_and_retry` is deferred past release 1: its only safety check would be the ref diff, which cannot see a push that leaves no local ref behind. The shared refs are recorded just before every attempt is dispatched and again once it has exited or been found unknown, so a moved ref shows in the ledger.
 
 ## Read first
 

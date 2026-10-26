@@ -1,6 +1,7 @@
 import { lstat, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { HiddenTest } from "../protocol/index.ts";
+import { messageOf } from "./verification.ts";
 
 async function place(worktree: string, test: HiddenTest): Promise<void> {
   const segments = test.path.split("/");
@@ -26,8 +27,7 @@ async function place(worktree: string, test: HiddenTest): Promise<void> {
 export async function introduceHiddenTests(worktree: string, tests: readonly HiddenTest[]): Promise<void> {
   for (const test of tests) {
     await place(worktree, test).catch((error) => {
-      const reason = error instanceof Error ? error.message : String(error);
-      throw new Error(`cannot place hidden test ${test.path}: ${reason}`, { cause: error });
+      throw new Error(`cannot place hidden test ${test.path}: ${messageOf(error)}`, { cause: error });
     });
   }
 }

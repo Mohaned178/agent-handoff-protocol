@@ -1,10 +1,10 @@
-import { access, readdir, readFile } from "node:fs/promises";
+import { access, readdir } from "node:fs/promises";
 import { userInfo } from "node:os";
 import type { Adapter } from "../adapters/index.ts";
-import { clearStaleLock, findAttempt, LedgerWriter, lockPathOf, readCheckedLedger, replay } from "../ledger/index.ts";
+import { clearStaleLock, findAttempt, LedgerWriter, lockPathOf, readCheckedLedger, readLedger, replay } from "../ledger/index.ts";
 import { RECOVERY_ACTIONS, type LedgerEvent, type LockOwner, type RecoveryAction, type RunView } from "../protocol/index.ts";
 import { systemClock, type Clock } from "./clock.ts";
-import { isAttemptId, isRunId, ledgerPath, locateRepo, prepareWorktreeRoot, runsDir, type RepoLocation } from "./paths.ts";
+import { isAttemptId, isRunId, ledgerPath, locateRepo, locateRun, prepareWorktreeRoot, runsDir, type RepoLocation } from "./paths.ts";
 import { drive, runContext, type RunContext, type RunResult } from "./run.ts";
 
 export interface ContinueRunOptions {
@@ -45,12 +45,14 @@ export interface ResumeResult extends RunResult {
  */
 export async function resumeRun(options: ResumeRunOptions): Promise<ResumeResult> {
   const { runId } = options;
-  if (!isRunId(runId)) throw new Error(`not a run ID: ${runId}`);
-  const location = await locateRepo(options.repo);
-  const path = ledgerPath(location, runId);
-  if (!(await exists(path))) throw new Error(`no run ${runId} in ${location.repo}`);
+  const { location, path } = await locateRun(options.repo, runId);
   const state = replay((await readCheckedLedger(path)).events);
-  if (!continuable(state)) return { runId, state, resumed: false, takenOverFrom: await clearStaleLock(lockPathOf(path)) };
+  if (!continuable(state)) {
+    // A run that ended takes no more events, so the stale lock its process left is removed without one. A run that
+    // waits for a decision keeps its stale lock: the decision takes it over and records whose it was.
+    const takenOverFrom = state.endedAt !== null ? await clearStaleLock(lockPathOf(path)) : null;
+    return { runId, state, resumed: false, takenOverFrom };
+  }
 
   const { run, writer, takenOverFrom } = await openRun(location, runId, options);
   try {
@@ -121,11 +123,17 @@ async function runOfAttempt(location: RepoLocation, attemptId: string): Promise<
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  // As the ledger writes it: every event about an attempt names it so.
-  const mention = `"attemptId":"${attemptId}"`;
   for (const runId of runIds.sort()) {
-    const text = await readFile(ledgerPath(location, runId), "utf8").catch(() => "");
-    if (text.includes(mention)) return runId;
+    let events: LedgerEvent[];
+    try {
+      // Unchecked past a corruption: the run found is read again, and checked, before anything is decided.
+      ({ events } = await readLedger(ledgerPath(location, runId)));
+    } catch (error) {
+      // A run directory whose process stopped between taking the lock and creating the ledger holds no run.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    if (events.some((event) => "attemptId" in event && event.attemptId === attemptId)) return runId;
   }
   throw new RecoveryRefusedError(`no attempt ${attemptId} in ${location.repo}`);
 }

@@ -1,5 +1,6 @@
 import type {
   AttemptRecovery,
+  AttemptState,
   AttemptView,
   FailureClass,
   HandoffView,
@@ -152,6 +153,12 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
     return found;
   };
   const attempt = (attemptId: string): AttemptView => attemptWithStep(attemptId).attempt;
+  /** The attempt, which the event's own step in its lifecycle requires to be in `state`. */
+  const attemptIn = (attemptId: string, state: AttemptState): AttemptView => {
+    const a = attempt(attemptId);
+    if (a.state !== state) throw new LedgerInconsistentError(event, `attempt "${a.id}" is ${a.state}, not ${state}`);
+    return a;
+  };
   /** The issued handoff revision a decision applies to; only an `issued` revision can be decided. */
   const issuedHandoff = (handoffId: string, revision: number): HandoffView => {
     const found = findHandoff(run, handoffId, revision);
@@ -251,16 +258,17 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       break;
     }
     case "attempt_dispatching":
-      attempt(event.attemptId).state = "dispatching";
+      // An attempt is dispatched once: one with a dispatching record may have an agent running, and is never dispatched again.
+      attemptIn(event.attemptId, "created").state = "dispatching";
       break;
     case "attempt_running": {
-      const a = attempt(event.attemptId);
+      const a = attemptIn(event.attemptId, "dispatching");
       a.state = "running";
       a.pid = event.pid;
       break;
     }
     case "attempt_exited": {
-      const a = attempt(event.attemptId);
+      const a = attemptIn(event.attemptId, "running");
       a.state = "exited";
       a.outcome = event.outcome;
       a.exitCode = event.exitCode;
@@ -348,9 +356,9 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
     }
     case "ref_snapshot_taken": {
       const a = attempt(event.attemptId);
-      // Before: while the attempt waits to be dispatched. After: once its process has exited.
-      const when = event.phase === "before" ? "created" : "exited";
-      if (a.state !== when) throw new LedgerInconsistentError(event, `attempt "${a.id}" is ${a.state}, not ${when}`);
+      // Before: while the attempt waits to be dispatched. After: once its process has exited or been found unknown.
+      const when = event.phase === "before" ? ["created"] : ["exited", "unknown"];
+      if (!when.includes(a.state)) throw new LedgerInconsistentError(event, `attempt "${a.id}" is ${a.state}, not ${when.join(" or ")}`);
       a.refs[event.phase] = event.refs;
       break;
     }

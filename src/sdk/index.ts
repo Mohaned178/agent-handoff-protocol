@@ -1,4 +1,4 @@
-export { defineWorkflow, validateWorkflow, WorkflowValidationError } from "./workflow.ts";
+export { defineWorkflow, DISCARD_AND_RETRY_DEFERRED, validateWorkflow, WorkflowValidationError } from "./workflow.ts";
 export { validateHandoff, type HandoffValidation, type ValidateHandoffOptions } from "./handoff.ts";
 export {
   inspectRun,

@@ -1,12 +1,9 @@
-import { access } from "node:fs/promises";
 import { adapters } from "../adapters/index.ts";
 import { lockPathOf, readCheckedLedger, readLockState, replay, type LockState } from "../ledger/index.ts";
 import type { LedgerEvent, RecoveryAction, RunView, WorkflowDefinition } from "../protocol/index.ts";
 import {
   executeRun,
-  isRunId,
-  ledgerPath,
-  locateRepo,
+  locateRun,
   recoverAttempt as recoverAttemptInRuntime,
   resumeRun as resumeRunInRuntime,
   type Clock,
@@ -110,14 +107,4 @@ export async function inspectRun(options: ReadRunOptions): Promise<RunInspection
   return { state: replay(read.events), ledger: { events: read.events.length, tornTail: read.tornTail }, lock };
 }
 
-async function runLedgerPath({ repo, runId }: ReadRunOptions): Promise<string> {
-  if (!isRunId(runId)) throw new Error(`not a run ID: ${runId}`);
-  const location = await locateRepo(repo);
-  const path = ledgerPath(location, runId);
-  try {
-    await access(path);
-  } catch {
-    throw new Error(`no run ${runId} in ${location.repo}`);
-  }
-  return path;
-}
+const runLedgerPath = async ({ repo, runId }: ReadRunOptions) => (await locateRun(repo, runId)).path;

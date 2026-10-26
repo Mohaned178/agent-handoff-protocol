@@ -89,9 +89,9 @@ export type RecoveryPolicy = (typeof RECOVERY_POLICIES)[number];
 export type RecoveryAction = Exclude<RecoveryPolicy, "manual">;
 export const RECOVERY_ACTIONS = ["adopt", "abort"] as const satisfies readonly RecoveryAction[];
 
-/** Why the design's fourth recovery policy is not one, for whoever asks for it. */
-export const DISCARD_AND_RETRY_DEFERRED =
-  "`discard_and_retry` is deferred past release 1: its only safety check, the diff of the shared refs, cannot see a push that leaves no local ref behind (to a URL rather than a configured remote, or through a service's API), so AHP cannot tell that running the step again is safe";
+/** Who decided what becomes of an unknown attempt: a person through `ahp recover`, or the step's own policy. */
+export const RECOVERY_DECIDERS = ["human", "step_policy"] as const;
+export type RecoveryDecider = (typeof RECOVERY_DECIDERS)[number];
 
 /** The failure classes an adapter can report for an attempt it saw fail. */
 export const ADAPTER_ERROR_KINDS = ["config_auth", "transient", "agent_error"] as const satisfies readonly FailureClass[];
@@ -289,6 +289,10 @@ export interface SharedRef {
   oid: string;
 }
 
+/** When an attempt's shared refs are recorded: just before its agent is dispatched, and once it has exited. */
+export const REF_SNAPSHOT_PHASES = ["before", "after"] as const;
+export type RefSnapshotPhase = (typeof REF_SNAPSHOT_PHASES)[number];
+
 /** A shared ref that differs between two snapshots of the refs: null on the side where it did not exist. */
 export interface RefChange {
   name: string;
@@ -316,9 +320,13 @@ export interface RecoveryReport {
     error: string | null;
   };
   refs: {
-    /** The shared refs that differ between the snapshot taken before the attempt was dispatched and the refs now. */
+    /**
+     * The shared refs that differ between the snapshot taken just before the attempt was dispatched and the one
+     * taken when it was found unknown.
+     */
     changed: RefChange[];
     truncated: boolean;
+    /** Why the refs could not be compared: a snapshot is missing. */
     error: string | null;
   };
   /** The transport's log of the agent's tool calls; null when the adapter keeps none, as no adapter does yet. */
@@ -390,8 +398,7 @@ export type LedgerEventBody =
       type: "recovery_decided";
       attemptId: string;
       policy: RecoveryAction;
-      /** A person, through `ahp recover`, or the step's own policy. */
-      decidedBy: "human" | "step_policy";
+      decidedBy: RecoveryDecider;
       /** The name of the user who decided; null for the step's policy. */
       user: string | null;
     }
@@ -413,9 +420,10 @@ export type LedgerEventBody =
     }
   /**
    * The shared repository's refs, recorded just before the attempt's agent is dispatched and again once it has
-   * exited, so a change an agent made to them (a branch, a fetch, a push that moved a remote-tracking ref) shows.
+   * exited or been found unknown, so a change an agent made to them (a branch, a fetch, a push that moved a
+   * remote-tracking ref) shows.
    */
-  | { type: "ref_snapshot_taken"; attemptId: string; phase: "before" | "after"; refs: SharedRef[] }
+  | { type: "ref_snapshot_taken"; attemptId: string; phase: RefSnapshotPhase; refs: SharedRef[] }
   | { type: "workspace_snapshot_committed"; attemptId: string; commit: string; ref: string }
   | {
       type: "verification_started";
@@ -496,7 +504,7 @@ export interface AttemptView {
   reportedModel: string;
   workspace: string;
   /** The shared repository's refs just before the agent was dispatched and once it had exited; null until recorded. */
-  refs: { before: SharedRef[] | null; after: SharedRef[] | null };
+  refs: Record<RefSnapshotPhase, SharedRef[] | null>;
   snapshot: { commit: string; ref: string } | null;
   /** The verification that decided the attempt: the last one, or the only one. */
   verification: VerificationView | null;
@@ -520,7 +528,7 @@ export interface AttemptRecovery {
 
 export interface RecoveryDecision {
   policy: RecoveryAction;
-  decidedBy: "human" | "step_policy";
+  decidedBy: RecoveryDecider;
   user: string | null;
   time: string;
 }

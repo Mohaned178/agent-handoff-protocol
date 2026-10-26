@@ -1,12 +1,12 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname, userInfo } from "node:os";
-import { join } from "node:path";
+import { dirname } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { readRun, readRunEvents, recoverAttempt, resumeRun, runWorkflow, validateWorkflow } from "../src/index.ts";
 import type { LedgerEvent, MockAttemptScript, StepDefinition } from "../src/index.ts";
 import { LedgerWriter } from "../src/ledger/index.ts";
 import { fakeClock } from "./helpers/clock.ts";
-import { finishedRun, GONE_PID, ledgerFile, lockFile, truncateLedgerAfter } from "./helpers/ledger.ts";
+import { appendLedgerEvent, finishedRun, GONE_PID, ledgerFile, lockFile, truncateLedgerAfter } from "./helpers/ledger.ts";
 import { createTempRepo, git, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
 import { goodbye, hello, implementOf, rateLimited, retryWorkflow } from "./helpers/retry.ts";
 
@@ -17,8 +17,8 @@ const helloLost: MockAttemptScript = { ...hello, loseContact: true };
 
 /** The content of every run's ledger in `repo`, by run ID. */
 function ledgersOf(repo: string): Record<string, string> {
-  const runs = join(repo, ".git", "ahp", "runs");
-  return Object.fromEntries(readdirSync(runs).map((runId) => [runId, readFileSync(join(runs, runId, "ledger.jsonl"), "utf8")]));
+  const runIds = readdirSync(dirname(dirname(ledgerFile(repo, "run_0"))));
+  return Object.fromEntries(runIds.map((runId) => [runId, readFileSync(ledgerFile(repo, runId), "utf8")]));
 }
 
 describe("an attempt whose adapter lost contact with its agent", () => {
@@ -44,8 +44,22 @@ describe("an attempt whose adapter lost contact with its agent", () => {
     expect(report.lastEvents.map((event) => event.type).slice(-3)).toEqual(["ref_snapshot_taken", "attempt_dispatching", "attempt_running"]);
 
     const events = await readRunEvents({ repo, runId });
-    expect(events.slice(-3).map((event) => event.type)).toEqual(["attempt_unknown", "recovery_report_written", "recovery_awaited"]);
+    expect(events.slice(-4).map((event) => event.type)).toEqual([
+      "attempt_unknown",
+      "ref_snapshot_taken",
+      "recovery_report_written",
+      "recovery_awaited",
+    ]);
+    expect(attempt.refs.after).toEqual(attempt.refs.before);
     expect(existsSync(lockFile(repo, runId))).toBe(false);
+  });
+
+  it("can never be dispatched again: replay refuses a ledger that says it was", async () => {
+    const { repo, runId, attemptId } = await awaitingRecovery([helloLost]);
+
+    appendLedgerEvent(repo, runId, { type: "attempt_dispatching", attemptId });
+
+    await expect(readRun({ repo, runId })).rejects.toThrow(`attempt "${attemptId}" is unknown, not created`);
   });
 });
 
@@ -88,6 +102,7 @@ describe("resuming a run whose process stopped", () => {
       expect(typesOf(events.slice(events.findIndex((event) => event.type === "run_resumed")))).toEqual([
         "run_resumed",
         "attempt_unknown",
+        "ref_snapshot_taken",
         "recovery_report_written",
         "recovery_awaited",
       ]);
@@ -178,14 +193,19 @@ describe("resuming a run whose process stopped", () => {
     expect(ledgersOf(repo)).toEqual(before);
   });
 
-  it("writes nothing to a run that awaits a decision", async () => {
-    const { repo, runId } = await awaitingRecovery([helloLost]);
+  it("writes nothing to a run that awaits a decision, and leaves its stale lock for the decision to take over", async () => {
+    const { repo, runId, attemptId } = await awaitingRecovery([helloLost]);
     const before = ledgersOf(repo);
+    const stale = { host: hostname(), pid: GONE_PID, startedAt: "2026-01-01T00:00:00.000Z" };
+    writeFileSync(lockFile(repo, runId), `${JSON.stringify(stale)}\n`);
 
-    const { state, resumed } = await resumeRun({ repo, runId });
+    const { state, resumed, takenOverFrom } = await resumeRun({ repo, runId });
 
-    expect({ state: state.state, resumed }).toEqual({ state: "needs_recovery", resumed: false });
+    expect({ state: state.state, resumed, takenOverFrom }).toEqual({ state: "needs_recovery", resumed: false, takenOverFrom: null });
     expect(ledgersOf(repo)).toEqual(before);
+    expect(existsSync(lockFile(repo, runId))).toBe(true);
+    const decided = await recoverAttempt({ repo, attemptId, policy: "abort" });
+    expect(decided.state.resumptions).toEqual([expect.objectContaining({ takenOverFrom: stale })]);
   });
 });
 

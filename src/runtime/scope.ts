@@ -6,6 +6,16 @@ const MAX_LISTED_PATHS = 200;
 
 const CHANGE_OF_STATUS: Record<string, PathChange> = { A: "added", D: "deleted" };
 
+/** The changes `git diff --name-status -z` printed, in its order. */
+function parseNameStatus(output: string): ChangedPath[] {
+  const fields = output.split("\0").filter((field) => field !== "");
+  const changed: ChangedPath[] = [];
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    changed.push({ path: fields[i + 1]!, change: CHANGE_OF_STATUS[fields[i]![0]!] ?? "modified" });
+  }
+  return changed;
+}
+
 /**
  * The paths that differ between the step's base commit and the attempt's snapshot, with how each changed.
  * It diffs against `base`, not the snapshot's parent: the snapshot is made on top of whatever the workspace's
@@ -13,13 +23,7 @@ const CHANGE_OF_STATUS: Record<string, PathChange> = { A: "added", D: "deleted" 
  * as a delete and an add, so a protected path cannot be moved away unseen.
  */
 export async function changedPaths(repo: string, base: string, snapshot: string): Promise<ChangedPath[]> {
-  const output = await git(repo, ["diff", "--name-status", "--no-renames", "-z", base, snapshot]);
-  const fields = output.split("\0").filter((field) => field !== "");
-  const changed: ChangedPath[] = [];
-  for (let i = 0; i + 1 < fields.length; i += 2) {
-    changed.push({ path: fields[i + 1]!, change: CHANGE_OF_STATUS[fields[i]![0]!] ?? "modified" });
-  }
-  return changed;
+  return parseNameStatus(await git(repo, ["diff", "--name-status", "--no-renames", "-z", base, snapshot]));
 }
 
 /**
@@ -30,9 +34,7 @@ export async function changedPaths(repo: string, base: string, snapshot: string)
 export async function worktreeChanges(worktree: string, base: string): Promise<ChangedPath[]> {
   const tracked = await git(worktree, ["--no-optional-locks", "diff", "--name-status", "--no-renames", "-z", base]);
   const untracked = await git(worktree, ["--no-optional-locks", "ls-files", "--others", "--exclude-standard", "-z"]);
-  const changed = new Map<string, PathChange>();
-  const fields = tracked.split("\0").filter((field) => field !== "");
-  for (let i = 0; i + 1 < fields.length; i += 2) changed.set(fields[i + 1]!, CHANGE_OF_STATUS[fields[i]![0]!] ?? "modified");
+  const changed = new Map(parseNameStatus(tracked).map(({ path, change }) => [path, change]));
   for (const path of untracked.split("\0")) if (path !== "" && !changed.has(path)) changed.set(path, "added");
   return [...changed].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([path, change]) => ({ path, change }));
 }
@@ -43,7 +45,8 @@ export function bounded<T>(items: readonly T[]): { items: T[]; truncated: boolea
 }
 
 export function diffScopeEvidence(changed: readonly ChangedPath[]): DiffScopeEvidence {
-  return { kind: "diff_scope", changed: changed.slice(0, MAX_LISTED_PATHS), truncated: changed.length > MAX_LISTED_PATHS };
+  const { items, truncated } = bounded(changed);
+  return { kind: "diff_scope", changed: items, truncated };
 }
 
 /** Case-insensitive, so the verdict does not depend on whether the attempt ran on a case-insensitive filesystem. */
@@ -62,11 +65,6 @@ function overlaps(changed: string, protectedPath: string): boolean {
 }
 
 export function checkProtectedPaths(changed: readonly ChangedPath[], protectedPaths: readonly string[]): ProtectedPathsEvidence {
-  const violations = changed.filter((c) => protectedPaths.some((p) => overlaps(c.path, p)));
-  return {
-    kind: "protected_paths",
-    protected: [...protectedPaths],
-    violations: violations.slice(0, MAX_LISTED_PATHS),
-    truncated: violations.length > MAX_LISTED_PATHS,
-  };
+  const { items, truncated } = bounded(changed.filter((c) => protectedPaths.some((p) => overlaps(c.path, p))));
+  return { kind: "protected_paths", protected: [...protectedPaths], violations: items, truncated };
 }

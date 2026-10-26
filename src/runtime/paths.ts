@@ -1,4 +1,4 @@
-import { mkdir, realpath } from "node:fs/promises";
+import { access, mkdir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { git } from "./git.ts";
@@ -53,11 +53,26 @@ export function isAttemptId(value: string): boolean {
 }
 
 /** The directory that holds a directory per run, named by its ID, with the run's ledger in it. */
-export const runsDir = (location: RepoLocation) => join(location.ahpDir, "runs");
+export function runsDir(location: RepoLocation): string {
+  return join(location.ahpDir, "runs");
+}
 
 export function ledgerPath(location: RepoLocation, runId: string): string {
   if (!isRunId(runId)) throw new Error(`not a run ID: ${runId}`);
   return join(runsDir(location), runId, "ledger.jsonl");
+}
+
+/** Where the repository that holds `repo` is, and the ledger of its run `runId`; throws if it has no such run. */
+export async function locateRun(repo: string, runId: string): Promise<{ location: RepoLocation; path: string }> {
+  if (!isRunId(runId)) throw new Error(`not a run ID: ${runId}`);
+  const location = await locateRepo(repo);
+  const path = ledgerPath(location, runId);
+  try {
+    await access(path);
+  } catch {
+    throw new Error(`no run ${runId} in ${location.repo}`);
+  }
+  return { location, path };
 }
 
 export function worktreePath(worktreeRoot: string, runId: string, name: string): string {

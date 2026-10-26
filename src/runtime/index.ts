@@ -1,14 +1,6 @@
 export { systemClock, type Clock } from "./clock.ts";
 export { executeRun, type ExecuteRunOptions, type RunResult } from "./run.ts";
-export {
-  recoverAttempt,
-  RecoveryRefusedError,
-  resumeRun,
-  type ContinueRunOptions,
-  type RecoverAttemptOptions,
-  type ResumeResult,
-  type ResumeRunOptions,
-} from "./resume.ts";
+export { recoverAttempt, RecoveryRefusedError, resumeRun, type ResumeResult } from "./resume.ts";
 export {
   classifyAttempt,
   decideAfterFailure,
@@ -19,4 +11,4 @@ export {
   type ResolvedRetryPolicy,
 } from "./failure.ts";
 export { validateHandoffRevision, type HandoffValidation } from "./handoff.ts";
-export { isAttemptId, isRunId, ledgerPath, locateRepo } from "./paths.ts";
+export { isAttemptId, isRunId, locateRepo, locateRun } from "./paths.ts";

@@ -87,7 +87,7 @@ A last ledger line that a write did not finish (no newline, or not JSON), as a c
 The file beside a run's ledger, created exclusively, that names the one process writing the run: its host, PID and start time.
 
 **Stale lock**:
-A ledger lock whose process is no longer running, so whatever it was doing stopped partway and the run needs recovery. AHP never takes one over by itself: `ahp recover` does when a person asks, and records whose it was.
+A ledger lock whose process is no longer running, so whatever it was doing stopped partway and the run needs recovery. AHP never takes one over by itself: `ahp recover` does when a person asks, and records whose it was in the ledger. The stale lock of a run that had already ended takes no event: `ahp recover` removes it and says so.
 
 ## Verification
 
@@ -171,7 +171,7 @@ An effect outside the workspace and shared repo, such as push, PR or merge, perf
 Verification evidence that a coding agent performed an external action; its absence is not proof that none occurred.
 
 **Shared refs**:
-The refs every worktree of a repository shares (branches, tags, remote-tracking refs, the stash), less AHP's own under `refs/ahp/`. They are recorded just before each attempt is dispatched and again once it has exited, so a ref an agent moved shows.
+The refs every worktree of a repository shares (branches, tags, remote-tracking refs, the stash), less AHP's own under `refs/ahp/`. They are recorded just before each attempt is dispatched and again once it has exited or been found unknown, so a ref an agent moved shows.
 
 ## Recovery and evaluation
 

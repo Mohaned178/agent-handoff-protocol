@@ -102,8 +102,10 @@ export function verdictOf(evidence: readonly EvidenceItem[]): Verdict {
 
 const MAX_ERROR_CHARS = 2000;
 
+/** What a thrown value says, for evidence and the ledger. */
+export const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
 /** Evidence that AHP could not run `stage` of the verification, for whatever error stopped it. */
 export function validatorError(stage: ValidatorStage, error: unknown): ValidatorErrorEvidence {
-  const message = error instanceof Error ? error.message : String(error);
-  return { kind: "validator_error", stage, message: message.slice(0, MAX_ERROR_CHARS) };
+  return { kind: "validator_error", stage, message: messageOf(error).slice(0, MAX_ERROR_CHARS) };
 }
