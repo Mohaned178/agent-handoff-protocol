@@ -19,6 +19,13 @@ export interface RunWorkflowOptions {
   onEvent?: (event: LedgerEvent, state: Readonly<RunView>) => void;
   /** Stamps ledger events and waits out a retry's backoff; defaults to the system clock. Tests pass one that never waits. */
   clock?: Clock;
+  /**
+   * Cancels the run once aborted: a running agent is stopped with every process it started (recorded `cancelled` only
+   * once they are all seen gone), no further agent is dispatched, and the run ends `cancelled`.
+   */
+  signal?: AbortSignal;
+  /** How long a cancelled agent is given to stop gracefully before its process tree is killed. Default 5000 ms. */
+  cancelGraceMs?: number;
 }
 
 /**

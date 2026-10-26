@@ -2,7 +2,7 @@
 // applies the scripted edits inside its working directory, reports the scripted output fields as a
 // JSON document on stdout, and exits with the scripted code. Diagnostics go to stderr.
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve, isAbsolute } from "node:path";
 import { text } from "node:stream/consumers";
@@ -21,6 +21,19 @@ function inWorkspace(path: string): string {
   }
   return target;
 }
+
+const TERMINATION_SIGNALS = ["SIGTERM", "SIGINT", "SIGHUP"] as const;
+if (script.ignoreSignals) for (const signal of TERMINATION_SIGNALS) process.on(signal, () => undefined);
+let grandchild: number | null = null;
+if (script.spawnGrandchild) {
+  // It holds none of the agent's pipes, so the agent's exit is still seen as soon as it happens.
+  const ignoring = `for (const s of ${JSON.stringify(TERMINATION_SIGNALS)}) process.on(s, () => {}); setTimeout(() => {}, 600000);`;
+  const child = spawn(process.execPath, ["-e", ignoring], { stdio: "ignore", windowsHide: true });
+  await new Promise((resolve, reject) => child.once("spawn", resolve).once("error", reject));
+  grandchild = child.pid!;
+  console.error(`mock agent: started grandchild ${grandchild}`);
+}
+if (script.pidFile) writeFileSync(script.pidFile, [process.pid, grandchild].filter((pid) => pid !== null).join("\n") + "\n");
 
 for (const path of script.deletes ?? []) {
   rmSync(inWorkspace(path), { recursive: true, force: true });

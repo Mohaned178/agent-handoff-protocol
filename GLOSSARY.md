@@ -188,6 +188,13 @@ The per-step rule for an unknown attempt: `manual` (default: the run stops in `n
 **Resume**:
 A later process continuing a run whose process stopped, from wherever its ledger stops; `ahp recover <run>` does it, and records it as `run_resumed`.
 
+**Cancel**:
+Stopping a run on request (Ctrl+C on `ahp run`, or the SDK's abort signal): the running agent and every process it started are stopped, no further agent is dispatched, and the run ends `cancelled`. An attempt is recorded `cancelled` only once every process of its tree was seen gone, as graceful (the transport's cancel, or SIGTERM to its process group) or forced (the tree killed; always so on Windows without ACP); a kill that cannot be confirmed makes it an unknown attempt.
+_Avoid_: Abort (a recovery decision), kill (one way a cancel ends)
+
+**Process layer**:
+The shared code every adapter starts its coding agent through: it resolves the tool's real executable (an npm `.cmd` shim is read, never run through `cmd.exe`), passes the prompt on stdin, and stops whole process trees.
+
 **Matched-budget baseline**:
 A single-agent condition given the same number of independent attempts as the condition it is compared with, counted as a success if any attempt passes.
 

@@ -1,4 +1,5 @@
 import type {
+  AttemptCancel,
   AttemptRecovery,
   AttemptView,
   ChangedPath,
@@ -65,7 +66,22 @@ function describeStep(step: StepView): string {
 }
 
 function describeExit({ exitCode, signal }: { exitCode: number | null; signal: string | null }): string {
-  return exitCode !== null ? `exit code ${exitCode}` : `signal ${signal}`;
+  if (exitCode !== null) return `exit code ${exitCode}`;
+  return signal !== null ? `signal ${signal}` : "no exit status reported";
+}
+
+/** How a cancelled attempt's agent was stopped. */
+function describeCancel({ via }: AttemptCancel): string {
+  switch (via) {
+    case null:
+      return "it had already ended when the cancel reached it";
+    case "transport":
+      return "stopped gracefully by its transport's cancel";
+    case "signal":
+      return "stopped gracefully by SIGTERM to its process group";
+    case "tree_kill":
+      return "forced: its process tree was killed";
+  }
 }
 
 function describeEvidence(item: EvidenceItem): string[] {
@@ -107,7 +123,8 @@ const describeChange = ({ path, change }: ChangedPath) => `${change} ${path}`;
 function describeAttempt(attempt: AttemptView): string {
   if (attempt.state !== "exited") return attempt.state;
   const stopped = attempt.stopReason ? `, stop reason ${attempt.stopReason}` : "";
-  return `exited ${attempt.outcome} (${describeExit(attempt)}${stopped})`;
+  const cancel = attempt.cancellation?.result ? `; ${describeCancel(attempt.cancellation.result)}` : "";
+  return `exited ${attempt.outcome} (${describeExit(attempt)}${stopped}${cancel})`;
 }
 
 /** Why a failed step stopped, as one line: the failure class says what happened, this says what was done about it. */
@@ -232,6 +249,12 @@ export function formatEvent(event: LedgerEvent, state: Readonly<RunView>): strin
       return `run ${state.runId}: ${describeTruncation(event.droppedBytes)}`;
     case "run_resumed":
       return `run ${state.runId}: ${describeResumption(event.takenOverFrom)}`;
+    case "run_cancel_requested":
+      return `run ${state.runId}: cancelling: no further agent is dispatched`;
+    case "attempt_cancelling": {
+      const { attempt } = stepOfAttempt(state, event.attemptId);
+      return attemptLine(event.attemptId, `cancelling: stopping the agent (PID ${attempt.pid}) and every process it started`);
+    }
   }
 }
 
@@ -397,6 +420,10 @@ export function formatRun(inspection: RunInspection): string {
       if (attempt.failureClass) lines.push(`    failure class: ${attempt.failureClass}`);
       if (attempt.stopReason) lines.push(`    stop reason: ${attempt.stopReason}`);
       if (attempt.error) lines.push(`    error (${attempt.error.kind}): ${attempt.error.message}`);
+      if (attempt.cancellation) {
+        const { requestedAt, result } = attempt.cancellation;
+        lines.push(`    cancel: from ${requestedAt}, ${result ? describeCancel(result) : "its processes were never seen gone"}`);
+      }
       if (attempt.recovery) lines.push(...describeRecovery(attempt.recovery));
       for (const earlier of attempt.earlierVerifications) {
         lines.push(...describeVerification("earlier verification", earlier, " (the validator could not run; verified again)"));

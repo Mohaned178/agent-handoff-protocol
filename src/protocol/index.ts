@@ -60,7 +60,8 @@ export type FailureClass = (typeof FAILURE_CLASSES)[number];
 
 /**
  * Why a coding agent's turn ended, as its adapter normalizes it (the ACP stop reasons that matter for
- * classification). Outcome detail, never proof that the process exited. Cancellation arrives with ticket 07.
+ * classification). Outcome detail, never proof that the process exited. ACP's `cancelled` is not one: a cancel is
+ * recorded as the attempt's `cancelled` outcome, once the runtime has seen the agent's processes gone.
  */
 export const STOP_REASONS = ["end_turn", "max_tokens", "max_turn_requests", "refusal"] as const;
 export type StopReason = (typeof STOP_REASONS)[number];
@@ -71,8 +72,26 @@ export type StopReason = (typeof STOP_REASONS)[number];
  *   found it so.
  * - `lost_contact`: the adapter could not say whether or how the agent's process ended, as when its transport's
  *   connection dropped or its start failed partway.
- * - `unconfirmed_kill`: the runtime stopped the agent and could not confirm that it had stopped (ticket 07).
+ * - `unconfirmed_kill`: the runtime killed the agent to cancel the attempt and could not confirm that every process of
+ *   its tree had gone.
  */
+/**
+ * What stopped a cancelled attempt's agent, as the process layer saw it end. A closed list.
+ * - `transport`: the transport's own cancel (ACP `session/cancel`), for an adapter that declares one. Graceful.
+ * - `signal`: SIGTERM to the agent's process group, on Linux and macOS. Graceful: the agent could clean up.
+ * - `tree_kill`: the whole process tree killed (SIGKILL to the group, or `taskkill /T /F` on Windows). Forced.
+ */
+export const CANCEL_PATHS = ["transport", "signal", "tree_kill"] as const;
+export type CancelPath = (typeof CANCEL_PATHS)[number];
+
+/** How a cancelled attempt's agent was stopped, recorded once every process of its tree was seen gone. */
+export interface AttemptCancel {
+  /** True when it took a kill: the agent had no chance to stop by itself. */
+  forced: boolean;
+  /** Null when the agent had already ended by itself before anything was sent to it. */
+  via: CancelPath | null;
+}
+
 export const UNKNOWN_REASONS = ["no_terminal_record", "lost_contact", "unconfirmed_kill"] as const;
 export type UnknownReason = (typeof UNKNOWN_REASONS)[number];
 
@@ -385,7 +404,16 @@ export type LedgerEventBody =
       stopReason: StopReason | null;
       /** What the adapter saw go wrong, if anything; its class decides how the failure is handled. */
       error: AttemptError | null;
+      /** How the agent was stopped, for the `cancelled` outcome only; null otherwise. */
+      cancel: AttemptCancel | null;
     }
+  /**
+   * The run is to stop: someone pressed Ctrl+C or the SDK's signal was aborted. Recorded before anything is stopped;
+   * from here no agent is dispatched, and the run ends `cancelled` unless its last step had already succeeded.
+   */
+  | { type: "run_cancel_requested" }
+  /** The runtime is about to stop the attempt's agent: recorded before anything is sent to its processes. */
+  | { type: "attempt_cancelling"; attemptId: string }
   /**
    * The attempt was dispatched and how it ended is not known. It is never retried automatically: its step needs
    * recovery, decided by the step's policy or by a person.
@@ -443,10 +471,10 @@ export type LedgerEventBody =
   | {
       type: "step_terminal";
       stepId: string;
-      state: Extract<StepState, "succeeded" | "failed">;
+      state: Extract<StepState, "succeeded" | "failed" | "cancelled">;
       failureClass: FailureClass | null;
     }
-  | { type: "run_terminal"; state: Extract<RunState, "succeeded" | "failed"> }
+  | { type: "run_terminal"; state: Extract<RunState, "succeeded" | "failed" | "cancelled"> }
   /**
    * A process opened the unfinished run to continue it: after its process stopped, or to apply a person's decision.
    * `takenOverFrom` names the process whose stale lock it removed to do so, if it did.
@@ -514,6 +542,15 @@ export interface AttemptView {
   retry: ScheduledRetry | null;
   /** Set once the attempt's outcome is unknown: why, its report, and what was decided. */
   recovery: AttemptRecovery | null;
+  /** Set once the runtime set out to stop the attempt's agent: when, and how it was stopped once that is confirmed. */
+  cancellation: AttemptCancellation | null;
+}
+
+export interface AttemptCancellation {
+  /** When the runtime recorded that it was stopping the agent (ISO). */
+  requestedAt: string;
+  /** How the agent was stopped; null until its processes were seen gone, and for good if they never were. */
+  result: AttemptCancel | null;
 }
 
 export interface AttemptRecovery {
@@ -602,6 +639,8 @@ export interface RunView {
   ledgerTruncations: LedgerTruncation[];
   /** Each time a later process continued the run, oldest first. */
   resumptions: RunResumption[];
+  /** When cancelling the run was recorded (ISO); null unless it was. */
+  cancelRequestedAt: string | null;
 }
 
 /** A process continuing a run, as its `run_resumed` event records it. */

@@ -4,7 +4,7 @@ AHP makes handoffs between AI coding agents explicit, verifiable and measurable,
 
 Release 1 targets four coding-agent CLIs (Claude Code, Codex CLI, Gemini CLI, OpenCode), combinable in one workflow, each through a dedicated adapter. A step succeeds only when verification passes, never on an agent's own claim; every event is written to an append-only ledger so a crash never silently runs work twice; and an evaluation engine tests whether structured handoffs actually beat a single agent and a plain-text pipeline. A negative result is a legitimate outcome.
 
-**Status: early development.** Linear multi-step workflows run end to end with the mock adapter, each step receiving a validated, versioned handoff, and a run whose process stopped is recovered with `ahp recover`; no real coding-agent adapter exists yet.
+**Status: early development.** Linear multi-step workflows run end to end with the mock adapter, each step receiving a validated, versioned handoff, a run whose process stopped is recovered with `ahp recover`, and Ctrl+C cancels a run; no real coding-agent adapter exists yet.
 
 ## Development
 
@@ -28,7 +28,7 @@ node bin/ahp.mjs recover <run-id> --repo <repo>                            # aft
 node bin/ahp.mjs recover <attempt-id> --policy adopt|abort --repo <repo>   # decide an unknown attempt
 ```
 
-`ahp run` and `ahp recover` exit 0 when the run succeeded, 1 when it failed (or ahp did), 2 on a usage error and 3 when the run stopped for a recovery decision.
+`ahp run` and `ahp recover` exit 0 when the run succeeded, 1 when it failed (or ahp did), 2 on a usage error, 3 when the run stopped for a recovery decision and 130 when it was cancelled.
 
 A workflow file (`.ts` or `.js`) default-exports a workflow definition. The package is not published yet, so either `npm link` it into the target repository or export the same definition as a plain object. With the mock adapter:
 
@@ -102,6 +102,12 @@ What happens next is the step's `recovery` policy:
 - `adopt` or `abort`: applied at once, without stopping.
 
 `discard_and_retry` is deferred past release 1: its only safety check would be the ref diff, which cannot see a push that leaves no local ref behind. The shared refs are recorded just before every attempt is dispatched and again once it has exited or been found unknown, so a moved ref shows in the ledger.
+
+### Cancelling
+
+Ctrl+C on `ahp run` (or `ahp recover`) cancels the run; in the SDK, abort the `signal` you pass to `runWorkflow`. The cancel is recorded first, then the running agent and every process it started are stopped: on Linux and macOS SIGTERM to the agent's process group, then, after a grace period (5 s, `cancelGraceMs` in the SDK), SIGKILL to the group; on Windows a forced kill of the whole tree (`taskkill /T /F`), since a process without a console of its own cannot be asked to stop. An adapter whose transport has a cancel of its own (ACP `session/cancel`) uses it first. The attempt is recorded `cancelled` only once every process of its tree is seen gone, with whether that was graceful or forced; if that cannot be confirmed, its outcome is `unknown` and the run stops for you to decide, as after a crash. No further agent is dispatched, a verification command that is running is stopped (its verdict is `inconclusive`, which says nothing about the attempt), and the run ends `cancelled`. A second Ctrl+C does not interrupt the cancel. If ahp itself dies while cancelling, `ahp recover <run-id>` finishes the cancel.
+
+Agents are started without a shell: AHP resolves the tool's real executable on PATH, and on Windows reads an npm `.cmd` shim to run its JavaScript entry point with Node rather than run the shim through `cmd.exe`. The prompt goes to the agent on stdin, never on a command line.
 
 ## Read first
 

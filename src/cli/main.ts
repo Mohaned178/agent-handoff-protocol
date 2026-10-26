@@ -33,8 +33,11 @@ Options:
   -h, --help            Show this help
   -v, --version         Show the version
 
+Ctrl+C during run or recover cancels the run: the running agent and every process it
+started are stopped, and the run ends cancelled.
+
 Exit codes: 0 the run succeeded, 1 it failed or ahp failed, 2 usage error,
-3 the run stopped for a recovery decision`;
+3 the run stopped for a recovery decision, 130 the run was cancelled`;
 
 export interface Io {
   stdout: (text: string) => void;
@@ -98,24 +101,56 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
   }
 }
 
-/** The exit code for a run in `state`: 0 succeeded, 3 stopped for a recovery decision, 1 anything else. */
+/** The exit code for a run in `state`: 0 succeeded, 3 stopped for a recovery decision, 130 cancelled, 1 anything else. */
 function exitCodeOf(state: Readonly<RunView>): number {
-  if (state.state === "succeeded") return 0;
-  return state.state === "needs_recovery" ? 3 : 1;
+  switch (state.state) {
+    case "succeeded":
+      return 0;
+    case "needs_recovery":
+      return 3;
+    case "cancelled":
+      // What a shell reports for a command Ctrl+C stopped: 128 + SIGINT.
+      return 130;
+    default:
+      return 1;
+  }
+}
+
+interface Following {
+  onEvent: (event: LedgerEvent, state: Readonly<RunView>) => void;
+  /** Aborted on Ctrl+C (SIGINT) or SIGTERM: the run is cancelled. */
+  signal: AbortSignal;
 }
 
 /**
  * Streams a progress line for each event `execute` records, and the mock note at the end if any came from the mock
- * adapter, also when `execute` throws partway.
+ * adapter, also when `execute` throws partway. Ctrl+C meanwhile cancels the run instead of killing ahp, so the agent's
+ * processes are stopped and the cancel is recorded; a second Ctrl+C only says that it is under way.
  */
-async function followRun<R>(io: Io, execute: (onEvent: (event: LedgerEvent, state: Readonly<RunView>) => void) => Promise<R>): Promise<R> {
+async function followRun<R>(io: Io, execute: (following: Following) => Promise<R>): Promise<R> {
   let usedMock = false;
+  const controller = new AbortController();
+  const cancel = () => {
+    if (controller.signal.aborted) {
+      io.stderr("ahp: still cancelling: waiting until the agent and every process it started are seen gone");
+      return;
+    }
+    io.stderr("ahp: cancelling the run (Ctrl+C)");
+    controller.abort();
+  };
+  process.on("SIGINT", cancel);
+  process.on("SIGTERM", cancel);
   try {
-    return await execute((event, current) => {
-      usedMock = current.mock;
-      io.stdout(formatEvent(event, current));
+    return await execute({
+      signal: controller.signal,
+      onEvent: (event, current) => {
+        usedMock = current.mock;
+        io.stdout(formatEvent(event, current));
+      },
     });
   } finally {
+    process.off("SIGINT", cancel);
+    process.off("SIGTERM", cancel);
     if (usedMock) io.stdout(MOCK_NOTE);
   }
 }
@@ -132,7 +167,7 @@ async function runCommand(file: string, repo: string, io: Io): Promise<number> {
   if (problems.length > 0) {
     throw new UsageError(`invalid workflow in ${path}:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
   }
-  const { state } = await followRun(io, (onEvent) => runWorkflow(workflow as Parameters<typeof runWorkflow>[0], { repo, onEvent }));
+  const { state } = await followRun(io, (following) => runWorkflow(workflow as Parameters<typeof runWorkflow>[0], { repo, ...following }));
   return exitCodeOf(state);
 }
 
@@ -145,7 +180,7 @@ async function inspectCommand(runId: string, repo: string, json: boolean, io: Io
 async function recoverCommand(target: string, policy: string | undefined, repo: string, io: Io): Promise<number> {
   if (isRunId(target)) {
     if (policy !== undefined) throw new UsageError(`--policy decides an attempt: \`ahp recover <attempt-id> --policy adopt|abort\``);
-    const result = await followRun(io, (onEvent) => resumeRun({ repo, runId: target, onEvent }));
+    const result = await followRun(io, (following) => resumeRun({ repo, runId: target, ...following }));
     if (!result.resumed) io.stdout(formatUnresumed(result));
     return exitCodeOf(result.state);
   }
@@ -153,7 +188,7 @@ async function recoverCommand(target: string, policy: string | undefined, repo: 
   if (policy === undefined) throw new UsageError(`recover ${target} needs --policy adopt or --policy abort`);
   if (policy === "discard_and_retry") throw new UsageError(DISCARD_AND_RETRY_DEFERRED);
   if (!RECOVERY_ACTIONS.includes(policy as RecoveryAction)) throw new UsageError(`--policy must be adopt or abort, not ${policy}`);
-  const { state } = await followRun(io, (onEvent) => recoverAttempt({ repo, attemptId: target, policy: policy as RecoveryAction, onEvent }));
+  const { state } = await followRun(io, (following) => recoverAttempt({ repo, attemptId: target, policy: policy as RecoveryAction, ...following }));
   return exitCodeOf(state);
 }
 

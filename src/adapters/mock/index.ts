@@ -1,6 +1,7 @@
-import { spawn } from "node:child_process";
-import { extname } from "node:path";
+import { extname, isAbsolute } from "node:path";
+import { text } from "node:stream/consumers";
 import { fileURLToPath } from "node:url";
+import { launch } from "../../process/index.ts";
 import { ADAPTER_ERROR_KINDS, STOP_REASONS } from "../../protocol/index.ts";
 import type { AgentRef, AttemptError, OutputFieldValue, StopReason } from "../../protocol/index.ts";
 import type { Adapter, AttemptExit } from "../contract.ts";
@@ -38,6 +39,15 @@ export interface MockAttemptScript {
    * that it is dispatching it, until something kills the runtime.
    */
   hangBeforeSpawn?: boolean;
+  /**
+   * The agent starts a grandchild process, which ignores every termination signal and runs until it is killed (ten
+   * minutes at most), before it makes its edits: so a test can check that a cancel leaves no process of the tree behind.
+   */
+  spawnGrandchild?: boolean;
+  /** The agent ignores SIGTERM, SIGINT and SIGHUP: only a kill stops it. */
+  ignoreSignals?: boolean;
+  /** An absolute path the agent writes its own PID and its grandchild's to, one per line, once it has started both. */
+  pidFile?: string;
 }
 
 export interface MockOptions {
@@ -54,7 +64,7 @@ export function mock(options: MockOptions): AgentRef {
 const agentScript = fileURLToPath(new URL(`./agent${extname(fileURLToPath(import.meta.url))}`, import.meta.url));
 
 export const mockAdapter: Adapter = {
-  declaration: { name: "mock", mock: true },
+  declaration: { name: "mock", mock: true, gracefulCancel: false },
 
   validateOptions(options) {
     const attempts = (options as Partial<MockOptions> | undefined)?.attempts;
@@ -66,10 +76,13 @@ export const mockAdapter: Adapter = {
       if (script?.deletes !== undefined && !(Array.isArray(script.deletes) && script.deletes.every((p) => typeof p === "string"))) {
         problems.push(`mock attempt ${index + 1}: \`deletes\` must be an array of paths`);
       }
-      for (const flag of ["commit", "loseContact", "hang", "hangBeforeSpawn"] as const) {
+      for (const flag of ["commit", "loseContact", "hang", "hangBeforeSpawn", "spawnGrandchild", "ignoreSignals"] as const) {
         if (script?.[flag] !== undefined && typeof script[flag] !== "boolean") {
           problems.push(`mock attempt ${index + 1}: \`${flag}\` must be a boolean`);
         }
+      }
+      if (script?.pidFile !== undefined && !(typeof script.pidFile === "string" && isAbsolute(script.pidFile))) {
+        problems.push(`mock attempt ${index + 1}: \`pidFile\` must be an absolute path`);
       }
       for (const edit of script?.edits ?? []) {
         if (typeof edit?.path !== "string" || typeof edit.content !== "string") {
@@ -102,44 +115,31 @@ export const mockAdapter: Adapter = {
     // A promise alone would not keep the process alive; the timer does.
     if (script.hangBeforeSpawn) await new Promise(() => setInterval(() => undefined, 60_000));
 
-    const child = spawn(process.execPath, [agentScript], {
+    const agent = await launch({
+      executable: { file: process.execPath, prefixArgs: [], via: "executable", path: process.execPath },
+      args: [agentScript],
       cwd: workspace,
-      stdio: ["pipe", "pipe", "ignore"],
-      windowsHide: true,
+      input: JSON.stringify(script),
     });
-    const stdout: Buffer[] = [];
-    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-    const exited = new Promise<AttemptExit>((resolve, reject) => {
-      child.once("error", reject);
-      child.once("close", (exitCode, signal) => {
-        if (script.loseContact) {
-          reject(new Error("mock adapter lost contact with the agent (scripted)"));
-          return;
-        }
-        // A crashed agent may have printed nothing: it reported no output.
-        const report = Buffer.concat(stdout).toString("utf8");
-        try {
-          const parsed =
-            report === ""
-              ? undefined
-              : (JSON.parse(report) as Pick<AttemptExit, "stopReason" | "error"> & { outputFields: AttemptExit["reportedOutput"] });
-          resolve({
-            exitCode,
-            signal,
-            reportedOutput: parsed?.outputFields ?? {},
-            stopReason: parsed?.stopReason ?? null,
-            error: parsed?.error ?? null,
-          });
-        } catch (error) {
-          reject(new Error(`mock agent printed an unreadable report: ${report.slice(0, 200)}`, { cause: error }));
-        }
-      });
+    const report = text(agent.stdout);
+    const exited = agent.exited.then(async ({ exitCode, signal }): Promise<AttemptExit> => {
+      if (script.loseContact) throw new Error("mock adapter lost contact with the agent (scripted)");
+      // A crashed or killed agent may have printed nothing: it reported no output.
+      const printed = await report;
+      let parsed: (Pick<AttemptExit, "stopReason" | "error"> & { outputFields: AttemptExit["reportedOutput"] }) | undefined;
+      try {
+        parsed = printed === "" ? undefined : JSON.parse(printed);
+      } catch (error) {
+        throw new Error(`mock agent printed an unreadable report: ${printed.slice(0, 200)}`, { cause: error });
+      }
+      return {
+        exitCode,
+        signal,
+        reportedOutput: parsed?.outputFields ?? {},
+        stopReason: parsed?.stopReason ?? null,
+        error: parsed?.error ?? null,
+      };
     });
-    await new Promise<void>((resolve, reject) => {
-      child.once("spawn", resolve);
-      child.once("error", reject);
-    });
-    child.stdin.end(JSON.stringify(script));
-    return { pid: child.pid!, exited };
+    return { pid: agent.pid, exited, cancel: ({ graceMs }) => agent.terminate({ graceMs }) };
   },
 };

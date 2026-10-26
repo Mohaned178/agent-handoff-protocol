@@ -37,10 +37,12 @@ export function startRun(args: string[], cwd: string, env: NodeJS.ProcessEnv = {
   });
   let stdout = "";
   child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
-  const exited = new Promise((resolve) => child.once("exit", resolve));
+  const exited = new Promise<number | null>((resolve) => child.once("exit", resolve));
   return {
     child,
     pid: child.pid!,
+    /** Settles with the exit code once `ahp run` has exited. */
+    exited,
     stdout: () => stdout,
     /** The run's ID, once `ahp run` has printed it. */
     runId: () =>

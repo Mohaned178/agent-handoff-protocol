@@ -137,6 +137,7 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       })),
       ledgerTruncations: [],
       resumptions: [],
+      cancelRequestedAt: null,
     };
   }
   if (!state) throw new LedgerInconsistentError(event, "the first event must be run_created");
@@ -158,6 +159,10 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
     const a = attempt(attemptId);
     if (a.state !== state) throw new LedgerInconsistentError(event, `attempt "${a.id}" is ${a.state}, not ${state}`);
     return a;
+  };
+  /** Refuses an event that would start something new once the run is being cancelled. */
+  const refuseAfterCancel = (what: string) => {
+    if (run.cancelRequestedAt !== null) throw new LedgerInconsistentError(event, `the run is being cancelled, so ${what}`);
   };
   /** The issued handoff revision a decision applies to; only an `issued` revision can be decided. */
   const issuedHandoff = (handoffId: string, revision: number): HandoffView => {
@@ -227,6 +232,7 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       if (s.state !== "ready") {
         throw new LedgerInconsistentError(event, `step "${s.id}" is ${s.state}, not ready for an attempt`);
       }
+      refuseAfterCancel("no attempt is created");
       s.state = "in_progress";
       s.mock ||= event.mock;
       run.mock ||= event.mock;
@@ -254,12 +260,14 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
         earlierVerifications: [],
         retry: null,
         recovery: null,
+        cancellation: null,
       });
       break;
     }
     case "attempt_dispatching":
       // An attempt is dispatched once: one with a dispatching record may have an agent running, and is never dispatched again.
       attemptIn(event.attemptId, "created").state = "dispatching";
+      refuseAfterCancel("no agent is dispatched");
       break;
     case "attempt_running": {
       const a = attemptIn(event.attemptId, "dispatching");
@@ -269,6 +277,18 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
     }
     case "attempt_exited": {
       const a = attemptIn(event.attemptId, "running");
+      // An attempt being cancelled ends cancelled, and only such an attempt does, with how its agent was stopped.
+      const cancel = event.cancel ?? null;
+      if ((event.outcome === "cancelled") !== (a.cancellation !== null) || (event.outcome === "cancelled") !== (cancel !== null)) {
+        throw new LedgerInconsistentError(
+          event,
+          a.cancellation ? `attempt "${a.id}" was being cancelled, so it ends cancelled, saying how` : `attempt "${a.id}" was not being cancelled`,
+        );
+      }
+      if (cancel && cancel.forced !== (cancel.via === "tree_kill")) {
+        throw new LedgerInconsistentError(event, `attempt "${a.id}": a cancel is forced exactly when the process tree was killed`);
+      }
+      if (a.cancellation) a.cancellation.result = cancel;
       a.state = "exited";
       a.outcome = event.outcome;
       a.exitCode = event.exitCode;
@@ -283,6 +303,9 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       // Only a dispatched attempt can have done something nobody saw: one that never was dispatched ran no agent.
       if (a.state !== "dispatching" && a.state !== "running") {
         throw new LedgerInconsistentError(event, `attempt "${a.id}" is ${a.state}, not dispatched and unfinished`);
+      }
+      if (event.reason === "unconfirmed_kill" && !a.cancellation) {
+        throw new LedgerInconsistentError(event, `attempt "${a.id}" was never being cancelled, so nothing killed it`);
       }
       a.state = "unknown";
       a.recovery = { reason: event.reason, detail: event.detail, report: null, awaited: false, decision: null };
@@ -403,17 +426,40 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       if (event.state === "succeeded" && s.attempts.at(-1)?.verification?.state !== "pass") {
         throw new LedgerInconsistentError(event, `step "${s.id}" succeeded without a passing verification`);
       }
+      if (event.state === "cancelled") {
+        if (run.cancelRequestedAt === null) throw new LedgerInconsistentError(event, "nobody cancelled the run");
+        // Nothing may be left that an agent could still be doing, or that waits for a person's decision.
+        const last = s.attempts.at(-1);
+        if (last && last.state !== "created" && last.state !== "exited") {
+          throw new LedgerInconsistentError(event, `step "${s.id}"'s attempt "${last.id}" is ${last.state}`);
+        }
+        if (event.failureClass !== null) throw new LedgerInconsistentError(event, "a cancelled step has no failure class");
+      }
       s.state = event.state;
       s.failureClass = event.failureClass;
       break;
     }
     case "run_terminal":
+      if (event.state === "cancelled" && run.cancelRequestedAt === null) throw new LedgerInconsistentError(event, "nobody cancelled the run");
       run.state = event.state;
       run.endedAt = event.time;
       break;
     case "ledger_truncated":
       run.ledgerTruncations.push({ seq: event.seq, time: event.time, droppedBytes: event.droppedBytes });
       break;
+    case "run_cancel_requested":
+      if (run.state !== "running" || run.cancelRequestedAt !== null) {
+        throw new LedgerInconsistentError(event, run.cancelRequestedAt !== null ? "the run is already being cancelled" : `the run is ${run.state}, not running`);
+      }
+      run.cancelRequestedAt = event.time;
+      break;
+    case "attempt_cancelling": {
+      const a = attemptIn(event.attemptId, "running");
+      if (run.cancelRequestedAt === null) throw new LedgerInconsistentError(event, "nobody cancelled the run");
+      if (a.cancellation) throw new LedgerInconsistentError(event, `attempt "${a.id}" is already being cancelled`);
+      a.cancellation = { requestedAt: event.time, result: null };
+      break;
+    }
     case "run_resumed":
       if (run.endedAt !== null) throw new LedgerInconsistentError(event, `the run already ended ${run.state}`);
       run.resumptions.push({ seq: event.seq, time: event.time, takenOverFrom: event.takenOverFrom });

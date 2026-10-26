@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Adapter, AttemptExit, StartedAttempt } from "../adapters/index.ts";
+import type { Termination } from "../process/index.ts";
 import { applyEvent, LedgerWriter } from "../ledger/index.ts";
 import {
   PROTOCOL_VERSION,
@@ -46,7 +47,26 @@ export interface ExecuteRunOptions {
   onEvent?: (event: LedgerEvent, state: Readonly<RunView>) => void;
   /** Stamps ledger events and waits out a retry's backoff. Defaults to the system clock. */
   clock?: Clock;
+  /**
+   * Cancels the run once aborted (the CLI aborts it on Ctrl+C): a running agent is stopped with every process it
+   * started, no further agent is dispatched, and the run ends `cancelled`.
+   */
+  signal?: AbortSignal;
+  /** How long a cancelled agent is given to stop gracefully before its process tree is killed. Default 5000 ms. */
+  cancelGraceMs?: number;
 }
+
+const DEFAULT_CANCEL_GRACE_MS = 5_000;
+/** How long an adapter still starting an agent when the run is cancelled is given to say whether it did. */
+const START_AFTER_CANCEL_MS = 10_000;
+/** How long a cancelled agent's adapter is given, once its processes are gone, to say how it exited. */
+const EXIT_AFTER_CANCEL_MS = 5_000;
+
+/** The cancellation fields of a run context, from the options of whatever is running it. */
+export const cancelFields = (options: Pick<ExecuteRunOptions, "signal" | "cancelGraceMs">) => ({
+  signal: options.signal,
+  cancelGraceMs: options.cancelGraceMs ?? DEFAULT_CANCEL_GRACE_MS,
+});
 
 export interface RunResult {
   runId: string;
@@ -66,6 +86,9 @@ export interface RunContext {
   adapters: ReadonlyMap<string, Adapter>;
   workflow: WorkflowDefinition;
   clock: Clock;
+  /** Aborted when the run is to be cancelled. */
+  signal: AbortSignal | undefined;
+  cancelGraceMs: number;
   /** The state derived from the ledger so far. */
   state: () => Readonly<RunView>;
   /** The ledger's events so far, in append order. */
@@ -110,7 +133,8 @@ export async function executeRun(workflow: WorkflowDefinition, options: ExecuteR
   const clock = options.clock ?? systemClock;
   const runId = newId("run");
   const ledger = await LedgerWriter.create(ledgerPath(location, runId), () => clock.now());
-  const run = runContext(ledger, [], { runId, location, worktreeRoot, adapters: options.adapters, workflow, clock }, options.onEvent);
+  const fields = { runId, location, worktreeRoot, adapters: options.adapters, workflow, clock, ...cancelFields(options) };
+  const run = runContext(ledger, [], fields, options.onEvent);
   try {
     await run.record({
       type: "run_created",
@@ -142,12 +166,24 @@ export async function drive(run: RunContext): Promise<void> {
     if (state.state !== "running") return;
     // Steps run in order, so the first that has not succeeded is the one in hand.
     const index = state.steps.findIndex((step) => step.state !== "succeeded");
-    if (index === -1 || state.steps[index]!.state === "failed") {
-      await run.record({ type: "run_terminal", state: index === -1 ? "succeeded" : "failed" });
+    const cancelling = state.cancelRequestedAt !== null;
+    if (index === -1) {
+      await run.record({ type: "run_terminal", state: "succeeded" });
+      continue;
+    }
+    const inHand = state.steps[index]!;
+    if (inHand.state === "failed" || inHand.state === "cancelled") {
+      // A run that was cancelled ends cancelled, even when its step failed after the cancel (an unknown attempt aborted).
+      await run.record({ type: "run_terminal", state: cancelling ? "cancelled" : "failed" });
+      continue;
+    }
+    if (!cancelling && run.signal?.aborted) {
+      await run.record({ type: "run_cancel_requested" });
       continue;
     }
     const recorded = run.events().length;
-    await advanceStep(run.workflow.steps[index]!, index, run);
+    const step = run.workflow.steps[index]!;
+    await (cancelling ? advanceCancelledStep(step, index, run) : advanceStep(step, index, run));
     // An advance that recorded nothing would find the same state again, and loop forever.
     if (run.events().length === recorded) throw new Error(`step "${state.steps[index]!.id}" made no progress`);
   }
@@ -218,6 +254,24 @@ async function advanceStep(step: StepDefinition, index: number, run: RunContext)
   }
 }
 
+/**
+ * The step in hand once the run is being cancelled: nothing new starts. An attempt left dispatched or running by a
+ * process that stopped is unknown, as always, and an unknown attempt waits for a person to decide what becomes of it
+ * (its step's policy is not applied: the person who cancelled is there to decide). Anything else ends the step
+ * `cancelled`.
+ */
+async function advanceCancelledStep(step: StepDefinition, index: number, run: RunContext): Promise<void> {
+  const attempt = stepOf(run, index).attempts.at(-1);
+  switch (attempt?.state) {
+    case "dispatching":
+    case "running":
+    case "unknown":
+      return advanceAttempt(step, index, run);
+    default:
+      return run.record({ type: "step_terminal", stepId: step.id, state: "cancelled", failureClass: null });
+  }
+}
+
 /** A ready step needs a handoff its recipient accepted, then (after any backoff) an attempt. */
 async function advanceReadyStep(step: StepDefinition, index: number, run: RunContext): Promise<void> {
   const view = stepOf(run, index);
@@ -233,14 +287,34 @@ async function advanceReadyStep(step: StepDefinition, index: number, run: RunCon
   if (failed && retry && retry.change !== "none" && handoff.revision === failed.handoff.revision) {
     return issueHandoff(step, revisedHandoff(step, view, failed, retry.change), run);
   }
-  if (retry) await waitOut(retry, run.clock);
+  if (retry) await waitOut(retry, run);
+  // A cancel during the wait, or before, starts nothing: the next turn ends the step.
+  if (run.signal?.aborted) return run.record({ type: "run_cancel_requested" });
   return executeAttempt(step, index, run);
 }
 
-/** Waits for what is left of a retry's backoff, which runs from when the retry was scheduled. */
-async function waitOut(retry: ScheduledRetry, clock: Clock): Promise<void> {
-  const left = Date.parse(retry.scheduledAt) + retry.delayMs - clock.now().getTime();
-  if (left > 0) await clock.sleep(left);
+/** Waits for what is left of a retry's backoff, which runs from when the retry was scheduled, or until a cancel. */
+async function waitOut(retry: ScheduledRetry, run: RunContext): Promise<void> {
+  const left = Date.parse(retry.scheduledAt) + retry.delayMs - run.clock.now().getTime();
+  if (left > 0) await Promise.race([run.clock.sleep(left), aborted(run.signal)]);
+}
+
+/** Settles once `signal` is aborted; never, without one. */
+function aborted(signal: AbortSignal | undefined): Promise<"aborted"> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) resolve("aborted");
+    else signal?.addEventListener("abort", () => resolve("aborted"), { once: true });
+  });
+}
+
+/** Settles with `promise`'s value, or with `timeout` once `ms` have passed. */
+async function within<T, U>(promise: Promise<T>, ms: number, timeout: U): Promise<T | U> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([promise, new Promise<U>((resolve) => (timer = setTimeout(() => resolve(timeout), ms)))]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Revision 1 of the step's handoff: the previous step's verified result, handed on. */
@@ -335,31 +409,74 @@ async function executeAttempt(step: StepDefinition, index: number, run: RunConte
   await record({ type: "ref_snapshot_taken", attemptId, phase: "before", refs: await sharedRefs(location.repo) });
   // Recorded before the spawn: from here on an agent may be running, so a restart never dispatches this attempt again.
   await record({ type: "attempt_dispatching", attemptId });
-  let started: StartedAttempt;
+  const starting = adapter.startAttempt({
+    attemptId,
+    attemptNumber,
+    workspace,
+    requestedModel: agent.model ?? null,
+    handoff,
+    options: agent.options,
+  });
+  let started: StartedAttempt | "aborted";
   try {
-    started = await adapter.startAttempt({
-      attemptId,
-      attemptNumber,
-      workspace,
-      requestedModel: agent.model ?? null,
-      handoff,
-      options: agent.options,
-    });
+    started = await Promise.race([starting, aborted(run.signal)]);
+    // Cancelled while the adapter was starting the agent: it is given a while to say whether it did, so it can be stopped.
+    if (started === "aborted") started = await within(starting, START_AFTER_CANCEL_MS, "aborted" as const);
   } catch (error) {
     // The adapter cannot vouch that no process started, so whatever one may have done is unknown.
     return record({ type: "attempt_unknown", attemptId, reason: "lost_contact", detail: `the adapter could not start the agent: ${messageOf(error)}` });
   }
+  if (started === "aborted") {
+    if (run.state().cancelRequestedAt === null) await record({ type: "run_cancel_requested" });
+    const detail = `the run was cancelled while the adapter was starting the agent, and it did not say within ${START_AFTER_CANCEL_MS} ms whether it had`;
+    return record({ type: "attempt_unknown", attemptId, reason: "lost_contact", detail });
+  }
   await record({ type: "attempt_running", attemptId, pid: started.pid });
-  let exit: AttemptExit;
+  let exit: AttemptExit | "aborted";
   try {
-    exit = await started.exited;
+    exit = await Promise.race([started.exited, aborted(run.signal)]);
   } catch (error) {
     return record({ type: "attempt_unknown", attemptId, reason: "lost_contact", detail: `the adapter lost track of the agent: ${messageOf(error)}` });
   }
+  if (exit === "aborted") return cancelAttempt(attemptId, started, run);
   // The agent ended cleanly exactly when its exit alone shows no failure. The attempt's failure class is a
   // separate record, made once the attempt is over, which may take its verification into account.
   const endedCleanly = classifyAttempt({ ...exit, verdict: null }) === null;
-  await record({ type: "attempt_exited", attemptId, outcome: endedCleanly ? "ok" : "error", ...exit });
+  await record({ type: "attempt_exited", attemptId, outcome: endedCleanly ? "ok" : "error", ...exit, cancel: null });
+}
+
+/**
+ * Stops a running attempt's agent because the run is cancelled, and records how that ended: `cancelled` only once
+ * every process of its tree was seen gone, and `unknown` (`unconfirmed_kill`) if some could still be running.
+ */
+async function cancelAttempt(attemptId: string, started: StartedAttempt, run: RunContext): Promise<void> {
+  const { record } = run;
+  if (run.state().cancelRequestedAt === null) await record({ type: "run_cancel_requested" });
+  // Recorded before anything is sent to the agent's processes.
+  await record({ type: "attempt_cancelling", attemptId });
+  let termination: Termination;
+  try {
+    termination = await started.cancel({ graceMs: run.cancelGraceMs });
+  } catch (error) {
+    termination = { confirmed: false, survivors: [started.pid], detail: `the adapter could not stop the agent: ${messageOf(error)}` };
+  }
+  if (!termination.confirmed) {
+    const detail = `the agent (PID ${started.pid}) was being cancelled, and not every process of its tree could be seen gone: ${termination.detail}`;
+    return record({ type: "attempt_unknown", attemptId, reason: "unconfirmed_kill", detail });
+  }
+  // Its processes are gone, so the adapter can say how it exited; a cancelled agent's report is not its result.
+  const exit = await within(started.exited.catch(() => null), EXIT_AFTER_CANCEL_MS, null);
+  await record({
+    type: "attempt_exited",
+    attemptId,
+    outcome: "cancelled",
+    exitCode: exit?.exitCode ?? null,
+    signal: exit?.signal ?? null,
+    reportedOutput: {},
+    stopReason: null,
+    error: null,
+    cancel: { forced: termination.forced, via: termination.via },
+  });
 }
 
 /** Works through the step's last attempt from wherever its record stops. */
@@ -414,7 +531,9 @@ async function advanceUnknownAttempt(step: StepDefinition, index: number, attemp
   }
   if (!recovery.decision) {
     const policy = step.recovery ?? "manual";
-    if (policy === "manual" || (policy === "adopt" && !recovery.report.workspace.exists)) {
+    // A run being cancelled has a person at hand, who decides instead of the step's policy.
+    const cancelling = run.state().cancelRequestedAt !== null;
+    if (policy === "manual" || cancelling || (policy === "adopt" && !recovery.report.workspace.exists)) {
       return record({ type: "recovery_awaited", attemptId: attempt.id });
     }
     return record({ type: "recovery_decided", attemptId: attempt.id, policy, decidedBy: "step_policy", user: null });
@@ -548,18 +667,19 @@ async function verifyAttempt(step: StepDefinition, index: number, attempt: Attem
     // Whatever breaks on AHP's side from here on is evidence that the validator could not run, not a verdict on
     // the attempt, and a verdict is always recorded.
     let stage: ValidatorStage = "verification_worktree";
+    const cancel = { signal: run.signal, graceMs: run.cancelGraceMs };
     let created = false;
     try {
       await addWorktree(location.repo, commandRun.worktree, snapshot);
       created = true;
       if (step.verification.install !== undefined) {
         stage = "install";
-        await installDependencies(step.verification.install, commandRun.worktree);
+        await installDependencies(step.verification.install, commandRun.worktree, cancel);
       }
       stage = "hidden_tests";
       await introduceHiddenTests(commandRun.worktree, hiddenTests);
       stage = "command";
-      evidence.push(await runVerificationCommand(commandRun.command, commandRun.worktree));
+      evidence.push(await runVerificationCommand(commandRun.command, commandRun.worktree, cancel));
     } catch (error) {
       evidence.push(validatorError(stage, error));
     } finally {
