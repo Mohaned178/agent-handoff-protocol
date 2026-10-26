@@ -23,6 +23,7 @@ export {
   type GithubCliOptions,
   type PullRequestProvider,
   type PullRequestTarget,
+  refChanges,
   isAttemptId,
   isRunId,
   RecoveryRefusedError,

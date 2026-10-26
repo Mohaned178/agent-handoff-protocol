@@ -21,6 +21,7 @@ import {
   findAttempt,
   findHandoff,
   findVerification,
+  refChanges,
   type LockOwner,
   type LockState,
   type PendingApproval,
@@ -365,13 +366,19 @@ function describeAction(action: ExternalActionView): string[] {
   return lines;
 }
 
-/** Whether any coding agent was seen performing an external action, said with what that cannot show. */
+/** The shared refs that moved while the attempt's agent ran; null until both snapshots are recorded. */
+function refsMovedDuring({ refs }: AttemptView): RefChange[] | null {
+  return refs.before && refs.after ? refChanges(refs.before, refs.after) : null;
+}
+
+/**
+ * Whether any coding agent was seen performing an external action, said with what that cannot show. Read from every
+ * attempt's ref snapshots, so an attempt whose agent failed, and was never verified, counts as well.
+ */
 function describeAgentExternalActions(state: Readonly<RunView>): string | null {
-  const verified = state.steps.flatMap((step) => step.attempts.map((attempt) => ({ step, attempt }))).filter(({ attempt }) => attempt.verification);
-  if (verified.length === 0) return null;
-  const detected = verified.filter(({ attempt }) =>
-    [attempt.verification!, ...attempt.earlierVerifications].some((v) => v.evidence.some((item) => item.kind === "forbidden_external_action_detected")),
-  );
+  const watched = state.steps.flatMap((step) => step.attempts.map((attempt) => ({ step, attempt }))).filter(({ attempt }) => refsMovedDuring(attempt));
+  if (watched.length === 0) return null;
+  const detected = watched.filter(({ attempt }) => refsMovedDuring(attempt)!.length > 0);
   const seen =
     detected.length === 0
       ? "none detected"
@@ -624,6 +631,15 @@ export function formatRun(inspection: RunInspection): string {
       }
       if (!attempt.verification) {
         lines.push("    verification: not run");
+        // Verification would have failed on these; an attempt that is not verified has no evidence to carry them.
+        const moved = refsMovedDuring(attempt) ?? [];
+        if (moved.length > 0) {
+          lines.push(
+            `    forbidden external action detected: ${quantity(moved.length, "shared ref")} changed while the agent ran`,
+            ...moved.map((change) => `      | ${describeRefChange(change)}`),
+            `      ${REF_CHANGE_NOTE}`,
+          );
+        }
         continue;
       }
       lines.push(...describeVerification("verification", attempt.verification));

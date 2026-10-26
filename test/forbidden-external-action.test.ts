@@ -55,6 +55,20 @@ describe("a coding agent that performs an external action itself", () => {
     expect(detectedIn(implement.attempts[1]!.verification!.evidence)).toBeUndefined();
   });
 
+  it("is reported for an agent that pushed and then failed, which is never verified", async () => {
+    const { repo } = fixture();
+    const pushingThenFailing = { git: [["push", "--quiet", "origin", "HEAD:refs/heads/sneaky"]], exitCode: 3 };
+    const { runId, state } = await runWorkflow(retryWorkflow([pushingThenFailing], { retry: { budget: 0 } }), { repo });
+    const attempt = implementOf(state).attempts[0]!;
+    expect([attempt.failureClass, attempt.verification]).toEqual(["agent_error", null]);
+
+    const inspect = ahp(["inspect", runId], repo).stdout;
+
+    expect(inspect).toContain(`external actions by coding agents: detected in attempt ${attempt.id} of step implement`);
+    expect(inspect).toContain("    verification: not run\n    forbidden external action detected: 1 shared ref changed while the agent ran");
+    expect(inspect).toMatch(/\| refs\/remotes\/origin\/sneaky: \(none\) -> [0-9a-f]{12}/);
+  });
+
   it("is reported by ahp inspect, which says that the absence of this evidence is not proof", async () => {
     const { repo } = fixture();
     const clean = await runWorkflow(retryWorkflow([hello]), { repo });

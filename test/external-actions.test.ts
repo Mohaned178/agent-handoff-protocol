@@ -108,7 +108,8 @@ describe("pushing a branch after approval", () => {
     const push = stepOf(state, "push");
     expect([push.state, push.failureClass]).toEqual(["failed", "external_action_failed"]);
     expect(push.action!.failure!.error).toMatch(/git push --quiet origin [0-9a-f]{40}:refs\/heads\/ahp\/greeting failed/);
-    expect(push.action!.checks.map((c) => c.done)).toEqual([false]);
+    // Looked at before the push, and again after it failed: the remote did not have it either time.
+    expect(push.action!.checks.map((c) => c.done)).toEqual([false, false]);
     expect(remoteBranch(remote)).toBe(theirs);
     expect(updatesOf(remote)).toBe(1);
   });
@@ -237,6 +238,39 @@ describe("opening and merging a pull request after approval", () => {
     expect(open.action!.failure!.error).toBe("gh: not logged in to any hosts");
     expect(host.calls.open).toBe(1);
     // The push before it stands: it was done.
+    expect(stepOf(state, "push").state).toBe("succeeded");
+  });
+
+  it("opens its own pull request when the only open one from the branch goes into another base", async () => {
+    const { repo, runId } = await atGate(pushStep(), openStep());
+    const host = fakePullRequests();
+    await approveStep({ repo, runId, stepId: "approve", pullRequests: host.provider });
+    truncateLedgerAfter(repo, runId, "external_action_intended", 2);
+    host.pulls[0]!.base = "release";
+
+    const { state } = await resumeRun({ repo, runId, pullRequests: host.provider });
+
+    expect(state.state).toBe("succeeded");
+    expect(host.pulls.map((pr) => [pr.number, pr.base, pr.state])).toEqual([
+      [1, "release", "open"],
+      [2, "main", "open"],
+    ]);
+  });
+
+  it("ends the step cancelled, not failed, when a cancel stops the pull request being opened", async () => {
+    const { repo, runId } = await atGate(pushStep(), openStep());
+    const controller = new AbortController();
+    // A console Ctrl+C reaches gh as well as AHP: gh fails because of the cancel.
+    const host = fakePullRequests({ onOpen: () => controller.abort(), failOpen: "gh: interrupted" });
+
+    const { state } = await approveStep({ repo, runId, stepId: "approve", pullRequests: host.provider, signal: controller.signal });
+
+    expect(state.state).toBe("cancelled");
+    const open = stepOf(state, "open");
+    expect([open.state, open.failureClass]).toEqual(["cancelled", null]);
+    // Before it, after the failure, and once more as the step was cancelled: never found done.
+    expect(open.action!.checks.map((c) => c.done)).toEqual([false, false, false]);
+    expect(open.action!.failure).toBeNull();
     expect(stepOf(state, "push").state).toBe("succeeded");
   });
 

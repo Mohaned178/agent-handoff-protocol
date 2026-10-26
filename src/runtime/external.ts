@@ -6,6 +6,7 @@ import {
   type ExternalObservation,
   type PullRequestRecord,
 } from "../protocol/index.ts";
+import { gateBefore } from "../ledger/index.ts";
 import { git } from "./git.ts";
 import type { PullRequestTarget } from "./pull-requests.ts";
 import type { RunContext } from "./run.ts";
@@ -48,26 +49,22 @@ export async function advanceCancelledExternalAction(step: ExternalActionStepDef
   const cancelled = () => run.record({ type: "step_terminal", stepId: step.id, state: "cancelled", failureClass: null });
   if (view.state !== "in_progress" || !action) return cancelled();
   if (isExternalActionDone(action) || action.failure) return advanceExternalAction(step, index, run);
-  if (await recordCheck(step, action.target, run)) return;
-  // The check found it not done, and nothing will do it now.
-  await cancelled();
+  const observed = await recordCheck(step, action.target, run);
+  // Found not done, and nothing will do it now.
+  if (observed && !isDone(action.target, observed)) await cancelled();
 }
 
-/**
- * Looks at the remote and records what it shows, or that it could not be looked at (which fails the step). True
- * unless it recorded a check that found the action not done.
- */
-async function recordCheck(step: ExternalActionStepDefinition, target: ExternalActionTarget, run: RunContext): Promise<boolean> {
+/** Looks at the remote and records what it shows; null, with the failure recorded, when it could not be looked at. */
+async function recordCheck(step: ExternalActionStepDefinition, target: ExternalActionTarget, run: RunContext): Promise<ExternalObservation | null> {
   let observed: ExternalObservation;
   try {
     observed = await check(target, run);
   } catch (error) {
     await run.record({ type: "external_action_failed", stepId: step.id, error: `could not check the remote: ${messageOf(error)}` });
-    return true;
+    return null;
   }
-  const done = isDone(target, observed);
-  await run.record({ type: "external_action_checked", stepId: step.id, done, observed });
-  return done;
+  await run.record({ type: "external_action_checked", stepId: step.id, done: isDone(target, observed), observed });
+  return observed;
 }
 
 /**
@@ -76,11 +73,9 @@ async function recordCheck(step: ExternalActionStepDefinition, target: ExternalA
  */
 function targetOf(step: ExternalActionStepDefinition, index: number, run: RunContext): ExternalActionTarget {
   const state = run.state();
-  let before = index - 1;
-  while (before >= 0 && state.steps[before]!.kind === "external_action") before -= 1;
-  const gate = state.steps[before];
+  const gate = gateBefore(state, index);
   const approval = gate?.approvals.at(-1);
-  if (gate?.kind !== "approval_gate" || approval?.decision?.decision !== "approved") {
+  if (!gate || approval?.decision?.decision !== "approved") {
     throw new Error(`external action "${step.id}" has no approved gate before it`);
   }
   const common = { remote: step.action.remote ?? DEFAULT_REMOTE, gateStepId: gate.id, commit: approval.commit };
@@ -102,20 +97,26 @@ function targetOf(step: ExternalActionStepDefinition, index: number, run: RunCon
 
 /**
  * Looks at the remote and records what it shows; performs the action only when that is not done already, and not
- * after a cancel. A failure to perform it is looked at again before it is recorded: the remote may have it anyway.
+ * after a cancel. A failure to perform it is looked at again, and recorded, before the failure is: the remote may have
+ * it anyway. A cancel meanwhile may be what stopped it (a console's Ctrl+C reaches git and gh too), so then the
+ * failure is not recorded, and the next turn, cancelling, looks again and ends the step.
  */
 async function checkThenPerform(step: ExternalActionStepDefinition, target: ExternalActionTarget, run: RunContext): Promise<void> {
   const { record } = run;
-  if (await recordCheck(step, target, run)) return;
+  const observed = await recordCheck(step, target, run);
+  if (!observed || isDone(target, observed)) return;
   // Nothing starts after a cancel: the next turn records it, and ends the step.
   if (run.cancel.signal?.aborted) return;
-  const observed = run.state().steps.find((s) => s.id === step.id)!.action!.checks.at(-1)!.observed;
   try {
     const result = await perform(target, observed, run);
     return record({ type: "external_action_performed", stepId: step.id, observed: result });
   } catch (error) {
     const again = await check(target, run).catch(() => null);
-    if (again && isDone(target, again)) return record({ type: "external_action_checked", stepId: step.id, done: true, observed: again });
+    if (again) {
+      const done = isDone(target, again);
+      await record({ type: "external_action_checked", stepId: step.id, done, observed: again });
+      if (done || run.cancel.signal?.aborted) return;
+    }
     return record({ type: "external_action_failed", stepId: step.id, error: messageOf(error) });
   }
 }
@@ -130,22 +131,26 @@ const pullRequestTarget = (target: ExternalActionTarget, run: RunContext): PullR
 async function check(target: ExternalActionTarget, run: RunContext): Promise<ExternalObservation> {
   if (target.kind === "push_branch") return { kind: "remote_branch", commit: await remoteBranchCommit(run.location.repo, target.remote, target.branch) };
   const found = await run.pullRequests.find(pullRequestTarget(target, run));
-  // An open pull request decides; failing one, a merged one of the approved commit; failing that, the newest.
+  // An open pull request into the base the step names decides (any open one, for a merge); failing one, a merged
+  // one of the approved commit; failing that, the newest.
   const decisive =
-    found.find((pr) => pr.state === "open") ?? found.find((pr) => pr.state === "merged" && pr.headCommit === target.commit) ?? found[0] ?? null;
+    found.find((pr) => pr.state === "open" && (target.kind !== "open_pr" || pr.base === target.base)) ??
+    found.find((pr) => pr.state === "merged" && pr.headCommit === target.commit) ??
+    found[0] ??
+    null;
   return { kind: "pull_request", pullRequest: decisive };
 }
 
 /**
  * Whether what the remote shows is the action done: the branch at the approved commit; an open pull request from
- * the branch, or one merged with the approved commit at its head (a pull request merged by hand was opened); a merged
- * one with the approved commit at its head.
+ * the branch into the step's base, or one merged with the approved commit at its head (a pull request merged by hand
+ * was opened); a merged one with the approved commit at its head.
  */
 function isDone(target: ExternalActionTarget, observed: ExternalObservation): boolean {
   if (observed.kind === "remote_branch") return observed.commit === target.commit;
   const pr = observed.pullRequest;
   const mergedApproved = pr?.state === "merged" && pr.headCommit === target.commit;
-  return target.kind === "open_pr" ? pr?.state === "open" || mergedApproved : mergedApproved;
+  return target.kind === "open_pr" ? (pr?.state === "open" && pr.base === target.base) || mergedApproved : mergedApproved;
 }
 
 async function perform(target: ExternalActionTarget, observed: ExternalObservation, run: RunContext): Promise<ExternalObservation> {

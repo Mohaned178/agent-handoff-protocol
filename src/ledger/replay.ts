@@ -52,6 +52,17 @@ export function findHandoff(
   return undefined;
 }
 
+/**
+ * The approval gate whose approval the external action at `index` acts on: the nearest step before it, past other
+ * external actions, if that is a gate.
+ */
+export function gateBefore(run: Readonly<RunView>, index: number): StepView | undefined {
+  let before = index - 1;
+  while (before >= 0 && run.steps[before]!.kind === "external_action") before -= 1;
+  const gate = run.steps[before];
+  return gate?.kind === "approval_gate" ? gate : undefined;
+}
+
 const noRetriesSpent = (): RetryUsage => ({ retries: 0, transientRetries: 0, transientWaitMs: 0, rerouted: false });
 
 /**
@@ -522,14 +533,11 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
       if (s.kind !== "external_action" || s.state !== "ready" || run.state !== "running") {
         throw new LedgerInconsistentError(event, `step "${s.id}" is not an external action ready in a running run`);
       }
-      // It publishes what the gate before it approved: the nearest gate back, past other external actions, which a
-      // person approved for this commit.
-      let before = run.steps.indexOf(s) - 1;
-      while (before >= 0 && run.steps[before]!.kind === "external_action") before -= 1;
-      const gate = run.steps[before];
+      // It publishes what the gate before it approved, which a person approved for this commit.
+      const gate = gateBefore(run, run.steps.indexOf(s));
       const approval = gate?.approvals.at(-1);
       if (
-        gate?.kind !== "approval_gate" ||
+        !gate ||
         gate.state !== "succeeded" ||
         approval?.decision?.decision !== "approved" ||
         gate.id !== event.target.gateStepId ||

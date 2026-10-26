@@ -8,5 +8,5 @@ export {
   type LockState,
   type TakenLock,
 } from "./lock.ts";
-export { applyEvent, findAttempt, findHandoff, findVerification, LedgerInconsistentError, replay } from "./replay.ts";
+export { applyEvent, findAttempt, findHandoff, findVerification, gateBefore, LedgerInconsistentError, replay } from "./replay.ts";
 export { LedgerWriter } from "./writer.ts";

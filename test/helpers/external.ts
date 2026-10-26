@@ -71,18 +71,18 @@ export const updatesOf = (remote: string, branch = BRANCH): number => {
  * An in-memory pull-request host: what it holds survives across runs and resumptions for as long as the test keeps
  * it. Opening reads the branch's head from the real remote, so a pull request exists only for a pushed branch.
  */
-export function fakePullRequests(options: { failOpen?: string; failFind?: string } = {}) {
+export function fakePullRequests(options: { failOpen?: string; onOpen?: () => void } = {}) {
   const pulls: (PullRequestRecord & { remote: string; branch: string; title: string; body: string; method: string | null })[] = [];
   const calls = { find: 0, open: 0, merge: 0 };
   const record = ({ number, url, state, headCommit, base }: PullRequestRecord): PullRequestRecord => ({ number, url, state, headCommit, base });
   const provider: PullRequestProvider = {
     async find({ remote, branch }) {
       calls.find += 1;
-      if (options.failFind) throw new Error(options.failFind);
       return pulls.filter((pr) => pr.remote === remote && pr.branch === branch).reverse().map(record);
     },
     async open({ repo, remote, branch }, { base, title, body }) {
       calls.open += 1;
+      options.onOpen?.();
       if (options.failOpen) throw new Error(options.failOpen);
       const head = git(repo, "ls-remote", remote, `refs/heads/${branch}`).split("\t")[0];
       if (!head) throw new Error(`no branch ${branch} on ${remote}`);
