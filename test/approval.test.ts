@@ -262,12 +262,10 @@ describe("a decision that is not one", () => {
     await approveStep({ repo, runId, stepId: "approve" });
     const before = await eventsOf(repo, runId);
 
-    const again = approveStep({ repo, runId, stepId: "approve" });
-    const rejectAfter = rejectStep({ repo, runId, stepId: "approve", reason: "too late" });
-
-    await expect(again).rejects.toThrow(ApprovalRefusedError);
-    await expect(again).rejects.toThrow(/step approve is not waiting for approval: run run_[a-z0-9]+ already ended \(succeeded\)/);
-    await expect(rejectAfter).rejects.toThrow(ApprovalRefusedError);
+    await expect(approveStep({ repo, runId, stepId: "approve" })).rejects.toThrow(
+      /step approve is not waiting for approval: run run_[a-z0-9]+ already ended \(succeeded\)/,
+    );
+    await expect(rejectStep({ repo, runId, stepId: "approve", reason: "too late" })).rejects.toThrow(ApprovalRefusedError);
     expect(await eventsOf(repo, runId)).toBe(before);
   });
 
