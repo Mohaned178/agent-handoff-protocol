@@ -474,6 +474,10 @@ async function executeAttempt(step: StepDefinition, index: number, run: RunConte
     const detail = `the run was cancelled while the adapter was starting the agent, and it did not say within ${START_AFTER_CANCEL_MS} ms whether it had`;
     return record({ type: "attempt_unknown", attemptId, reason: "lost_contact", detail });
   }
+  // An adapter that loses its agent may reject `exited` while `attempt_running` is still being recorded, before anything
+  // awaits it; handled here so that is not an unhandled rejection (which kills the process). The rejection still
+  // reaches the await below, which records the attempt as unknown.
+  started.exited.catch(() => undefined);
   await record({ type: "attempt_running", attemptId, pid: started.pid });
   let exit: AttemptExit | typeof CANCELLED;
   try {
