@@ -6,10 +6,14 @@ import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve, isAbsolute } from "node:path";
 import { text } from "node:stream/consumers";
+import type { AppliedCapabilities } from "../../protocol/index.ts";
 import type { MockAttemptScript } from "./index.ts";
 import { MOCK_USAGE_SOURCE } from "./source.ts";
 
-const script = JSON.parse(await text(process.stdin)) as MockAttemptScript;
+const script = JSON.parse(await text(process.stdin)) as MockAttemptScript & { asked: AppliedCapabilities };
+// What the adapter asks of the agent. The mock agent is told and does nothing more about it, which is why it is `cooperative`.
+for (const { kind, require } of script.asked.capabilities) console.error(`mock agent: asked for ${kind} (at least ${require}), not acted on`);
+console.error(`mock agent: network stance ${script.asked.network.stance}, not acted on`);
 const workspace = process.cwd();
 
 /** The absolute path of `path` inside the workspace; exits when it points elsewhere. */

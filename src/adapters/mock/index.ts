@@ -2,14 +2,19 @@ import { extname, isAbsolute } from "node:path";
 import { text } from "node:stream/consumers";
 import { fileURLToPath } from "node:url";
 import { launch } from "../../process/index.ts";
-import { ADAPTER_ERROR_KINDS, sameOnEveryOs, STOP_REASONS } from "../../protocol/index.ts";
+import { ADAPTER_ERROR_KINDS, isUsageReport, sameOnEveryOs, STOP_REASONS } from "../../protocol/index.ts";
 import type { AgentRef, AttemptError, OutputFieldValue, StopReason, UsageReport } from "../../protocol/index.ts";
 import type { Adapter, AttemptExit } from "../contract.ts";
 
 /** The usage a mock attempt reports, as a tool would: only the numbers it gives; the rest are not reported. */
 export type MockUsage = Partial<Omit<UsageReport, "source">>;
 
-export { MOCK_USAGE_SOURCE } from "./source.ts";
+import { MOCK_USAGE_SOURCE } from "./source.ts";
+
+export { MOCK_USAGE_SOURCE };
+
+/** Every number a usage report may hold, not reported. */
+const NO_USAGE = { inputTokens: null, outputTokens: null, totalTokens: null, cachedInputTokens: null, cost: null };
 
 export interface MockEdit {
   /** Relative to the attempt's workspace. */
@@ -134,13 +139,11 @@ export const mockAdapter: Adapter = {
         problems.push(`mock attempt ${index + 1}: \`reportedModel\` must be a non-empty string`);
       }
       if (script?.usage !== undefined) {
-        const { cost, ...counts } = script.usage;
-        const countKeys = ["inputTokens", "outputTokens", "totalTokens", "cachedInputTokens"];
-        const badCount = Object.entries(counts).some(([key, value]) => !countKeys.includes(key) || !(Number.isFinite(value) && (value as number) >= 0));
-        const badCost = cost != null && !(Number.isFinite(cost.amount) && cost.amount >= 0 && typeof cost.currency === "string" && cost.currency !== "");
-        if (badCount || badCost || Object.keys(script.usage).length === 0) {
+        const reported = { source: MOCK_USAGE_SOURCE, ...NO_USAGE, ...script.usage };
+        const unknownKeys = Object.keys(script.usage).filter((key) => !(key in NO_USAGE));
+        if (unknownKeys.length > 0 || !isUsageReport(reported)) {
           problems.push(
-            `mock attempt ${index + 1}: \`usage\` needs at least one of ${countKeys.join(", ")} (non-negative numbers) or a \`cost\` with an amount and a currency`,
+            `mock attempt ${index + 1}: \`usage\` needs at least one of ${Object.keys(NO_USAGE).join(", ")} (non-negative numbers; a cost has an amount and a currency)`,
           );
         }
       }
@@ -157,7 +160,7 @@ export const mockAdapter: Adapter = {
     return problems;
   },
 
-  async startAttempt({ attemptNumber, workspace, options }) {
+  async startAttempt({ attemptNumber, workspace, options, capabilities }) {
     const script = (options as MockOptions).attempts[attemptNumber - 1];
     if (!script) throw new Error(`mock adapter has no script for attempt ${attemptNumber}`);
     // A promise alone would not keep the process alive; the timer does.
@@ -167,7 +170,8 @@ export const mockAdapter: Adapter = {
       executable: { file: process.execPath, prefixArgs: [], via: "executable", path: process.execPath },
       args: [agentScript],
       cwd: workspace,
-      input: JSON.stringify(script),
+      // The agent is told what is asked of it, which is all `cooperative` means; it does nothing more about it.
+      input: JSON.stringify({ ...script, asked: capabilities }),
     });
     const report = text(agent.stdout);
     const exited = agent.exited.then(async ({ exitCode, signal }): Promise<AttemptExit> => {

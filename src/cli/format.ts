@@ -88,7 +88,7 @@ function describeUsageReport({ source, inputTokens, outputTokens, totalTokens, c
 /** Usage only as the tool reported it, with its source; an attempt whose tool reported none says so, and shows no number. */
 function describeUsage(attempt: AttemptView): string {
   if (attempt.usage) return describeUsageReport(attempt.usage);
-  return attempt.state === "exited" ? "not reported by the tool (none is estimated)" : "-";
+  return attempt.state === "exited" ? "none recorded: the adapter reported none it could vouch for (nothing is estimated)" : "-";
 }
 
 /** The capabilities asked of the adapter and the level its declaration reaches for each, which are declared levels. */

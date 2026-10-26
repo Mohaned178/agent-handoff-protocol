@@ -59,7 +59,7 @@ describe("ahp inspect on capabilities, models and usage", () => {
     const { inspect } = runAndInspect(workflowFile({}));
 
     expect(inspect.stdout).toContain("reported model: unknown (the tool did not report one)");
-    expect(inspect.stdout).toContain("usage: not reported by the tool (none is estimated)");
+    expect(inspect.stdout).toContain("usage: none recorded: the adapter reported none it could vouch for (nothing is estimated)");
     expect(inspect.stdout).not.toMatch(/\d+ (input|output|total) tokens/);
   });
 

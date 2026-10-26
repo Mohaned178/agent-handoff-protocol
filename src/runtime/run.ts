@@ -529,7 +529,7 @@ async function executeAttempt(step: StepDefinition, index: number, run: RunConte
  * made up, and no usage is estimated or repaired.
  */
 const reportedBy = (exit: Pick<AttemptExit, "reportedModel" | "usage">) => ({
-  reportedModel: exit.reportedModel !== null && exit.reportedModel.trim() !== "" ? exit.reportedModel.trim() : null,
+  reportedModel: exit.reportedModel !== null && exit.reportedModel.trim() !== "" ? exit.reportedModel : null,
   usage: isUsageReport(exit.usage) ? exit.usage : null,
 });
 

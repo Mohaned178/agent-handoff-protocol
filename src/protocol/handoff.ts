@@ -289,11 +289,11 @@ export const HandoffRevisionSchema = z
     duplicates(["requires", "fields"], handoff.requires.fields);
     duplicates(["requires", "artifacts"], handoff.requires.artifacts);
     duplicates(["contract", "acceptance", "requiredOutputFields"], handoff.contract.acceptance.requiredOutputFields);
-    duplicates(["capabilities"], handoff.capabilities.map((c) => c.kind));
+    const kinds = handoff.capabilities.map((c) => c.kind);
+    duplicates(["capabilities"], kinds);
     handoff.capabilities.forEach((capability, index) => {
       if (capability.kind === "write_scope") duplicates(["capabilities", index, "paths"], capability.paths);
     });
-    const kinds = handoff.capabilities.map((c) => c.kind);
     if (kinds.includes("read_only") && kinds.includes("write_scope")) {
       ctx.addIssue({ code: "custom", path: ["capabilities"], message: "`read_only` and `write_scope` contradict each other" });
     }
