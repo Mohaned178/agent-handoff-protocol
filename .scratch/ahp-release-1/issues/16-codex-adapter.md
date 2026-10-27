@@ -57,3 +57,5 @@ Then commit `conformance/results/codex--linux-wsl2.json`. Expect `read_only` to 
 7. **"Passes the conformance suite" reads as "no check failed, and these were skipped"**: `failure:transient`, `model:reported`, `model:not_reported`, `usage:not_reported`. *Recommended: accept this reading,* as for ticket 15.
 8. **The conformance subject requests `gpt-5.6-luna`** (the model the spike found a ChatGPT login could use), overridable with `AHP_CONFORMANCE_CODEX_MODEL`. *Recommended: adopt.* Codex has no alias, so a made-up name cannot be used; the name is not recorded in the result.
 9. **Shared helpers moved out of `claude-code/`** (`src/adapters/prompt.ts`, `output-schema.ts`). *Recommended: adopt;* behaviour unchanged, Claude Code's tests pass untouched.
+
+**Confirmed by the maintainer on 2026-10-28 ("do recommendation"): decisions 1 to 9 above stand as recommended; reopen one only with a new decision.** Decision 1 includes the `enforced_by_tool` claim for `read_only` on Windows. Still open for this ticket: the Linux (WSL2) conformance run, which only the maintainer can start (it needs their login).
