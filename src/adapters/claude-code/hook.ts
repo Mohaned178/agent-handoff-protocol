@@ -47,10 +47,11 @@ function canonical(path: string): string {
 
 /** Windows and macOS file systems ignore letter case by default. */
 const foldsCase = (platform: string) => platform === "win32" || platform === "darwin";
+const folded = (platform: string) => (value: string) => (foldsCase(platform) ? value.toLowerCase() : value);
 
 /** `path` relative to `base` with forward slashes, or null when it is not inside `base` (or is `base`: ""). */
 function within(base: string, path: string, platform: string): string | null {
-  const fold = (value: string) => (foldsCase(platform) ? value.toLowerCase() : value);
+  const fold = folded(platform);
   const from = relative(fold(base), fold(path));
   if (from === "") return "";
   if (from === ".." || from.startsWith(`..${sep}`) || isAbsolute(from)) return null;
@@ -77,8 +78,8 @@ export function decide(payload: unknown, policy: HookPolicy, platform: string = 
   if (foldsCase(platform) ? /^\.git(\/|$)/i.test(inWorkspace) : /^\.git(\/|$)/.test(inWorkspace)) return deny(`${given} is under .git`);
 
   if (policy.writeScope) {
+    const fold = folded(platform);
     const inScope = policy.writeScope.some((scope) => {
-      const fold = (value: string) => (foldsCase(platform) ? value.toLowerCase() : value);
       return fold(inWorkspace) === fold(scope) || fold(inWorkspace).startsWith(`${fold(scope)}/`);
     });
     if (!inScope) return deny(`${given} is outside this step's write scope (${policy.writeScope.join(", ")})`);
@@ -86,8 +87,9 @@ export function decide(payload: unknown, policy: HookPolicy, platform: string = 
   return { allow: true };
 }
 
-// Runs as the entry point only: the adapter's tests import `decide`.
-if (import.meta.main) {
+// Runs as the entry point; only an import (the adapter's tests) sets `main` to false. A Node that does not know the property
+// runs it too, so the hook never silently allows everything.
+if (import.meta.main !== false) {
   // Claude Code lets a call through when a hook fails with any code but 2, so anything that goes wrong here blocks.
   try {
     const policy = JSON.parse(readFileSync(process.argv[2]!, "utf8")) as HookPolicy;
