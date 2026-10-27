@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { assignRoles, renderWorkflow, validateWorkflow, type ToolId } from "../src/index.ts";
 import { ahp } from "./helpers/cli.ts";
 import { addBareRemote, remoteBranch } from "./helpers/external.ts";
-import { FAKE_SECRETS, fakeToolsDir, installFakeTool, pathWithFakes } from "./helpers/fake-tools.ts";
+import { FAKE_SECRETS, fakeToolsDir, installFakeTool, pathWithFakes, pathWithoutTools } from "./helpers/fake-tools.ts";
 import { createTempRepo, git, removeTempRepos } from "./helpers/repo.ts";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -49,7 +49,7 @@ describe("ahp init", () => {
   it("writes a workflow that validates, using the mock adapter for roles no installed tool can play, and says so", async () => {
     const repo = createTempRepo({ "README.md": "x\n" });
 
-    const init = ahp(["init"], repo);
+    const init = ahp(["init"], repo, await pathWithoutTools());
 
     expect(init.code).toBe(0);
     expect(init.stdout).toContain("ahp.workflow.mjs");
@@ -72,14 +72,15 @@ describe("ahp init", () => {
     expect(existsSync(join(repo, "other.mjs"))).toBe(true);
   });
 
-  it("generates a workflow that runs end to end with the mock adapter: plan, implement, review sends it back, gate, push", () => {
+  it("generates a workflow that runs end to end with the mock adapter: plan, implement, review sends it back, gate, push", async () => {
+    const env = await pathWithoutTools();
     const repo = createTempRepo({ "README.md": "x\n" });
     const remote = addBareRemote(repo);
-    expect(ahp(["init"], repo).code).toBe(0);
+    expect(ahp(["init"], repo, env).code).toBe(0);
     git(repo, "add", "ahp.workflow.mjs");
     git(repo, "commit", "--quiet", "--message", "add the workflow");
 
-    const run = ahp(["run", "ahp.workflow.mjs"], repo);
+    const run = ahp(["run", "ahp.workflow.mjs"], repo, env);
 
     // Stopped at the approval gate, nothing published yet.
     expect(run.code, run.stdout + run.stderr).toBe(4);
@@ -88,7 +89,7 @@ describe("ahp init", () => {
     expect(remoteBranch(remote, "ahp/password-reset")).toBeNull();
     const runId = /(run_[a-z0-9]+)/.exec(run.stdout)![1]!;
 
-    const approve = ahp(["approve", runId, "approve", "--repo", repo], repo);
+    const approve = ahp(["approve", runId, "approve", "--repo", repo], repo, env);
 
     expect(approve.code, approve.stdout + approve.stderr).toBe(0);
     const pushed = remoteBranch(remote, "ahp/password-reset");

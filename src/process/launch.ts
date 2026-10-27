@@ -11,7 +11,7 @@ export interface LaunchOptions {
   cwd: string;
   /** Written to the process's stdin, byte for byte, which is then closed: the prompt, or whatever the tool reads there. Default empty. */
   input?: string;
-  /** Variables added to this process's environment. */
+  /** Variables added to this process's environment. `PWD` is always `cwd`. */
   env?: NodeJS.ProcessEnv;
 }
 
@@ -49,7 +49,9 @@ export async function launch(options: LaunchOptions): Promise<LaunchedProcess> {
   const launchedAt = Date.now();
   const subprocess = execa(executable.file, [...executable.prefixArgs, ...(options.args ?? [])], {
     cwd: options.cwd,
-    env: options.env,
+    // PWD is set too: a tool that follows the inherited PWD instead of its real working directory (OpenCode does) would
+    // otherwise work in the directory AHP was started from, which silently defeats workspace isolation.
+    env: { ...options.env, PWD: options.cwd },
     shell: false,
     detached: OWN_PROCESS_GROUP,
     // AHP stops the process itself, through `terminate`, and records how.

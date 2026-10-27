@@ -1,6 +1,6 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { basename, delimiter, dirname, join } from "node:path";
 import { resolveExecutable } from "../../src/process/index.ts";
 import { trackForRemoval } from "./repo.ts";
 
@@ -75,4 +75,26 @@ process.stdin.resume();
 export async function pathWithFakes(dir: string): Promise<NodeJS.ProcessEnv> {
   const git = await resolveExecutable("git");
   return { PATH: [dir, dirname(git.path)].join(delimiter), Path: [dir, dirname(git.path)].join(delimiter) };
+}
+
+/**
+ * A PATH with git and the current Node and no coding-agent tool, so a test that expects none is not changed by what is
+ * installed on the machine (a real `claude` there would be found, cast by `ahp init` and run). Node is linked into
+ * the directory rather than its own directory put on PATH, which may hold such tools too.
+ */
+export async function pathWithoutTools(): Promise<NodeJS.ProcessEnv> {
+  const { dir } = fakeToolsDir();
+  const node = join(dir, basename(process.execPath));
+  try {
+    linkSync(process.execPath, node);
+  } catch {
+    // another volume, or no permission to link: a copy does as well
+    copyFileSync(process.execPath, node);
+  }
+  const env = await pathWithFakes(dir);
+  // Git for Windows runs the transport of a local remote through its own sh, which sits in the install's usr/bin.
+  const git = await resolveExecutable("git");
+  const sh = [dirname(git.path), dirname(dirname(git.path)), dirname(dirname(dirname(git.path)))].map((root) => join(root, "usr", "bin")).find((candidate) => existsSync(join(candidate, "sh.exe")));
+  const path = [env.PATH, sh].filter(Boolean).join(delimiter);
+  return { PATH: path, Path: path };
 }

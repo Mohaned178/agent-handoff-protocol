@@ -190,7 +190,7 @@ describe("workflow definition", () => {
     });
 
     const text = problems.join("\n");
-    expect(text).toContain('step "implement": reroute: unknown adapter "no-such-tool" (known: mock)');
+    expect(text).toContain('step "implement": reroute: unknown adapter "no-such-tool" (known: mock, claude-code)');
     expect(text).toContain('step "second": reroute: mock adapter options need a non-empty `attempts` array');
     expect(text).toContain('step "third": `reroute` must be an object naming its `adapter`');
     expect(text).toContain("step \"fourth\": unknown property `reroute.colour`");

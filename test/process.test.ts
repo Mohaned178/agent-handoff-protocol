@@ -187,6 +187,20 @@ describe("launch", () => {
     if (process.platform === "win32") expect(agent).toMatchObject({ file: process.execPath, via: "npm_shim" });
   });
 
+  it("sets PWD to the working directory, whatever PWD the parent inherited (a tool that follows PWD would leave the workspace)", async () => {
+    const bin = tempDir();
+    const cwd = tempDir();
+    const elsewhere = tempDir();
+    const script = write(join(bin, "pwd.js"), `require("fs").writeFileSync(process.argv[2], JSON.stringify({ pwd: process.env.PWD, cwd: process.cwd() }));`);
+    const out = join(cwd, "out.json");
+
+    // The caller's own env may even name PWD: the working directory wins, as the shell would have it.
+    const started = await launch({ executable: node, args: [script, out], cwd, env: { PWD: elsewhere } });
+    expect(await started.exited).toEqual({ exitCode: 0, signal: null });
+
+    expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ pwd: cwd, cwd });
+  });
+
   it("fails to start a command that is not there", async () => {
     const cwd = tempDir();
     const missing: Executable = { file: join(cwd, process.platform === "win32" ? "missing.exe" : "missing"), prefixArgs: [], via: "executable", path: "" };
