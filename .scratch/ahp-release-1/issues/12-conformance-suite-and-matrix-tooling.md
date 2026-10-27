@@ -38,3 +38,5 @@
 - No real adapter exists yet (tickets 15 to 19), so no real subject, no recorded result and no published matrix; each adapter ticket adds its subject to `scripts/conformance.ts` with its provokers, and the matrix is published by ticket 24. How a real tool is made to hang, ignore signals or list its process tree is each adapter's; the convention is in `src/conformance/subject.ts`.
 - A `cooperative` level cannot be falsified by behaviour, so it is checked as accepted only. Network stances at `enforced_by_tool` are probed with one local listener, which also stands for "a host that is not a registry"; a registry being reachable under `package_registries` is not checked.
 - The CI jobs are unchanged: `npm test` already runs the mock's suite on the three operating systems.
+
+**Confirmed by the maintainer on 2026-10-27 ("do recommendation"): decisions 1 to 10 above stand as recommended; reopen one only with a new decision.**
