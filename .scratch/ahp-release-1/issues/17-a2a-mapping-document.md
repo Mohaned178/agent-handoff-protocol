@@ -32,3 +32,5 @@
 5. **Keep `cancelled` (not `CANCELED`) and the lowercase state names.** No rationale is recorded for the spelling; design doc §9.2 says AHP's schema wins. *Recommended: keep,* and say so in the document (it does).
 6. **`needs_recovery` and `blocked` have no A2A counterpart, and `waiting_approval` maps to `INPUT_REQUIRED` as lossy.** *Recommended: adopt.* Showing `needs_recovery` as `INPUT_REQUIRED` would invite a free-form reply where AHP wants `adopt` or `abort`.
 7. **The wording of the 0.x rule.** The document says it is the mapping that the version rule waits on, and does *not* say the other condition (two real adapters having run workflows) is met. *Recommended: adopt;* when to leave 0.x is yours to call.
+
+**Confirmed by the maintainer on 2026-10-28 ("do recommendation"): decisions 1 to 7 above stand as recommended; reopen one only with a new decision.** Decision 2 includes the extension URI `https://github.com/Mohaned178/agent-handoff-protocol/extensions/ahp/0.1`, and decision 7 leaves the move out of 0.x to the maintainer.
