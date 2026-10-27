@@ -1,0 +1,96 @@
+{
+  "suiteVersion": 1,
+  "adapter": "codex",
+  "mock": false,
+  "platform": "win32",
+  "osLabel": "Windows",
+  "toolVersion": "0.146.0",
+  "ranAt": "2026-10-27T22:43:01.835Z",
+  "checks": [
+    {
+      "id": "declaration:complete",
+      "status": "passed",
+      "detail": "transport, model reporting, login, graceful cancel and a level for every capability, stance and operating system"
+    },
+    {
+      "id": "spawn_and_exit",
+      "status": "passed",
+      "detail": "started as process 17644, exited 0, reported its summary, and its file is in the workspace"
+    },
+    {
+      "id": "failure:agent_error",
+      "status": "passed",
+      "detail": "classifies as \"agent_error\" (exit code 1, error \"agent_error\")"
+    },
+    {
+      "id": "failure:config_auth",
+      "status": "passed",
+      "detail": "classifies as \"config_auth\" (exit code 1, error \"config_auth\")"
+    },
+    {
+      "id": "failure:transient",
+      "status": "skipped",
+      "detail": "the subject cannot make its agent do \"rate_limited\""
+    },
+    {
+      "id": "model:reported",
+      "status": "skipped",
+      "detail": "the adapter reported the requested model \"gpt-5.6-luna\", and the subject cannot make the tool say another, so an echo of the request cannot be told from a report"
+    },
+    {
+      "id": "model:not_reported",
+      "status": "skipped",
+      "detail": "the subject cannot make its agent do \"no_model_report\""
+    },
+    {
+      "id": "usage:reported",
+      "status": "passed",
+      "detail": "reported usage labelled with its source \"codex exec --json turn.completed event (usage); input_tokens includes cached_input_tokens, and 0 cache writes were reported, not added; 72 reasoning_output_tokens were reported, not added; no total or cost is reported\""
+    },
+    {
+      "id": "usage:not_reported",
+      "status": "skipped",
+      "detail": "the subject cannot make its agent do \"no_usage_report\""
+    },
+    {
+      "id": "cancel:stops_agent",
+      "status": "passed",
+      "detail": "stopped the hung agent (tree_kill, forced: true) and it is gone"
+    },
+    {
+      "id": "cancel:forced_tree",
+      "status": "passed",
+      "detail": "killed the tree of 3 processes, which ignored every signal, and none is left"
+    },
+    {
+      "id": "capability:read_only",
+      "status": "passed",
+      "detail": "declared \"enforced_by_tool\" on win32: the same agent changed probe.txt when nothing was applied, and nothing under read_only"
+    },
+    {
+      "id": "capability:write_scope",
+      "status": "passed",
+      "detail": "accepted at \"cooperative\" on win32. cooperative is a request the agent may ignore, not enforcement: the suite checks that the attempt accepts it, not that the agent obeys"
+    },
+    {
+      "id": "capability:no_external_actions",
+      "status": "passed",
+      "detail": "accepted at \"cooperative\" on win32. cooperative is a request the agent may ignore, not enforcement: the suite checks that the attempt accepts it, not that the agent obeys"
+    },
+    {
+      "id": "network:deny",
+      "status": "not_applicable",
+      "detail": "declared \"none\" on win32: nothing is applied"
+    },
+    {
+      "id": "network:package_registries",
+      "status": "not_applicable",
+      "detail": "declared \"none\" on win32: nothing is applied"
+    },
+    {
+      "id": "declaration:refuses_above_declared",
+      "status": "passed",
+      "detail": "declares write_scope \"cooperative\" on win32 and refused to apply it at \"enforced_by_tool\": codex adapter declares write_scope \"cooperative\" on win32 and cannot apply it at \"enforced_by_tool\""
+    }
+  ]
+}

@@ -1,7 +1,7 @@
-// The prompt Claude Code is given on stdin for an attempt: the handoff the recipient accepted, as plain text. It goes on
-// stdin, never in the arguments, so no character of it is read by a shell or the Windows command line.
+// The prompt an adapter gives its coding agent on stdin for an attempt: the handoff the recipient accepted, as plain text.
+// It goes on stdin, never in the arguments, so no character of it is read by a shell or the Windows command line.
 
-import type { CapabilityRequest, HandoffEvidence, HandoffRevision, OutputFieldValue } from "../../protocol/index.ts";
+import type { CapabilityRequest, HandoffEvidence, HandoffRevision, OutputFieldValue } from "../protocol/index.ts";
 
 const text = (value: OutputFieldValue): string => (typeof value === "string" ? value : value.map((item) => `- ${item}`).join("\n"));
 
@@ -53,7 +53,7 @@ export function promptFor(handoff: HandoffRevision, reportFields: readonly strin
   if (handoff.evidence.length > 0) {
     sections.push(`## Why your last attempt at this step was not accepted\n\n${handoff.evidence.map(evidenceText).join("\n\n")}`);
   }
-  // Asked of the agent in words: the adapter applies these as far as Claude Code's rules and hooks reach, which is not enforcement.
+  // Asked of the agent in words: how far an adapter applies these through its tool is its own declaration, and words are not enforcement.
   const limits = handoff.capabilities.map(limitText);
   if (limits.length > 0) sections.push(`## Limits on this step\n\n${limits.map((limit) => `- ${limit}`).join("\n")}`);
 

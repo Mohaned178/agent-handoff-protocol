@@ -98,7 +98,7 @@ describe("static workflow validation", () => {
       steps: [plain("plan"), { ...plain("implement"), agent: { adapter: "gpt-whatever" } }],
     });
 
-    expect(problems).toEqual([expect.stringContaining('step "implement": unknown adapter "gpt-whatever" (known: mock, claude-code)')]);
+    expect(problems).toEqual([expect.stringContaining('step "implement": unknown adapter "gpt-whatever" (known: mock, claude-code, codex)')]);
   });
 
   it("rejects unknown properties, invalid output field names and unsafe or repeated artifact paths", () => {

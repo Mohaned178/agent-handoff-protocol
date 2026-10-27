@@ -85,13 +85,6 @@ export function invocationFor(input: InvocationInput): ClaudeInvocation {
   return { args, settings, policy };
 }
 
-/** A JSON Schema for the fields to report: each required, each text or a list of text. */
-export function outputSchemaFor(fields: readonly string[]): object | null {
-  if (fields.length === 0) return null;
-  const text = { anyOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] };
-  return { type: "object", properties: Object.fromEntries(fields.map((name) => [name, text])), required: [...fields], additionalProperties: false };
-}
-
 export function writeInvocationFiles(invocation: ClaudeInvocation, settingsFile: string, policyFile: string): void {
   writeFileSync(settingsFile, JSON.stringify(invocation.settings, null, 2));
   writeFileSync(policyFile, JSON.stringify(invocation.policy, null, 2));

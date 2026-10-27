@@ -41,7 +41,7 @@ describe("the generated workflow", () => {
   });
 
   it("refuses to be written for an adapter the build does not have, rather than produce a workflow `ahp run` would reject", () => {
-    expect(() => renderWorkflow(assignRoles(["codex"]))).toThrow(/the generated workflow is invalid[^]*unknown adapter "codex"/);
+    expect(() => renderWorkflow(assignRoles(["opencode"]))).toThrow(/the generated workflow is invalid[^]*unknown adapter "opencode"/);
   });
 });
 

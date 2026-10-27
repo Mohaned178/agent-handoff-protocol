@@ -12,8 +12,9 @@ import { launch, resolveExecutable } from "../../process/index.ts";
 import { isOutputFieldName, levelOn, meetsLevel, sameOnEveryOs } from "../../protocol/index.ts";
 import type { AgentRef } from "../../protocol/index.ts";
 import type { Adapter, AttemptExit } from "../contract.ts";
-import { promptFor } from "./prompt.ts";
-import { invocationFor, outputSchemaFor, writeInvocationFiles } from "./settings.ts";
+import { outputSchemaFor } from "../output-schema.ts";
+import { promptFor } from "../prompt.ts";
+import { invocationFor, writeInvocationFiles } from "./settings.ts";
 import { ClaudeStream } from "./stream.ts";
 
 export const CLAUDE_CODE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
