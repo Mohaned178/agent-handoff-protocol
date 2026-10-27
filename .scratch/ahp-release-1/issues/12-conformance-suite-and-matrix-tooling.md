@@ -4,7 +4,7 @@
 
 **Blocked by:** 07, 11
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Model:** Sonnet 5.5 · high
 
@@ -40,3 +40,5 @@
 - The CI jobs are unchanged: `npm test` already runs the mock's suite on the three operating systems.
 
 **Confirmed by the maintainer on 2026-10-27 ("do recommendation"): decisions 1 to 10 above stand as recommended; reopen one only with a new decision.**
+
+First green CI run: GitHub Actions run 40530744508 (commit 856af90). 439 tests passed on Linux and macOS (1 skipped: the signal test). Windows had 437 passed and 3 skipped: the signal test, the POSIX resolution test and the Ctrl+C CLI test.
