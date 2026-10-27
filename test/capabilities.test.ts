@@ -69,7 +69,14 @@ describe("capabilities and network stance of a step", () => {
   it("records what a step asked for and the level the adapter declares for each, and hands the same to the adapter", async () => {
     const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING });
     const started: AttemptInput[] = [];
-    const adapter: Adapter = { ...mockWith(STRONG), startAttempt: (input) => (started.push(input), mockAdapter.startAttempt(input)) };
+    const adapter: Adapter = {
+      ...mockWith(STRONG),
+      // Bound to this adapter, so the mock holds it to its own declaration.
+      startAttempt(input) {
+        started.push(input);
+        return mockAdapter.startAttempt.call(this, input);
+      },
+    };
     const step = {
       capabilities: [
         { kind: "write_scope" as const, paths: ["greeting.txt", "docs"], require: "enforced_by_tool" as const },

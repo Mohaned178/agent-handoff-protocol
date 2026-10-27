@@ -13,7 +13,7 @@ The per-tool component that drives one coding agent through its transport and de
 _Avoid_: Inference adapter, driver, plugin
 
 **Adapter declaration**:
-What an adapter says about itself statically, the same on every run: its transport kind, its model reporting level, the login its tool needs, whether its transport has a graceful cancel, and the enforcement level at which it applies each capability and each network stance on each operating system (stated for every one; `none` says it cannot). The runtime checks a handoff against it before any agent starts. The levels are claims about the tool that the conformance suite checks (ticket 12).
+What an adapter says about itself statically, the same on every run: its transport kind, its model reporting level, the login its tool needs, whether its transport has a graceful cancel, and the enforcement level at which it applies each capability and each network stance on each operating system (stated for every one; `none` says it cannot). The runtime checks a handoff against it before any agent starts. The levels are claims about the tool that the conformance suite checks.
 
 **Model reporting level**:
 How much an adapter can say about its tool's model: `enumerable` (the integration lists selectable models), `pass_through` (the tool accepts a model name, which is passed on unvalidated) or `not_exposed`. AHP never claims to discover what a subscription entitles the user to.
@@ -243,6 +243,10 @@ The shared code every adapter starts its coding agent through: it resolves the t
 
 **Matched-budget baseline**:
 A single-agent condition given the same number of independent attempts as the condition it is compared with, counted as a success if any attempt passes.
+
+**Conformance suite**:
+The one set of checks every adapter is run against, through the adapter contract only: it starts a coding agent that the adapter's subject provokes, and checks how the attempt ended and was normalized, failure classification, requested versus reported model, usage and its source, a graceful and a forced cancel (the tree gone, confirmed by PID), and that each capability and network stance holds at its declared level on this OS. A check the subject cannot provoke is skipped, never passed, and only `enforced_by_tool` has behaviour to break: a `cooperative` level is checked only as accepted, which is not enforcement. It runs against the mock in CI and against a real adapter only on the maintainer's machine; its result is one adapter on one OS label, recorded with the tool version and date.
+_Avoid_: Integration test, adapter test
 
 **Support matrix**:
 The published table of adapter × OS cells, each marked passed (with tool version and date) or untested.

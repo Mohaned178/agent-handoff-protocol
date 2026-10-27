@@ -31,7 +31,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "schemas": "node scripts/export-schemas.ts"
+    "schemas": "node scripts/export-schemas.ts",
+    "conformance": "node scripts/conformance.ts"
   },
   "dependencies": {
     "execa": "^10.1.1",

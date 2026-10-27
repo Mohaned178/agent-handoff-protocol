@@ -71,6 +71,11 @@ for (const args of script.git ?? []) {
   }
   console.error(`mock agent: ran git ${args.join(" ")}`);
 }
+if (script.fetchUrl) {
+  // The response does not matter, only that the request was made; a refused connection is as good as an answer.
+  await fetch(script.fetchUrl).then((response) => response.arrayBuffer()).catch(() => undefined);
+  console.error(`mock agent: requested ${script.fetchUrl}`);
+}
 if (script.hang) {
   console.error("mock agent: hanging until killed");
   // The timer keeps the process alive; the promise never settles.

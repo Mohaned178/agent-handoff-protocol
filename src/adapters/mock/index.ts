@@ -2,7 +2,7 @@ import { extname, isAbsolute } from "node:path";
 import { text } from "node:stream/consumers";
 import { fileURLToPath } from "node:url";
 import { launch } from "../../process/index.ts";
-import { ADAPTER_ERROR_KINDS, isUsageReport, sameOnEveryOs, STOP_REASONS } from "../../protocol/index.ts";
+import { ADAPTER_ERROR_KINDS, isUsageReport, levelOn, meetsLevel, sameOnEveryOs, STOP_REASONS } from "../../protocol/index.ts";
 import type { AgentRef, AttemptError, OutputFieldValue, StopReason, UsageReport } from "../../protocol/index.ts";
 import type { Adapter, AttemptExit } from "../contract.ts";
 
@@ -34,6 +34,8 @@ export interface MockAttemptScript {
    * branch or tag, which only AHP may do. A command that fails makes the agent exit 2.
    */
   git?: string[][];
+  /** A URL the agent requests (after its edits and git commands), as an agent with network use would; the response is ignored. */
+  fetchUrl?: string;
   /** The output fields the agent reports, by name. Defaults to none. */
   outputFields?: Record<string, OutputFieldValue>;
   /** Defaults to 0. */
@@ -116,6 +118,9 @@ export const mockAdapter: Adapter = {
           problems.push(`mock attempt ${index + 1}: \`${flag}\` must be a boolean`);
         }
       }
+      if (script?.fetchUrl !== undefined && typeof script.fetchUrl !== "string") {
+        problems.push(`mock attempt ${index + 1}: \`fetchUrl\` must be a string`);
+      }
       const commands = script?.git;
       if (commands !== undefined && !(Array.isArray(commands) && commands.every((args) => Array.isArray(args) && args.every((arg) => typeof arg === "string")))) {
         problems.push(`mock attempt ${index + 1}: \`git\` must be an array of commands, each an array of arguments`);
@@ -160,7 +165,19 @@ export const mockAdapter: Adapter = {
     return problems;
   },
 
+  // Called as a method, so an adapter built from this one under another declaration is held to its own.
   async startAttempt({ attemptNumber, workspace, options, capabilities }) {
+    // The contract: fail rather than apply a capability at a weaker level than the one recorded.
+    const { declaration } = this;
+    for (const { kind, level } of capabilities.capabilities) {
+      if (!meetsLevel(levelOn(declaration.capabilities[kind], capabilities.platform), level)) {
+        throw new Error(`mock adapter declares ${kind} "${levelOn(declaration.capabilities[kind], capabilities.platform)}" on ${capabilities.platform} and cannot apply it at "${level}"`);
+      }
+    }
+    const { stance, level } = capabilities.network;
+    if (!meetsLevel(levelOn(declaration.network[stance], capabilities.platform), level)) {
+      throw new Error(`mock adapter declares the "${stance}" stance "${levelOn(declaration.network[stance], capabilities.platform)}" on ${capabilities.platform} and cannot apply it at "${level}"`);
+    }
     const script = (options as MockOptions).attempts[attemptNumber - 1];
     if (!script) throw new Error(`mock adapter has no script for attempt ${attemptNumber}`);
     // A promise alone would not keep the process alive; the timer does.

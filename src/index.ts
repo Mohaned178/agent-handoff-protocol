@@ -14,3 +14,4 @@ export {
   type ResolvedRetryPolicy,
   type RunResult,
 } from "./runtime/index.ts";
+export * from "./conformance/index.ts";

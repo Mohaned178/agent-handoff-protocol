@@ -21,7 +21,7 @@ import type { Termination } from "../process/index.ts";
  * What an adapter says about itself, statically: the same on every run, so the runtime can check a handoff against it
  * before any agent starts. An adapter states a level for every capability, stance and operating system, so none is left
  * out by accident; `none` says it cannot apply it there. The levels are claims about the adapter's tool, which the
- * conformance suite checks (ticket 12), and which only `enforced_by_tool` may call enforcement: a prompt instruction or
+ * conformance suite checks (`src/conformance`), and which only `enforced_by_tool` may call enforcement: a prompt instruction or
  * an ACP permission request the agent may ignore is `cooperative`.
  */
 export interface AdapterDeclaration {
