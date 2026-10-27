@@ -2,7 +2,7 @@
 // references to the next coding agent. The Zod schemas here are the source of the published JSON Schema.
 //
 // A2A alignment (design doc §3): `contextId` groups the handoffs of one run. Acceptance criteria, artifact
-// hashes and rejection reasons are AHP-specific and belong to the A2A extension profile (ticket 17).
+// hashes and rejection reasons are AHP-specific and belong to the A2A extension profile (docs/a2a-mapping.md).
 
 import { z } from "zod";
 import { CAPABILITY_KINDS, ENFORCEMENT_LEVELS, NETWORK_STANCES } from "./capabilities.ts";
