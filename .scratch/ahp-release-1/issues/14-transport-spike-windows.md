@@ -41,3 +41,5 @@
 6. **Codex's reported model is read from the thread's session file (`turn_context.model`), labelled with that source, `unknown` if absent.** The stream does not carry it. *Recommended: adopt; ticket 16 confirms.*
 7. **Tickets 15, 16 and 18 declare `cooperative` at most for the three capabilities on Windows, and `none` for the network stance, until their conformance probes say otherwise.** Claude Code's deny rules and hooks were walked around through `Bash`, its Windows sandbox is off, and Codex's sandbox did not block a local request. *Recommended: adopt.*
 8. **Gemini CLI stays "not run" until paid access exists; ticket 19 runs the six checks then.** *Recommended: keep.*
+
+**Confirmed by the maintainer on 2026-10-27 ("do recommendation"): decisions 1 to 8 above stand as recommended; reopen one only with a new decision.**
