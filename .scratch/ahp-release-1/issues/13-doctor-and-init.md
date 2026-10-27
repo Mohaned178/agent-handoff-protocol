@@ -44,3 +44,5 @@
 - `doctor` cannot tell whether a Gemini CLI user has paid access; it only says the tool needs it.
 - Real tools are not cast by `init` until their adapters exist, so the real-tool branch of `init` is covered by a table test of `assignRoles` only.
 - `test/cli-ledger.test.ts` "refuses to show the state of a corrupt ledger" failed once in a full-suite run on this machine and passed alone and on a stash of this work; not touched by this ticket.
+
+**Confirmed by the maintainer on 2026-10-27 ("do recommendation"): decisions 1 to 10 above stand as recommended; reopen one only with a new decision.**
