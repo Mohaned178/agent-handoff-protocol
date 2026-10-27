@@ -4,7 +4,7 @@
 
 **Blocked by:** 10, 11
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Model:** Sonnet 5.5 · medium
 
@@ -46,3 +46,5 @@
 - `test/cli-ledger.test.ts` "refuses to show the state of a corrupt ledger" failed once in a full-suite run on this machine and passed alone and on a stash of this work; not touched by this ticket.
 
 **Confirmed by the maintainer on 2026-10-27 ("do recommendation"): decisions 1 to 10 above stand as recommended; reopen one only with a new decision.**
+
+First green CI run: GitHub Actions run 40549411175 (commit 00a9c2f), passing on Linux, macOS and Windows.
