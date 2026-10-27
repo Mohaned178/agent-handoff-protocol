@@ -58,7 +58,7 @@ function stepOfHandoff(state: Readonly<RunView>, handoffId: string, revision: nu
 }
 
 /** What each enforcement level means, in every report that shows one: only the first is enforcement. */
-const ENFORCEMENT_NOTE =
+export const ENFORCEMENT_NOTE =
   "enforced_by_tool: the tool itself blocks it; cooperative: the agent is only asked, and nothing stops it; none: not applied";
 
 /**

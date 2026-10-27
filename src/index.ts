@@ -15,3 +15,4 @@ export {
   type RunResult,
 } from "./runtime/index.ts";
 export * from "./conformance/index.ts";
+export * from "./doctor/index.ts";

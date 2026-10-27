@@ -15,11 +15,16 @@ import {
   runWorkflow,
   validateWorkflow,
 } from "../sdk/index.ts";
+import { diagnose, initWorkflow } from "../doctor/index.ts";
 import { formatEvent, formatRun, formatUnresumed, MOCK_NOTE } from "./format.ts";
+import { formatDoctor, formatInit } from "./format-doctor.ts";
 
 const USAGE = `Usage: ahp <command> [options]
 
 Commands:
+  doctor                Report this machine and which coding agent tools AHP can use (--json for data)
+  init [file]           Write the password-reset example workflow (default ahp.workflow.mjs), cast from
+                        the tools doctor found, the mock adapter standing in for any it did not
   run <workflow-file>   Run the workflow exported by default from <workflow-file>
   inspect <run-id>      Show a run's state, derived from its ledger, and who is writing it
   recover <run-id>      Resume a run whose process stopped; an attempt it left with no
@@ -34,7 +39,8 @@ Commands:
 
 Options:
   --repo <dir>          The git repository to use (default: the current directory)
-  --json                inspect: print the derived state, the ledger check and the run's lock as JSON
+  --json                inspect: print the derived state, the ledger check and the run's lock as JSON;
+                        doctor: print the report as JSON
   --policy <decision>   recover: adopt or abort
   --reason <text>       reject: why the work is rejected (required)
   -h, --help            Show this help
@@ -90,6 +96,11 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
     // Only a decision takes a second argument, the gate's step ID.
     if (extra.length > 0 || (step !== undefined && !deciding)) throw new UsageError(`unexpected argument: ${extra[0] ?? step}`);
     switch (command) {
+      case "doctor":
+        if (target) throw new UsageError(`unexpected argument: ${target}`);
+        return await doctorCommand(values.json ?? false, io);
+      case "init":
+        return await initCommand(target, repo, io);
       case "run":
         if (!target) throw new UsageError("run needs a workflow file");
         return await runCommand(target, repo, io);
@@ -172,6 +183,18 @@ async function followRun<R>(io: Io, execute: (following: Following) => Promise<R
     process.off("SIGTERM", cancel);
     if (usedMock) io.stdout(MOCK_NOTE);
   }
+}
+
+/** Exit 0 unless Node or git does not meet its requirement; a tool that is missing is reported, not a failure. */
+async function doctorCommand(json: boolean, io: Io): Promise<number> {
+  const report = await diagnose();
+  io.stdout(json ? JSON.stringify(report, null, 2) : formatDoctor(report));
+  return report.ok ? 0 : 1;
+}
+
+async function initCommand(file: string | undefined, repo: string, io: Io): Promise<number> {
+  io.stdout(formatInit(await initWorkflow({ dir: repo, file })));
+  return 0;
 }
 
 async function runCommand(file: string, repo: string, io: Io): Promise<number> {
