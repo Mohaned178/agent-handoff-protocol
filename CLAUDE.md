@@ -36,6 +36,7 @@ Tests are at seam 1 (SDK run API + mock adapter against real temporary git repos
 Git remote: public repo https://github.com/Mohaned178/agent-handoff-protocol (default branch `main`). Line endings are normalized to LF via `.gitattributes`.
 
 - `docs/design/ahp-v2-direction.md` is the **current agreed direction** (2026-10-24) and the input to grilling → spec → tickets → implementation. Read it first. It is not frozen; its §9 lists decisions still open.
+- `docs/spikes/2026-10-27-transport-spike-windows.md` (ticket 14) is the evidence for each adapter's transport on native Windows, with a per-tool recommendation table; read it before tickets 15, 16, 18 and 19. Its findings F1 (`opencode run` follows the inherited `PWD`, not the process cwd) and F2 (`launch` cannot drive ACP: stdin is closed after `input`, stderr ignored) affect the process layer.
 - `GLOSSARY.md` holds the domain terms and `docs/adr/` the hard-to-reverse decisions; use their vocabulary.
 - `docs/diagrams/ahp-user-workflow.excalidraw` shows the **old deck** design and is superseded; it will be redrawn from the spec.
 - `AHP-presentation.pdf` is the original 15-slide design deck. Where it conflicts with the v2 direction, v2 wins. To read it as text: `pdftotext -layout AHP-presentation.pdf -` (the Read tool's PDF rendering needs `pdftoppm`, which is not installed here).
