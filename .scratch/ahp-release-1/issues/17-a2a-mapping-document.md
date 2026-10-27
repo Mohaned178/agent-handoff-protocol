@@ -4,7 +4,7 @@
 
 **Blocked by:** 02, 11
 
-**Status:** implemented and committed; waiting on the maintainer for the decisions below
+**Status:** done
 
 **Model:** Sonnet 5.5 · high
 
@@ -34,3 +34,5 @@
 7. **The wording of the 0.x rule.** The document says it is the mapping that the version rule waits on, and does *not* say the other condition (two real adapters having run workflows) is met. *Recommended: adopt;* when to leave 0.x is yours to call.
 
 **Confirmed by the maintainer on 2026-10-28 ("do recommendation"): decisions 1 to 7 above stand as recommended; reopen one only with a new decision.** Decision 2 includes the extension URI `https://github.com/Mohaned178/agent-handoff-protocol/extensions/ahp/0.1`, and decision 7 leaves the move out of 0.x to the maintainer.
+
+2026-10-28, done. First green CI run after the push: run 40602509480 on `2602cc7`, all three jobs success. Windows: 38 test files passed, 1 skipped; 570 tests passed, 4 skipped. macOS: 39 files passed; 573 tests passed, 1 skipped. Ubuntu: 39 files passed; 573 tests passed, 1 skipped.
