@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Model:** Sonnet 5.5 · high
 
@@ -54,3 +54,5 @@
 - Left as they are, on purpose: an accepted handoff that can no longer be satisfied when its attempt is created (the system or adapter changed since) throws before recording anything, as does an attempt in a pre-ticket ledger; the lock is per host, so the system cannot change under a resume in practice, and a run that cannot go on at the required level should say so loudly. A `capability_unsatisfiable` rejection is `rejected` and never rerouted, as for any rejection. `LOGIN_KINDS` and `TRANSPORT_KINDS` are new closed lists the ticket's "transport kind" and "required login kind" need. The levels in a report are declared, not observed, until ticket 12 checks them, and nothing yet detects a `write_scope` or `read_only` violation, so `cooperative` is a request only; the report and glossary say so.
 
 **Confirmed by the maintainer on 2026-10-27 ("yes", to recording "do recommendation"): decisions 1 to 10 above stand as recommended; reopen one only with a new decision.**
+
+First green CI run: GitHub Actions run 40423048506 (commit a4053ba). 409 tests passed on Linux and macOS (1 skipped: the signal test). Windows had 407 passed and 3 skipped: the signal test, the POSIX resolution test and the Ctrl+C CLI test.
