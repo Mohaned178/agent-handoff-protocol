@@ -20,6 +20,7 @@ import {
 import { diagnose, initWorkflow } from "../doctor/index.ts";
 import { API_KEY_NOTICE, formatReport, isSeed, runEvaluation, SuiteInvalidError, TaskInvalidError, type EvaluationEvent, type EvaluationSuite, type EvaluationView } from "../evaluation/index.ts";
 import { evaluationsRoot, locateRepo, toolCallLogPath, transcriptPaths } from "../runtime/index.ts";
+import { changesBetween, describeChanges, diffBetween, formatDiff } from "./diff.ts";
 import { watchProgress } from "./progress.ts";
 import { formatEvent, formatRun, formatUnresumed, MOCK_NOTE } from "./format.ts";
 import { formatDoctor, formatInit } from "./format-doctor.ts";
@@ -57,6 +58,8 @@ Options:
                         doctor: print the report as JSON; eval: print only the report, as JSON
   --policy <decision>   recover: adopt or abort
   --reason <text>       reject: why the work is rejected (required)
+  --diff                run, recover, approve, reject: print the whole diff of every attempt (each attempt
+                        always shows which files it changed; an approval gate always shows its diff)
   -h, --help            Show this help
   -v, --version         Show the version
 
@@ -104,6 +107,7 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
         json: { type: "boolean" },
         policy: { type: "string" },
         reason: { type: "string" },
+        diff: { type: "boolean" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean", short: "v" },
       },
@@ -133,7 +137,7 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
         return await setupCommand(repo, io);
       case "run":
         if (!target) throw new UsageError("run needs a workflow file");
-        return await runCommand(target, repo, values.repo !== undefined, io);
+        return await runCommand(target, repo, values.repo !== undefined, io, values.diff ?? false);
       case "eval":
         if (!target) throw new UsageError("eval needs a suite file");
         return await evalCommand(target, values.out, seedOf(values.seed), values.json ?? false, io);
@@ -142,10 +146,10 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
         return await inspectCommand(target, repo, values.json ?? false, io);
       case "recover":
         if (!target) throw new UsageError("recover needs a run ID, or an attempt ID and --policy");
-        return await recoverCommand(target, values.policy, repo, io);
+        return await recoverCommand(target, values.policy, repo, io, values.diff ?? false);
       case "approve":
       case "reject":
-        return await decideCommand(command, target, step, values.reason, repo, io);
+        return await decideCommand(command, target, step, values.reason, repo, io, values.diff ?? false);
       default:
         throw new UsageError(command ? `unknown command: ${command}` : "no command given", { showUsage: true });
     }
@@ -191,7 +195,7 @@ interface Following {
  * adapter, also when `execute` throws partway. Ctrl+C meanwhile cancels the run instead of killing ahp, so the agent's
  * processes are stopped and the cancel is recorded; a second Ctrl+C only says that it is under way.
  */
-async function followRun<R>(io: Io, repo: string, execute: (following: Following) => Promise<R>): Promise<R> {
+async function followRun<R>(io: Io, repo: string, execute: (following: Following) => Promise<R>, options: { diff?: boolean } = {}): Promise<R> {
   let usedMock = false;
   const interrupt = cancelOnInterrupt(io, "the run", "waiting until the agent and every process it started are seen gone");
   // While an agent runs, what it does and that it is alive (`progress.ts`), until its attempt has an end.
@@ -201,12 +205,50 @@ async function followRun<R>(io: Io, repo: string, execute: (following: Following
     watching?.stop();
     watching = null;
   };
+  // Lines that need git (what a snapshot changed, the diff at a gate) are read as their event arrives; every event's
+  // lines go through one queue so they still print in order.
+  let printing = Promise.resolve();
+  const print = (lines: () => Promise<string> | string) => {
+    printing = printing.then(async () => io.stdout(await lines())).catch(() => undefined);
+  };
+  const color = process.stdout.isTTY === true && !process.env.NO_COLOR;
   try {
     return await execute({
       signal: interrupt.signal,
       onEvent: (event, current) => {
         usedMock = current.mock;
-        io.stdout(formatEvent(event, current));
+        const text = formatEvent(event, current);
+        if (event.type === "workspace_snapshot_committed") {
+          print(async () => {
+            const found = await location;
+            if (!found) return text;
+            try {
+              const changes = describeChanges(await changesBetween(found.repo, `${event.commit}^`, event.commit));
+              if (!options.diff) return `${text}: ${changes}`;
+              const diff = await diffBetween(found.repo, `${event.commit}^`, event.commit);
+              return diff ? `${text}: ${changes}\n${formatDiff(diff, { color, more: `git diff ${short(event.commit)}^ ${short(event.commit)}` })}` : `${text}: ${changes}`;
+            } catch {
+              return text;
+            }
+          });
+        } else if (event.type === "approval_requested") {
+          // What is being approved, before the choices: the gate's diff from the run's base to the commit AHP would push.
+          print(async () => {
+            const found = await location;
+            const lines = text.split("\n");
+            if (!found) return text;
+            try {
+              const changes = describeChanges(await changesBetween(found.repo, current.baseCommit, event.commit));
+              const diff = await diffBetween(found.repo, current.baseCommit, event.commit);
+              const shown = [`  what you are approving: ${changes}`, ...(diff ? [formatDiff(diff, { color, more: `ahp inspect ${current.runId}` })] : [])];
+              return [...lines.slice(0, -1), ...shown, lines.at(-1)!].join("\n");
+            } catch {
+              return text;
+            }
+          });
+        } else {
+          print(() => text);
+        }
         if (event.type === "attempt_running") {
           stopWatching();
           const { attemptId } = event;
@@ -225,10 +267,13 @@ async function followRun<R>(io: Io, repo: string, execute: (following: Following
     });
   } finally {
     stopWatching();
+    await printing;
     interrupt.release();
     if (usedMock) io.stdout(MOCK_NOTE);
   }
 }
+
+const short = (commit: string) => commit.slice(0, 12);
 
 /**
  * Makes Ctrl+C (SIGINT) and SIGTERM abort the returned signal instead of killing ahp, so what is running can be stopped and the
@@ -312,7 +357,7 @@ async function repositoryOf(dir: string, named: boolean, io: Io): Promise<void> 
   io.stdout(`repository: ${top}`);
 }
 
-async function runCommand(file: string, repo: string, repoNamed: boolean, io: Io): Promise<number> {
+async function runCommand(file: string, repo: string, repoNamed: boolean, io: Io, diff = false): Promise<number> {
   const path = resolve(file);
   let workflow: unknown;
   try {
@@ -325,7 +370,7 @@ async function runCommand(file: string, repo: string, repoNamed: boolean, io: Io
     throw new UsageError(`invalid workflow in ${path}:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
   }
   await repositoryOf(repo, repoNamed, io);
-  const { state } = await followRun(io, repo, (following) => runWorkflow(workflow as Parameters<typeof runWorkflow>[0], { repo, ...following }));
+  const { state } = await followRun(io, repo, (following) => runWorkflow(workflow as Parameters<typeof runWorkflow>[0], { repo, ...following }), { diff });
   return exitCodeOf(state);
 }
 
@@ -380,10 +425,10 @@ async function inspectCommand(runId: string, repo: string, json: boolean, io: Io
   return 0;
 }
 
-async function recoverCommand(target: string, policy: string | undefined, repo: string, io: Io): Promise<number> {
+async function recoverCommand(target: string, policy: string | undefined, repo: string, io: Io, diff = false): Promise<number> {
   if (isRunId(target)) {
     if (policy !== undefined) throw new UsageError(`--policy decides an attempt: \`ahp recover <attempt-id> --policy adopt|abort\``);
-    const result = await followRun(io, repo, (following) => resumeRun({ repo, runId: target, ...following }));
+    const result = await followRun(io, repo, (following) => resumeRun({ repo, runId: target, ...following }), { diff });
     if (!result.resumed) io.stdout(formatUnresumed(result));
     return exitCodeOf(result.state);
   }
@@ -391,7 +436,7 @@ async function recoverCommand(target: string, policy: string | undefined, repo: 
   if (policy === undefined) throw new UsageError(`recover ${target} needs --policy adopt or --policy abort`);
   if (policy === "discard_and_retry") throw new UsageError(DISCARD_AND_RETRY_DEFERRED);
   if (!RECOVERY_ACTIONS.includes(policy as RecoveryAction)) throw new UsageError(`--policy must be adopt or abort, not ${policy}`);
-  const { state } = await followRun(io, repo, (following) => recoverAttempt({ repo, attemptId: target, policy: policy as RecoveryAction, ...following }));
+  const { state } = await followRun(io, repo, (following) => recoverAttempt({ repo, attemptId: target, policy: policy as RecoveryAction, ...following }), { diff });
   return exitCodeOf(state);
 }
 
@@ -403,6 +448,7 @@ async function decideCommand(
   reason: string | undefined,
   repo: string,
   io: Io,
+  diff = false,
 ): Promise<number> {
   if (!runId || !stepId) throw new UsageError(`${command} needs a run ID and the approval gate's step ID: ahp ${command} <run-id> <step-id>${command === "reject" ? " --reason <text>" : ""}`);
   if (!isRunId(runId)) throw new UsageError(`not a run ID: ${runId}`);
@@ -410,7 +456,7 @@ async function decideCommand(
   if (command === "reject" && (reason === undefined || reason.trim() === "")) throw new UsageError("reject needs --reason <text>: it is sent back with the work");
   const { state } = await followRun(io, repo, (following) =>
     command === "approve" ? approveStep({ repo, runId, stepId, ...following }) : rejectStep({ repo, runId, stepId, reason: reason!, ...following }),
-  );
+  { diff });
   return exitCodeOf(state);
 }
 

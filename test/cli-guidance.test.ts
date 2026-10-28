@@ -1,9 +1,12 @@
+import { spawnSync } from "node:child_process";
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ToolCallLogEntry } from "../src/index.ts";
+import { describeChanges, formatDiff } from "../src/cli/diff.ts";
 import { describeToolCall, span, watchProgress } from "../src/cli/progress.ts";
+import { snapshotMessage } from "../src/runtime/run.ts";
 import { ahp } from "./helpers/cli.ts";
 import { until } from "./helpers/process.ts";
 import { createTempRepo, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
@@ -128,3 +131,74 @@ describe("progress while an agent runs", () => {
   });
 });
 
+
+describe("the code, shown", () => {
+  const gated = `export default {
+  name: "greeting",
+  steps: [
+    {
+      id: "implement",
+      agent: { adapter: "mock", options: { attempts: [{ edits: [{ path: "greeting.txt", content: "hello\\n" }], outputFields: { summary: "Wrote the greeting.\\nMore detail." } }] } },
+      verification: { command: "node verify.mjs" },
+    },
+    { id: "approve", approval: {} },
+  ],
+};
+`;
+
+  it("says what each attempt changed, and shows the diff being approved before the choices", () => {
+    const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING, "workflow.mjs": gated });
+
+    const run = ahp(["run", "workflow.mjs"], repo);
+
+    expect(run.stderr).toBe("");
+    expect(run.code).toBe(4);
+    expect(run.stdout).toMatch(/attempt att_[a-z0-9]+ \[mock\] snapshot [0-9a-f]{12}: changed greeting\.txt \(\+1 -0\)\n/);
+    const gate = run.stdout.slice(run.stdout.indexOf("waiting for approval"));
+    expect(gate).toContain("  what you are approving: changed greeting.txt (+1 -0)\n");
+    expect(gate).toContain("    +hello\n");
+    // The choices come last, after the diff, where they are seen.
+    expect(gate.indexOf("+hello")).toBeLessThan(gate.indexOf("`ahp approve "));
+    // Not a terminal, so no color codes.
+    expect(run.stdout).not.toContain("\u001b[");
+  });
+
+  it("prints every attempt's whole diff with --diff", () => {
+    const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING, "workflow.mjs": workflow("hello\n") });
+
+    const run = ahp(["run", "workflow.mjs", "--diff"], repo);
+
+    expect(run.code).toBe(0);
+    expect(run.stdout).toMatch(/snapshot [0-9a-f]{12}: changed greeting\.txt \(\+1 -0\)\n {4}diff --git a\/greeting\.txt b\/greeting\.txt\n/);
+  });
+
+  it("names a snapshot commit after what the agent said it did, and says that is the agent's claim", () => {
+    const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING, "workflow.mjs": gated });
+
+    const run = ahp(["run", "workflow.mjs"], repo);
+    const commit = /snapshot ([0-9a-f]{12})/.exec(run.stdout)![1]!;
+    const message = spawnSync("git", ["log", "-1", "--format=%B", commit], { cwd: repo, encoding: "utf8" }).stdout;
+
+    expect(message).toMatch(/^implement: Wrote the greeting\.\n\nAHP snapshot of run_[a-z0-9]+ step implement attempt att_[a-z0-9]+\. The subject is the coding agent's own report, not a verified fact\.\n/);
+    expect(snapshotMessage("run_x", "review", { id: "att_y", reportedOutput: { verdict: "approved" } }).split("\n")[0]).toBe("review: approved");
+    expect(snapshotMessage("run_x", "plan", { id: "att_y", reportedOutput: {} }).split("\n")[0]).toBe("plan: (the agent reported no summary)");
+    expect(snapshotMessage("run_x", "plan", { id: "att_y", reportedOutput: { summary: "x".repeat(100) } }).split("\n")[0]).toHaveLength("plan: ".length + 64);
+  });
+
+  it("cuts a long diff with where to read the rest, and colors it for a terminal", () => {
+    const diff = ["diff --git a/x b/x", "@@ -1 +1 @@", "-old", "+new", ...Array.from({ length: 10 }, (_, i) => ` line ${i}`)].join("\n");
+
+    expect(formatDiff(diff, { color: false, maxLines: 4, more: "ahp inspect run_x" }).split("\n")).toEqual([
+      "    diff --git a/x b/x",
+      "    @@ -1 +1 @@",
+      "    -old",
+      "    +new",
+      "    ... 10 more lines: ahp inspect run_x",
+    ]);
+    expect(formatDiff("+new\n-old", { color: true, more: "" })).toBe("    \u001b[32m+new\u001b[0m\n    \u001b[31m-old\u001b[0m");
+    expect(describeChanges([])).toBe("changed nothing");
+    expect(describeChanges([{ path: "a.png", added: null, removed: null }, ...Array.from({ length: 6 }, (_, i) => ({ path: `f${i}`, added: 1, removed: 2 }))])).toBe(
+      "changed a.png (binary), f0 (+1 -2), f1 (+1 -2), f2 (+1 -2), f3 (+1 -2), and 2 more",
+    );
+  });
+});

@@ -732,9 +732,28 @@ async function recordInterruptedVerification(verification: VerificationView, run
   if (verification.worktree) await discardWorktree(run.location.repo, verification.worktree).catch(() => undefined);
 }
 
+/**
+ * A snapshot's commit message. An approved snapshot and the ones before it are what AHP pushes, so the subject says what
+ * the step did, in its agent's own summary (or a review's verdict), and the body says where the commit came from and that
+ * the summary is the agent's claim.
+ */
+export function snapshotMessage(runId: string, stepId: string, attempt: Pick<AttemptView, "id" | "reportedOutput">): string {
+  const lineOf = (value: unknown) => {
+    const text = Array.isArray(value) ? value.join("; ") : typeof value === "string" ? value : "";
+    const line = text.trim().split(/\r?\n/)[0]!.trim();
+    return line.length > 64 ? `${line.slice(0, 63).trimEnd()}…` : line;
+  };
+  const said = lineOf(attempt.reportedOutput.summary) || lineOf(attempt.reportedOutput.verdict);
+  return [
+    `${stepId}: ${said || "(the agent reported no summary)"}`,
+    "",
+    `AHP snapshot of ${runId} step ${stepId} attempt ${attempt.id}.${said ? " The subject is the coding agent's own report, not a verified fact." : ""}`,
+  ].join("\n");
+}
+
 async function snapshotAttempt(step: StepDefinition, attempt: AttemptView, run: RunContext): Promise<void> {
   const ref = snapshotRef(run.runId, attempt.id);
-  const commit = await snapshotWorktree(attempt.workspace, ref, `AHP snapshot of ${run.runId} step ${step.id} attempt ${attempt.id}`);
+  const commit = await snapshotWorktree(attempt.workspace, ref, snapshotMessage(run.runId, step.id, attempt));
   await run.record({ type: "workspace_snapshot_committed", attemptId: attempt.id, commit, ref });
 }
 
