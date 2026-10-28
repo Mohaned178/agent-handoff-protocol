@@ -3,11 +3,12 @@
 // before they are written, never replaces a file, and only offers to start them: what runs is still `ahp run`/`ahp eval`.
 // The questions go through a `Prompter`, so the flow is tested with scripted answers and run with real menus.
 
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { DEFAULT_BRANCH, DEFAULT_WORKFLOW_FILE, ROLES, renderWorkflow, type Role, type RoleAssignment } from "../doctor/init.ts";
+import { DEFAULT_BRANCH, DEFAULT_WORKFLOW_FILE, ROLES, renderTaskWorkflow, renderWorkflow, type Role, type RoleAssignment } from "../doctor/init.ts";
+import { isBranchName, isRepoPath } from "../protocol/index.ts";
 import type { DoctorReport } from "../doctor/doctor.ts";
 import { TOOLS, type ToolId } from "../doctor/tools.ts";
 import { CONDITIONS, type ConditionId } from "../evaluation/events.ts";
@@ -140,6 +141,14 @@ async function writeNew(path: string, content: string): Promise<void> {
 
 async function setupWorkflow(options: SetupOptions): Promise<SetupResult> {
   const { prompter } = options;
+  const task = await prompter.select<"own" | "example">({
+    message: "Which task?",
+    choices: [
+      { name: "Your own task in this repository", value: "own", description: "you say what to build and the command that checks it" },
+      { name: "The password-reset example", value: "example", description: "a demo with a hidden test, to see AHP work end to end" },
+    ],
+  });
+  if (task === "own") return setupOwnTask(options);
   prompter.say("The workflow is the password-reset reference scenario: each step is verified, a review asking for changes sends implement back, and nothing is pushed until you approve.");
   const assignments: RoleAssignment[] = [];
   for (const role of ROLES) assignments.push(await castRole(options, role, true));
@@ -149,6 +158,68 @@ async function setupWorkflow(options: SetupOptions): Promise<SetupResult> {
   prompter.say(`Wrote ${path}. It needs a git repository with a commit and a remote named origin; it stops at the approval gate for \`ahp approve\`.`);
   const start = await prompter.confirm({ message: "Start `ahp run` now, in this directory?", default: false });
   return { kind: "workflow", path, start };
+}
+
+/**
+ * A workflow for a task of the user's own. The check is theirs and visible to the agents; the mock is not offered, since
+ * it has no script for work it does not know.
+ */
+async function setupOwnTask(options: SetupOptions): Promise<SetupResult> {
+  const { prompter, dir } = options;
+  prompter.say("Implement is done only when your check command passes in a fresh copy of the repository; a review asking for changes sends implement back; nothing is pushed until you approve.");
+  const goal = (await prompter.input({ message: "What should the agents build or change?", validate: (value) => (value.trim() ? true : "say what to build or change") })).trim();
+  const pkg = packageOf(dir);
+  const command = (
+    await prompter.input({
+      message: "Command that checks the work (exit code 0 means done):",
+      ...(pkg?.scripts?.test ? { default: "npm test" } : {}),
+      validate: (value) => (value.trim() ? true : "a command, such as npm test or pytest"),
+    })
+  ).trim();
+  const install = (
+    await prompter.input({
+      message: "Command that installs dependencies in a fresh copy of the repository, run before the check (blank: none):",
+      default: existsSync(join(dir, "package-lock.json")) ? "npm ci" : pkg ? "npm install" : "",
+    })
+  ).trim();
+  const paths = pathsIn(await prompter.input({ message: "Folders or files the implementing agent may change, separated by commas (blank: anywhere):", default: "", validate: pathsOrBlank }));
+  const name = (await prompter.input({ message: "A short name for the task:", default: slugOf(goal), validate: (value) => (TASK_NAME.test(value.trim()) ? true : "letters, digits, \"-\" and \"_\", starting with a letter or digit") })).trim();
+  const assignments: RoleAssignment[] = [];
+  for (const role of ROLES) assignments.push(await castRole(options, role, false));
+  const branch = (await prompter.input({ message: "Branch AHP pushes after your approval:", default: `ahp/${name}`, validate: (value) => (isBranchName(value.trim()) ? true : "a git branch name, such as ahp/my-task") })).trim();
+  const path = await newFile(options, "Workflow file:", DEFAULT_WORKFLOW_FILE);
+  await writeNew(path, renderTaskWorkflow(assignments, { name, goal, command, install: install || null, paths }, branch, "setup"));
+  prompter.say(`Wrote ${path}. It needs a commit and a remote named origin; it stops at the approval gate for \`ahp approve\`.`);
+  const start = await prompter.confirm({ message: "Start `ahp run` now, in this directory?", default: false });
+  return { kind: "workflow", path, start };
+}
+
+const TASK_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+/** A task name from its first words: lowercase, joined by "-". */
+export function slugOf(goal: string): string {
+  const words = goal.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  return words.slice(0, 5).join("-") || "task";
+}
+
+/** The paths in a comma-separated answer, written as the workflow wants them: "/" separators, no "./" or trailing "/". */
+export function pathsIn(answer: string): string[] {
+  const paths = answer.split(",").map((path) => path.trim().replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/+$/, "")).filter(Boolean);
+  return [...new Set(paths)];
+}
+
+const pathsOrBlank = (value: string) => {
+  const bad = pathsIn(value).filter((path) => !isRepoPath(path));
+  return bad.length === 0 ? true : `paths inside the repository, relative to its root, with no "..": not ${bad.join(", ")}`;
+};
+
+/** The repository's package.json, if it has one that parses. */
+function packageOf(dir: string): { scripts?: Record<string, string> } | null {
+  try {
+    return JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as { scripts?: Record<string, string> };
+  } catch {
+    return null;
+  }
 }
 
 /** The task directories under `dir`'s `pilot/tasks` (this repository's pilot), relative to `dir`. */

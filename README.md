@@ -51,6 +51,8 @@ export default defineWorkflow({
 
 `node bin/ahp.mjs setup` (or `node src/cli/bin.ts setup`) asks, in arrow-key menus, whether to set up a workflow on a repository or an evaluation, then which tool and which model runs each step (plan, implement, review), from the tools `ahp doctor` finds. Models come from the tool where it can list them (`opencode models`), else a short list (Claude Code's aliases `sonnet`, `opus`, `haiku`), and you can always keep the tool's own default or type a name. For Claude Code and Codex it then asks the effort level (`low` to `max` for Claude Code, `minimal` to `xhigh` for Codex); OpenCode's and Gemini CLI's adapters have no effort option, so they are not asked. It writes `ahp.workflow.mjs` or `ahp.suite.mjs` (never replacing a file) and offers to start it with `ahp run` or `ahp eval`. It needs an interactive terminal.
 
+A workflow can be **your own task** or the password-reset example. For your own task it asks what to build or change, the command that checks the work (offered `npm test` when `package.json` has a test script), the command that installs dependencies in a fresh copy of the repository (offered `npm ci` or `npm install`; blank for none), and the folders the implementing agent may change (blank for anywhere). It writes plan (read-only) → implement (done only when your command passes in a fresh verification worktree) → review (a request for changes sends implement back) → your approval → AHP pushes `ahp/<task name>`. Your check command is visible to the agents; only the example uses a hidden test.
+
 ### Several steps and handoffs
 
 A workflow is a linear list of steps; each runs after the one before it. Parallel steps are rejected before anything runs. A step can declare:

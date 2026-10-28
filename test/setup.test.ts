@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { DoctorReport, ToolReport } from "../src/doctor/index.ts";
 import { validateSuite } from "../src/evaluation/index.ts";
 import { validateWorkflow } from "../src/sdk/index.ts";
-import { offeredByOpenCode, openCodeModelsIn, runSetup, tasksUnder, type Choice, type ModelList, type Prompter } from "../src/setup/index.ts";
+import { offeredByOpenCode, openCodeModelsIn, pathsIn, runSetup, slugOf, tasksUnder, type Choice, type ModelList, type Prompter } from "../src/setup/index.ts";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -22,7 +22,7 @@ type Answer = unknown | ((choices: Choice<unknown>[]) => unknown);
 
 /** Answers each question in turn, and keeps what was asked and said. An answer for a menu may pick by the choices. */
 function scripted(answers: Answer[]) {
-  const asked: { message: string; choices?: Choice<unknown>[] }[] = [];
+  const asked: { message: string; choices?: Choice<unknown>[]; default?: string }[] = [];
   const said: string[] = [];
   const next = (message: string, choices?: Choice<unknown>[]) => {
     asked.push({ message, choices });
@@ -33,8 +33,9 @@ function scripted(answers: Answer[]) {
   const prompter: Prompter = {
     select: async ({ message, choices }) => next(message, choices as Choice<unknown>[]) as never,
     checkbox: async ({ message, choices }) => next(message, choices as Choice<unknown>[]) as never,
-    input: async ({ message, validate }) => {
+    input: async ({ message, validate, default: fallback }) => {
       const value = next(message) as string;
+      asked.at(-1)!.default = fallback;
       const verdict = validate?.(value) ?? true;
       if (verdict !== true) throw new Error(`"${value}" refused for "${message}": ${verdict}`);
       return value;
@@ -76,7 +77,7 @@ describe("ahp setup: a workflow", () => {
   it("writes the reference workflow with the tool and model chosen for each step, valid, and does not start it unless asked", async () => {
     const dir = tempDir();
     const { prompter, asked, left } = scripted([
-      "workflow",
+      "workflow", "example",
       "claude-code", "claude-code-model", "high", // plan
       "codex", null, null, // implement: the tool's own model and effort
       "opencode", [], "\u0000typed", "opencode/typed-free", // review: free models only, and a name typed in
@@ -101,13 +102,13 @@ describe("ahp setup: a workflow", () => {
     // OpenCode's adapter has no effort option, so none is asked for it.
     expect(asked.filter((question) => question.message.startsWith("Which effort")).map((question) => question.message.split(" ")[3])).toEqual(["plan?", "implement?"]);
     // A tool that cannot be used is shown with the reason and cannot be picked.
-    expect(asked[1]!.choices!.find((choice) => choice.value === "gemini-cli")).toMatchObject({ disabled: "not installed" });
+    expect(asked[2]!.choices!.find((choice) => choice.value === "gemini-cli")).toMatchObject({ disabled: "not installed" });
   });
 
   it("never replaces a file: it asks for another name", async () => {
     const dir = tempDir();
     writeFileSync(join(dir, "ahp.workflow.mjs"), "keep me\n");
-    const { prompter, asked } = scripted(["workflow", "mock", "mock", "mock", "ahp/x", "ahp.workflow.mjs", "other.mjs", false]);
+    const { prompter, asked } = scripted(["workflow", "example", "mock", "mock", "mock", "ahp/x", "ahp.workflow.mjs", "other.mjs", false]);
 
     const result = await runSetup({ prompter, dir, report: everyTool, models });
 
@@ -115,6 +116,72 @@ describe("ahp setup: a workflow", () => {
     expect(result.path).toBe(join(dir, "other.mjs"));
     expect(asked.some((question) => question.message.includes("already exists"))).toBe(true);
     expect(validateWorkflow(await load(result.path))).toEqual([]);
+  });
+});
+
+describe("ahp setup: a task of your own", () => {
+  type Step = { id: string; agent?: { adapter: string }; instructions?: string; verification?: Record<string, unknown>; capabilities?: unknown; review?: unknown; action?: { branch: string } };
+
+  it("writes plan, implement verified by your command, review, gate and push, with the paths you allow, and offers no mock", async () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { test: "node --test" } }));
+    writeFileSync(join(dir, "package-lock.json"), "{}");
+    const { prompter, asked, left } = scripted([
+      "workflow", "own",
+      "Add a /health endpoint that returns 200 and the version",
+      "npm test",
+      "npm ci",
+      " src/, .\\test\\api ,src ",
+      "add-health-endpoint",
+      "claude-code", null, null,
+      "codex", null, null,
+      "codex", null, null,
+      "ahp/health",
+      "flow.mjs",
+      false,
+    ]);
+
+    const result = await runSetup({ prompter, dir, report: everyTool, models });
+
+    expect(left).toEqual([]);
+    const workflow = (await load(result.path)) as { name: string; steps: Step[] };
+    expect(validateWorkflow(workflow)).toEqual([]);
+    expect(workflow.name).toBe("add-health-endpoint");
+    expect(workflow.steps.map((step) => step.id)).toEqual(["plan", "implement", "review", "approve", "publish"]);
+    const [plan, implement, review, , publish] = workflow.steps;
+    expect(plan!.instructions).toContain("Add a /health endpoint that returns 200 and the version");
+    expect(plan!.capabilities).toEqual([{ kind: "read_only" }]);
+    expect(implement!.verification).toEqual({ command: "npm test", install: "npm ci", requiredOutputFields: ["summary"] });
+    expect(implement!.capabilities).toEqual([{ kind: "write_scope", paths: ["src", "test/api"] }]);
+    expect(implement!.instructions).toContain("The work is done when `npm test` passes. Change only src, test/api.");
+    expect(review!.review).toEqual({ sendBackTo: "implement" });
+    expect(publish!.action!.branch).toBe("ahp/health");
+    expect(readFileSync(result.path, "utf8")).toContain("// add-health-endpoint: plan, implement (done when `npm test` passes)");
+    // The defaults come from the repository: its test script and its lock file.
+    const question = (start: string) => asked.find((q) => q.message.startsWith(start))!;
+    expect(question("Who plans")!.choices!.some((choice) => choice.value === "mock")).toBe(false);
+    expect([question("Command that checks").default, question("Command that installs").default]).toEqual(["npm test", "npm ci"]);
+  });
+
+  it("allows anywhere when no paths are given and leaves out an install that is blank", async () => {
+    const dir = tempDir();
+    const { prompter } = scripted(["workflow", "own", "Fix the typo in the README", "python -m pytest", "", "", "fix-typo", "codex", null, null, "codex", null, null, "codex", null, null, "ahp/fix-typo", "flow.mjs", false]);
+
+    const result = await runSetup({ prompter, dir, report: everyTool, models });
+
+    const implement = ((await load(result.path)) as { steps: Step[] }).steps[1]!;
+    expect(implement.verification).toEqual({ command: "python -m pytest", requiredOutputFields: ["summary"] });
+    expect(implement.capabilities).toBeUndefined();
+  });
+
+  it("refuses paths outside the repository and names it suggests from the task", async () => {
+    const dir = tempDir();
+    const { prompter } = scripted(["workflow", "own", "Do it", "npm test", "", "../elsewhere"]);
+
+    await expect(runSetup({ prompter, dir, report: everyTool, models })).rejects.toThrow(/paths inside the repository, relative to its root, with no "\.\.": not \.\.\/elsewhere/);
+    expect(slugOf("Add a /health endpoint, quickly!")).toBe("add-a-health-endpoint-quickly");
+    expect(slugOf("!!!")).toBe("task");
+    expect(pathsIn(" a/ , ./b\\c,a ")).toEqual(["a", "b/c"]);
   });
 });
 
@@ -182,7 +249,7 @@ describe("the models offered", () => {
     });
     const offered = (choices: Choice<unknown>[]) => choices.map((choice) => choice.value).filter((value) => value !== "\u0000typed");
     const { prompter, asked, left } = scripted([
-      "workflow",
+      "workflow", "example",
       "opencode", ["go"], "opencode-go/kimi-k3", // plan
       "opencode", "opencode/glm-5.3-flash-free", // implement: not asked again
       "mock",

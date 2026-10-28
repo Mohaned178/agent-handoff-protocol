@@ -173,15 +173,80 @@ export function buildWorkflow(assignments: readonly RoleAssignment[], branch = D
   };
 }
 
+/**
+ * A task of the user's own, as `ahp setup` asks for it: what to build, the command that says it is done, and where the
+ * implementing agent may write. Nothing about it is hidden from the agents: the check is the user's own.
+ */
+export interface UserTask {
+  /** The workflow's name, short. */
+  name: string;
+  /** What the agents are to build or change, in the user's words. */
+  goal: string;
+  /** Run in a fresh verification worktree; exit 0 means the implement step is done. */
+  command: string;
+  /** Run before `command` in that worktree (dependencies are not in a fresh checkout); null for none. */
+  install: string | null;
+  /** Repository-relative paths the implementing agent may change; empty for anywhere in the repository. */
+  paths: string[];
+}
+
+/** A workflow for the user's own task: plan, implement (verified by the user's command), review, gate, push. */
+export function buildTaskWorkflow(assignments: readonly RoleAssignment[], task: UserTask, branch: string): Record<string, unknown> {
+  const who = (role: Role) => assignments.find((assignment) => assignment.role === role)!;
+  const scope = task.paths.length > 0 ? ` Change only ${task.paths.join(", ")}.` : "";
+  return {
+    name: task.name,
+    steps: [
+      {
+        id: "plan",
+        agent: agentOf(who("plan")),
+        instructions: `Plan this task:\n${task.goal}\n\nRead the repository first. Write no code; report a summary and the decisions you made.`,
+        verification: { requiredOutputFields: ["summary", "decisions"] },
+        capabilities: [{ kind: "read_only" }],
+      },
+      {
+        id: "implement",
+        agent: agentOf(who("implement")),
+        instructions: `${task.goal}\n\nThe work is done when \`${task.command}\` passes.${scope}`,
+        verification: { command: task.command, ...(task.install ? { install: task.install } : {}), requiredOutputFields: ["summary"] },
+        ...(task.paths.length > 0 ? { capabilities: [{ kind: "write_scope", paths: task.paths }] } : {}),
+      },
+      {
+        id: "review",
+        agent: agentOf(who("review")),
+        instructions: `Review the change made for this task against the plan:\n${task.goal}\n\nReport a verdict of approved or changes_requested, and your findings.`,
+        review: { sendBackTo: "implement" },
+        verification: {},
+        capabilities: [{ kind: "read_only" }],
+      },
+      { id: "approve", approval: {} },
+      { id: "publish", action: { kind: "push_branch", branch } },
+    ],
+  };
+}
+
 /** The text of a workflow file for `assignments`; its header says which steps are scripted by the mock. */
 export function renderWorkflow(assignments: readonly RoleAssignment[], branch = DEFAULT_BRANCH, writtenBy = "init"): string {
-  const workflow = buildWorkflow(assignments, branch);
+  return renderFile(buildWorkflow(assignments, branch), assignments, branch, writtenBy, [
+    "// The password-reset reference scenario: plan, implement (verified by a hidden test), review (a request for",
+    "// changes sends implement back), an approval gate, then AHP itself pushes the approved commit.",
+  ]);
+}
+
+/** The text of a workflow file for the user's own task. */
+export function renderTaskWorkflow(assignments: readonly RoleAssignment[], task: UserTask, branch: string, writtenBy = "setup"): string {
+  return renderFile(buildTaskWorkflow(assignments, task, branch), assignments, branch, writtenBy, [
+    `// ${task.name}: plan, implement (done when \`${task.command}\` passes), review (a request for changes sends`,
+    "// implement back), an approval gate, then AHP itself pushes the approved commit.",
+  ]);
+}
+
+function renderFile(workflow: Record<string, unknown>, assignments: readonly RoleAssignment[], branch: string, writtenBy: string, about: string[]): string {
   const problems = validateWorkflow(workflow);
   if (problems.length > 0) throw new Error(`the generated workflow is invalid:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
   const cast = assignments.map(({ role, adapter, tool, model, effort }) => `//   ${role.padEnd(9)} ${adapter}${model ? `, model ${model}` : ""}${effort ? `, effort ${effort}` : ""}${tool === null ? "  (scripted mock: not a real coding agent, and its output is no evidence)" : ""}`);
   return [
-    "// The password-reset reference scenario: plan, implement (verified by a hidden test), review (a request for",
-    "// changes sends implement back), an approval gate, then AHP itself pushes the approved commit.",
+    ...about,
     "//",
     `// Written by \`ahp ${writtenBy}\`. Who plays each step:`,
     ...cast,
