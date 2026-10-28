@@ -211,6 +211,14 @@ describe("the prompt", () => {
 
     expect(call.stdin).toContain("its output is withheld");
   });
+
+  it("names the only words a verdict may be, and only when a verdict is to be reported", async () => {
+    const review = await attempt(fixture("complete"), { requiredOutputFields: ["verdict", "findings"] });
+    const plain = await attempt(fixture("complete"), { requiredOutputFields: ["summary"] });
+
+    expect(review.call.stdin).toContain("`verdict` is exactly one of these words and nothing else: approved, changes_requested");
+    expect(plain.call.stdin).not.toContain("`verdict` is exactly");
+  });
 });
 
 describe("what the stream says about the attempt", () => {

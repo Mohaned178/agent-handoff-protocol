@@ -448,6 +448,29 @@ const ratio = (part: number, whole: number, what: string) =>
   whole === 0 ? `n/a: no ${what}` : `${part} of ${whole} ${what} (${Math.round((100 * part) / whole)}%)`;
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/** A sum of money for reading: floating-point noise from adding many costs is rounded off (the ledger keeps the exact numbers). */
+export const money = (amount: number): string => String(Number(amount.toFixed(6)));
+
+/**
+ * Source labels that differ only in their numbers (an adapter names per-attempt counts in its label) shown once, with
+ * each number that varies between them replaced by "…".
+ */
+export function sourcesText(sources: readonly string[]): string {
+  const groups = new Map<string, string[][]>();
+  for (const source of sources) {
+    const shape = source.replace(/\d+(\.\d+)?/g, "#");
+    groups.set(shape, [...(groups.get(shape) ?? []), source.match(/\d+(\.\d+)?/g) ?? []]);
+  }
+  return [...groups].map(([shape, numbers]) => {
+    let index = 0;
+    return shape.replace(/#/g, () => {
+      const values = new Set(numbers.map((list) => list[index]));
+      index += 1;
+      return values.size === 1 ? [...values][0]! : "…";
+    });
+  }).join("; ");
+}
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 const signed = (value: number) => `${value > 0 ? "+" : value < 0 ? "−" : ""}${Math.abs(value).toFixed(2)}`;
 
@@ -465,8 +488,8 @@ function usageLines(usage: readonly UsageSummary[]): string[] {
       continue;
     }
     const counts = USAGE_COUNTS.filter((count) => summary.counts[count].attempts > 0).map((count) => `${count} ${summary.counts[count].sum} (${summary.counts[count].attempts})`);
-    const costs = summary.cost.map((cost) => `cost ${cost.amount} ${cost.currency} (${cost.attempts})`);
-    lines.push(`    ${summary.adapter}: ${summary.reported} of ${plural(summary.attempts, "attempt")} reported; ${[...counts, ...costs].join(", ")}; source: ${summary.sources.join("; ")}`);
+    const costs = summary.cost.map((cost) => `cost ${money(cost.amount)} ${cost.currency} (${cost.attempts})`);
+    lines.push(`    ${summary.adapter}: ${summary.reported} of ${plural(summary.attempts, "attempt")} reported; ${[...counts, ...costs].join(", ")}; source: ${sourcesText(summary.sources)}`);
   }
   return lines;
 }
@@ -527,7 +550,7 @@ export function formatReport(report: EvaluationReport): string {
   }
   if (report.spend) {
     const { cap, reported, attemptsWithoutCost } = report.spend;
-    lines.push(`Reported spend: ${reported} ${cap.currency} of a cap of ${cap.amount}${report.spend.capReached ? ", reached: no further trial was started" : ""}. Only cost a tool reports is counted (${plural(attemptsWithoutCost, "attempt")} reported none in ${cap.currency}); the real limit is the one set in each provider's console.`);
+    lines.push(`Reported spend: ${money(reported)} ${cap.currency} of a cap of ${cap.amount}${report.spend.capReached ? ", reached: no further trial was started" : ""}. Only cost a tool reports is counted (${plural(attemptsWithoutCost, "attempt")} reported none in ${cap.currency}); the real limit is the one set in each provider's console.`);
   }
   for (const tool of report.tools) {
     const found = tool.found.map(({ version, trials }) => `${version ?? "unreadable"} (${plural(trials, "trial")})`).join(", ");

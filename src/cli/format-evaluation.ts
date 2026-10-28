@@ -1,4 +1,5 @@
 import type { EvaluationEvent, EvaluationView, TrialView } from "../evaluation/index.ts";
+import { money } from "../evaluation/report.ts";
 
 const mockTag = (isMock: boolean) => (isMock ? " [mock]" : "");
 
@@ -28,7 +29,7 @@ export function formatEvaluationEvent(event: EvaluationEvent, state: Readonly<Ev
       return `${label(event.trialId)}: started${warning}`;
     }
     case "spend_observed":
-      return `reported spend so far: ${event.amount} ${event.currency}${event.attemptsWithoutCost > 0 ? ` (${event.attemptsWithoutCost} attempt${event.attemptsWithoutCost === 1 ? "" : "s"} reported no cost in it)` : ""}`;
+      return `reported spend so far: ${money(event.amount)} ${event.currency}${event.attemptsWithoutCost > 0 ? ` (${event.attemptsWithoutCost} attempt${event.attemptsWithoutCost === 1 ? "" : "s"} reported no cost in it)` : ""}`;
     case "harness_incident":
       return `${label(event.trialId)}: attempt ${event.attemptId} is unknown (${event.unknownReason})`;
     case "trial_ended": {

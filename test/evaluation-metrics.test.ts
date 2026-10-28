@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { formatReport, type TrialSlot } from "../src/evaluation/index.ts";
 import { MOCK_USAGE_SOURCE } from "../src/index.ts";
+import { money, sourcesText } from "../src/evaluation/report.ts";
 import { APPROVES, DOES_NOTHING, evaluate, GREETS, greetingTaskDir, IMPLEMENTS, PLANS, REQUESTS_CHANGES, scripted, suiteOf } from "./helpers/evaluation.ts";
 import { removeTempRepos } from "./helpers/repo.ts";
 
@@ -118,5 +119,16 @@ describe("the paired comparisons in the report", () => {
     expect(comparison.tasks).toEqual([{ taskId: "fine", a: { passes: 1, valid: 1, incidents: 0, rate: 1 }, b: { passes: 1, valid: 1, incidents: 0, rate: 1 }, difference: 0 }]);
     expect(comparison.excluded).toEqual([{ taskId: "lost", reason: "none_in_either" }]);
     expect(formatReport(report)).toContain("lost: left out, no valid trial under either");
+  });
+});
+
+describe("the report's display of usage", () => {
+  it("shows source labels that differ only in numbers once, and rounds money sums", () => {
+    const a = "result event (usage); cache writes (5305 reported, not included); apiKeySource none";
+    const b = "result event (usage); cache writes (11508 reported, not included); apiKeySource none";
+    expect(sourcesText([a, b])).toBe("result event (usage); cache writes (… reported, not included); apiKeySource none");
+    expect(sourcesText([a, "another source"])).toBe(`${a}; another source`);
+    expect(money(0.7613190000000001)).toBe("0.761319");
+    expect(money(12)).toBe("12");
   });
 });

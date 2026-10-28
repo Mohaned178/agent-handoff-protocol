@@ -1,7 +1,7 @@
 // The prompt an adapter gives its coding agent on stdin for an attempt: the handoff the recipient accepted, as plain text.
 // It goes on stdin, never in the arguments, so no character of it is read by a shell or the Windows command line.
 
-import type { CapabilityRequest, HandoffEvidence, HandoffRevision, OutputFieldValue } from "../protocol/index.ts";
+import { REVIEW_VERDICTS, type CapabilityRequest, type HandoffEvidence, type HandoffRevision, type OutputFieldValue } from "../protocol/index.ts";
 
 const text = (value: OutputFieldValue): string => (typeof value === "string" ? value : value.map((item) => `- ${item}`).join("\n"));
 
@@ -67,7 +67,9 @@ export function promptFor(
   if (fields.length > 0) {
     sections.push(
       `## Report\n\nWhen you are done, report these fields ${reportHow}: ${fields.join(", ")}. ` +
-        "Each is text, or a list of text items. Report what you actually did and found.",
+        "Each is text, or a list of text items. Report what you actually did and found." +
+        // A verdict is read as exactly one of these words, never interpreted (a smoke run's "approve: ..." was refused).
+        (fields.includes("verdict") ? ` \`verdict\` is exactly one of these words and nothing else: ${REVIEW_VERDICTS.join(", ")}; put your reasons in \`findings\`.` : ""),
     );
   }
   return `${sections.join("\n\n")}\n`;
