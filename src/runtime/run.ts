@@ -38,7 +38,7 @@ import { classifyAttempt, decideAfterFailure, resolveRetryPolicy, verdictFailure
 import { git } from "./git.ts";
 import { introduceHiddenTests } from "./hidden-tests.ts";
 import { buildHandoff, retryEvidence, reviseHandoff, validateHandoffRevision } from "./handoff.ts";
-import { ledgerPath, locateRepo, prepareWorktreeRoot, snapshotRef, worktreePath, type RepoLocation } from "./paths.ts";
+import { ledgerPath, locateRepo, prepareWorktreeRoot, snapshotRef, toolCallLogPath, worktreePath, type RepoLocation } from "./paths.ts";
 import { githubCli, type PullRequestProvider } from "./pull-requests.ts";
 import { buildRecoveryReport, refChanges } from "./recovery.ts";
 import { sharedRefs } from "./refs.ts";
@@ -487,6 +487,7 @@ async function executeAttempt(step: StepDefinition, index: number, run: RunConte
     capabilities,
     handoff,
     options: agent.options,
+    toolCallLog: toolCallLogPath(location, runId, attemptId),
   });
   let started: StartedAttempt | typeof CANCELLED | typeof TIMED_OUT;
   try {
@@ -629,7 +630,8 @@ async function advanceUnknownAttempt(step: StepDefinition, index: number, attemp
   const recovery = attempt.recovery!;
   if (!recovery.report) {
     if (!attempt.refs.after) return recordRefsAfter(attempt, run);
-    const report = await buildRecoveryReport({ attempt, base: stepBase(index, run), events: run.events() });
+    const toolCallLog = toolCallLogPath(run.location, run.runId, attempt.id);
+    const report = await buildRecoveryReport({ attempt, base: stepBase(index, run), events: run.events(), toolCallLog });
     return record({ type: "recovery_report_written", attemptId: attempt.id, report });
   }
   if (!recovery.decision) {

@@ -1,0 +1,186 @@
+{
+  "_about": "Messages captured from `opencode acp` 1.18.35 on Windows (ticket 18), as the agent sent them, scrubbed: the workspace path is {{workspace}}, session and call ids are shortened, the model list is cut to three entries, the commands list to two, and the masked API key in `badKey` is a stand-in. The only invented text is the end of the masked key in `badKey`, and the model list and commands, which are cut.",
+  "initialize": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "loadSession": true,
+      "mcpCapabilities": { "http": true, "sse": true },
+      "promptCapabilities": { "embeddedContext": true, "image": true },
+      "sessionCapabilities": { "close": {}, "fork": {}, "list": {}, "resume": {} }
+    },
+    "authMethods": [{ "description": "Run `opencode auth login` in the terminal", "name": "Login with opencode", "id": "opencode-login" }],
+    "agentInfo": { "name": "OpenCode", "version": "1.18.35" }
+  },
+  "newSession": {
+    "sessionId": "ses_fixture",
+    "configOptions": [
+      {
+        "id": "model",
+        "name": "Model",
+        "category": "model",
+        "type": "select",
+        "currentValue": "opencode/big-pickle",
+        "options": [
+          { "value": "opencode/big-pickle", "name": "OpenCode Zen/Big Pickle" },
+          { "value": "opencode/deepseek-v4.1-flash-free", "name": "OpenCode Zen/DeepSeek V4.1 Flash Free" },
+          { "value": "openai/gpt-5-nano", "name": "OpenAI/GPT-5 Nano" }
+        ]
+      }
+    ]
+  },
+  "commands": {
+    "jsonrpc": "2.0",
+    "method": "session/update",
+    "params": {
+      "sessionId": "ses_fixture",
+      "update": {
+        "sessionUpdate": "available_commands_update",
+        "availableCommands": [
+          { "name": "init", "description": "create/update AGENTS.md" },
+          { "name": "review", "description": "review changes [commit|branch|pr], defaults to uncommitted" }
+        ]
+      }
+    }
+  },
+  "thought": {
+    "jsonrpc": "2.0",
+    "method": "session/update",
+    "params": { "sessionId": "ses_fixture", "update": { "sessionUpdate": "agent_thought_chunk", "messageId": "prt_1", "content": { "type": "text", "text": "Simple task." } } }
+  },
+  "messageChunkOk": {
+    "jsonrpc": "2.0",
+    "method": "session/update",
+    "params": { "sessionId": "ses_fixture", "update": { "sessionUpdate": "agent_message_chunk", "messageId": "msg_1", "content": { "type": "text", "text": "ok" } } }
+  },
+  "usageUpdate": {
+    "jsonrpc": "2.0",
+    "method": "session/update",
+    "params": { "sessionId": "ses_fixture", "update": { "sessionUpdate": "usage_update", "used": 13346, "size": 200000, "cost": { "amount": 0, "currency": "USD" } } }
+  },
+  "writeToolCall": {
+    "jsonrpc": "2.0",
+    "method": "session/update",
+    "params": { "sessionId": "ses_fixture", "update": { "sessionUpdate": "tool_call", "toolCallId": "call_write", "title": "write", "kind": "edit", "status": "pending", "locations": [], "rawInput": {} } }
+  },
+  "writeToolCallRunning": {
+    "jsonrpc": "2.0",
+    "method": "session/update",
+    "params": {
+      "sessionId": "ses_fixture",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "call_write",
+        "status": "in_progress",
+        "kind": "edit",
+        "title": "write",
+        "locations": [{ "path": "{{workspace}}\\out.txt" }],
+        "rawInput": { "filePath": "{{workspace}}\\out.txt", "content": "hello." }
+      }
+    }
+  },
+  "writePermissionRequest": {
+    "jsonrpc": "2.0",
+    "method": "session/request_permission",
+    "params": {
+      "sessionId": "ses_fixture",
+      "toolCall": {
+        "toolCallId": "call_write",
+        "title": "{{workspace}}\\out.txt",
+        "kind": "edit",
+        "status": "pending",
+        "locations": [{ "path": "{{workspace}}\\out.txt" }],
+        "rawInput": { "filepath": "{{workspace}}\\out.txt", "diff": "Index: out.txt\n+hello.\n\\ No newline at end of file\n" },
+        "content": [{ "type": "diff", "path": "{{workspace}}\\out.txt", "oldText": "", "newText": "hello." }]
+      },
+      "options": [
+        { "optionId": "once", "kind": "allow_once", "name": "Allow once" },
+        { "optionId": "always", "kind": "allow_always", "name": "Always allow" },
+        { "optionId": "reject", "kind": "reject_once", "name": "Reject" }
+      ]
+    }
+  },
+  "writeFileRequest": {
+    "jsonrpc": "2.0",
+    "method": "fs/write_text_file",
+    "params": { "sessionId": "ses_fixture", "path": "{{workspace}}\\out.txt", "content": "hello." }
+  },
+  "writeToolCallDone": {
+    "jsonrpc": "2.0",
+    "method": "session/update",
+    "params": {
+      "sessionId": "ses_fixture",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "call_write",
+        "status": "completed",
+        "title": "out.txt",
+        "content": [{ "type": "content", "content": { "type": "text", "text": "Wrote file successfully." } }],
+        "rawOutput": { "output": "Wrote file successfully.", "metadata": { "filepath": "{{workspace}}\\out.txt", "exists": false } }
+      }
+    }
+  },
+  "bashToolCallRunning": {
+    "jsonrpc": "2.0",
+    "method": "session/update",
+    "params": {
+      "sessionId": "ses_fixture",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "call_bash",
+        "status": "in_progress",
+        "kind": "execute",
+        "title": "git push origin main",
+        "locations": [{ "path": "{{workspace}}" }],
+        "rawInput": { "command": "git push origin main", "cwd": "{{workspace}}" }
+      }
+    }
+  },
+  "bashPermissionRequest": {
+    "jsonrpc": "2.0",
+    "method": "session/request_permission",
+    "params": {
+      "sessionId": "ses_fixture",
+      "toolCall": { "toolCallId": "call_bash", "title": "git push origin main", "kind": "execute", "status": "pending", "locations": [], "rawInput": { "command": "git push origin main" } },
+      "options": [
+        { "optionId": "once", "kind": "allow_once", "name": "Allow once" },
+        { "optionId": "always", "kind": "allow_always", "name": "Always allow" },
+        { "optionId": "reject", "kind": "reject_once", "name": "Reject" }
+      ]
+    }
+  },
+  "bashToolCallFailed": {
+    "jsonrpc": "2.0",
+    "method": "session/update",
+    "params": {
+      "sessionId": "ses_fixture",
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "call_bash",
+        "status": "failed",
+        "kind": "execute",
+        "title": "git push origin main",
+        "locations": [{ "path": "{{workspace}}" }],
+        "rawInput": { "command": "git push origin main", "cwd": "{{workspace}}" }
+      }
+    }
+  },
+  "completeResult": { "stopReason": "end_turn", "usage": { "inputTokens": 34, "outputTokens": 3, "totalTokens": 13349, "cachedReadTokens": 13312 }, "_meta": {} },
+  "thoughtResult": { "stopReason": "end_turn", "usage": { "inputTokens": 11707, "outputTokens": 8, "totalTokens": 11812, "thoughtTokens": 27, "cachedReadTokens": 70 }, "_meta": {} },
+  "cancelledResult": { "stopReason": "cancelled", "usage": { "inputTokens": 0, "outputTokens": 0, "totalTokens": 0 }, "_meta": {} },
+  "modelNotFound": { "code": -32602, "message": "Invalid params: model not found: nonexistent/model", "data": { "providerId": "nonexistent", "modelId": "nonexistent/model" } },
+  "badKey": {
+    "code": -32603,
+    "message": "Internal error: Incorrect API key provided: sk-proj-********************************************************************************Fixture. You can find your API key at https://platform.openai.com/account/api-keys.",
+    "data": { "service": "session", "errorName": "APIError" }
+  },
+  "export": {
+    "info": { "id": "ses_fixture", "agent": "build", "model": { "id": "big-pickle", "providerID": "opencode" }, "version": "1.18.35" },
+    "messages": [
+      { "info": { "role": "user", "model": { "providerID": "opencode", "modelID": "big-pickle" } }, "parts": [{ "type": "text", "text": "Reply ok." }] },
+      {
+        "info": { "role": "assistant", "modelID": "big-pickle", "providerID": "opencode", "cost": 0, "tokens": { "total": 11816, "input": 11709, "output": 8, "reasoning": 29, "cache": { "write": 0, "read": 70 } } },
+        "parts": [{ "type": "text", "text": "ok" }]
+      }
+    ]
+  }
+}

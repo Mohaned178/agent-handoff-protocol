@@ -38,7 +38,13 @@ function limitText(request: CapabilityRequest): string {
 }
 
 /** What to tell the agent for `handoff`, with `reportFields` to report in addition to the ones the step requires. */
-export function promptFor(handoff: HandoffRevision, reportFields: readonly string[], extraInstructions: string | undefined): string {
+export function promptFor(
+  handoff: HandoffRevision,
+  reportFields: readonly string[],
+  extraInstructions: string | undefined,
+  /** How the agent is to report: the tool's structured output by default, or in words for a tool that has none. */
+  reportHow = "through the structured output",
+): string {
   const sections: string[] = [];
   sections.push(`# Task\n\n${handoff.contract.instructions ?? "No instructions were given for this step."}`);
   if (extraInstructions) sections.push(extraInstructions);
@@ -60,7 +66,7 @@ export function promptFor(handoff: HandoffRevision, reportFields: readonly strin
   const fields = [...new Set([...handoff.contract.acceptance.requiredOutputFields, ...reportFields])];
   if (fields.length > 0) {
     sections.push(
-      `## Report\n\nWhen you are done, report these fields through the structured output: ${fields.join(", ")}. ` +
+      `## Report\n\nWhen you are done, report these fields ${reportHow}: ${fields.join(", ")}. ` +
         "Each is text, or a list of text items. Report what you actually did and found.",
     );
   }

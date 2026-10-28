@@ -201,6 +201,44 @@ describe("launch", () => {
     expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ pwd: cwd, cwd });
   });
 
+  it("in duplex mode keeps stdin open for the caller, so a tool can be talked to line by line until stdin is ended", async () => {
+    const cwd = tempDir();
+    const script = write(
+      join(cwd, "upper.js"),
+      `process.stdin.setEncoding("utf8"); process.stdin.on("data", (chunk) => process.stdout.write(chunk.toUpperCase())); process.stdin.on("end", () => process.exit(7));`,
+    );
+
+    const started = await launch({ executable: node, args: [script], cwd, duplex: true });
+    started.stdout.setEncoding("utf8");
+    const replies: string[] = [];
+    started.stdout.on("data", (chunk: string) => replies.push(chunk));
+
+    started.stdin!.write("first\n");
+    await until(() => (replies.join("") === "FIRST\n" ? true : undefined), "the first reply");
+    started.stdin!.write("second\n");
+    await until(() => (replies.join("") === "FIRST\nSECOND\n" ? true : undefined), "the second reply");
+    // The process is still running: nothing closed its stdin.
+    expect(isRunning(started.pid)).toBe(true);
+
+    started.stdin!.end();
+    expect(await started.exited).toEqual({ exitCode: 7, signal: null });
+  });
+
+  it("in duplex mode still sets PWD and stops the whole tree", async () => {
+    const dir = tempDir();
+    const path = write(join(dir, "agent.js"), TREE_AGENT);
+    const pidFile = join(dir, "pids");
+    const started = await launch({ executable: node, args: [path, pidFile], cwd: dir, duplex: true, env: { PWD: tempDir() } });
+    started.stdout.resume();
+    const tree = await until(() => {
+      const lines = existsSync(pidFile) ? readFileSync(pidFile, "utf8").trim().split("\n") : [];
+      return lines.length === 2 ? lines.map(Number) : undefined;
+    }, "the agent to start its grandchild");
+
+    expect(await started.terminate({ graceMs: 300 })).toEqual({ outcome: "stopped", forced: true, via: "tree_kill" });
+    for (const pid of tree) expect(isRunning(pid)).toBe(false);
+  });
+
   it("fails to start a command that is not there", async () => {
     const cwd = tempDir();
     const missing: Executable = { file: join(cwd, process.platform === "win32" ? "missing.exe" : "missing"), prefixArgs: [], via: "executable", path: "" };

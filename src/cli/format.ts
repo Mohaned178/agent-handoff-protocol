@@ -467,6 +467,18 @@ function describeRecovery({ reason, detail, report, awaited, decision }: Attempt
   return lines;
 }
 
+/** The transport's tool-call log of an unknown attempt: what its tools were doing, the last thing last. */
+function describeToolCallLog(log: RecoveryReport["toolCallLog"]): string[] {
+  if (log === null) return ["tool-call log: none, the attempt's adapter keeps none"];
+  if (log.entries.length === 0) return ["tool-call log: empty, the agent had made no tool call"];
+  const lines = log.entries.map((entry) => {
+    const what = [entry.kind, entry.title === null ? null : JSON.stringify(entry.title), entry.paths.length > 0 ? `on ${entry.paths.join(", ")}` : null].filter((part) => part !== null);
+    const answer = entry.permission === null ? "" : `, ${entry.permission} by AHP`;
+    return `  | ${entry.time} ${entry.status ?? "?"}${answer}: ${what.join(" ")}`;
+  });
+  return [`tool-call log: ${log.entries.length} ${log.entries.length === 1 ? "entry" : "entries"}${log.truncated ? ", the last only" : ""}`, ...lines];
+}
+
 /** A recovery report, line by line, each indented by `indent`. */
 function describeReport(report: RecoveryReport, indent: string): string[] {
   const { lastEvents, workspace, refs } = report;
@@ -489,7 +501,7 @@ function describeReport(report: RecoveryReport, indent: string): string[] {
       ...refs.changed.map((change) => `  | ${describeRefChange(change)}`),
     );
   }
-  lines.push(report.toolCallLog === null ? "tool-call log: none, the attempt's adapter keeps none" : "tool-call log:", report.undetermined);
+  lines.push(...describeToolCallLog(report.toolCallLog), report.undetermined);
   return lines.map((line) => `${indent}${line}`);
 }
 

@@ -7,6 +7,7 @@ import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { claudeCodeSubject } from "../src/adapters/claude-code/conformance.ts";
 import { codexSubject } from "../src/adapters/codex/conformance.ts";
+import { openCodeSubject } from "../src/adapters/opencode/conformance.ts";
 import { mockSubject } from "../src/adapters/mock/conformance.ts";
 import {
   ConformanceRefusedError,
@@ -20,7 +21,7 @@ import {
 } from "../src/conformance/index.ts";
 
 /** The adapters that can be run, by name. An adapter's ticket adds its subject here. */
-const subjects: Record<string, () => ConformanceSubject> = { mock: mockSubject, "claude-code": claudeCodeSubject, codex: codexSubject };
+const subjects: Record<string, () => ConformanceSubject> = { mock: mockSubject, "claude-code": claudeCodeSubject, codex: codexSubject, opencode: openCodeSubject };
 
 const defaultDir = fileURLToPath(new URL("../conformance/results", import.meta.url));
 

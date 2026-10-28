@@ -60,6 +60,11 @@ process.stdin.on("end", () => {
 });
 process.stdin.resume();
 `;
+  installFakeToolScript(dir, command, script);
+}
+
+/** Installs `command` in `dir` as the Node script `script`, exactly as it is: an npm shim on Windows, a script with a shebang elsewhere. */
+export function installFakeToolScript(dir: string, command: string, script: string): void {
   if (process.platform === "win32") {
     writeFileSync(join(dir, `${command}.cmd`), npmShim(`node_modules\\${command}\\cli.js`));
     mkdirSync(join(dir, "node_modules", command), { recursive: true });

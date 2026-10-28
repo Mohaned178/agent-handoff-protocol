@@ -547,6 +547,31 @@ export interface RefChange {
 }
 
 /**
+ * One line of a transport's tool-call log: what the coding agent's tool said about a tool call, or that AHP answered a
+ * permission request for it. Metadata only, never the call's input or output.
+ */
+export interface ToolCallLogEntry {
+  time: string;
+  toolCallId: string;
+  /** The tool's own kind for the call (ACP: `read`, `edit`, `execute`, ...). */
+  kind: string | null;
+  /** The tool's title for the call; for a shell command, the command. Cut short. */
+  title: string | null;
+  /** The call's status as the tool last reported it (`pending`, `in_progress`, `completed`, `failed`). */
+  status: string | null;
+  paths: string[];
+  /** What AHP answered when the tool asked permission for the call; null when it did not ask. */
+  permission: "allowed" | "rejected" | null;
+}
+
+/** The last of a transport's tool-call log entries, oldest first. */
+export interface ToolCallLog {
+  entries: ToolCallLogEntry[];
+  /** True when earlier entries were left out. */
+  truncated: boolean;
+}
+
+/**
  * What is known about an attempt whose outcome is unknown, for the person or policy that decides what becomes of
  * it. Everything in it was read when it was written; nothing in it says what the agent did beyond the workspace
  * and the shared repository's refs.
@@ -575,8 +600,8 @@ export interface RecoveryReport {
     /** Why the refs could not be compared: a snapshot is missing. */
     error: string | null;
   };
-  /** The transport's log of the agent's tool calls; null when the adapter keeps none, as no adapter does yet. */
-  toolCallLog: null;
+  /** The transport's log of the agent's tool calls; null when the attempt's adapter kept none. */
+  toolCallLog: ToolCallLog | null;
   /** The statement that host and external effects are undetermined, always present. */
   undetermined: string;
 }

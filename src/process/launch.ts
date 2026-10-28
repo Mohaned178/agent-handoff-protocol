@@ -1,4 +1,4 @@
-import type { Readable } from "node:stream";
+import type { Readable, Writable } from "node:stream";
 import { execa } from "execa";
 import { isFile, startsDirectly, type Executable } from "./resolve.ts";
 import { OWN_PROCESS_GROUP, terminateTree, type TerminateOptions, type Termination } from "./tree.ts";
@@ -11,6 +11,12 @@ export interface LaunchOptions {
   cwd: string;
   /** Written to the process's stdin, byte for byte, which is then closed: the prompt, or whatever the tool reads there. Default empty. */
   input?: string;
+  /**
+   * Keeps stdin open and hands it to the caller (`LaunchedProcess.stdin`), for a tool that is talked to over the
+   * process's lifetime, as an ACP agent is: the caller ends it, which is how such a tool is told to finish. `input` is
+   * then not allowed. Resolution, `PWD` and the tree's termination are the same.
+   */
+  duplex?: boolean;
   /** Variables added to this process's environment. `PWD` is always `cwd`. */
   env?: NodeJS.ProcessEnv;
 }
@@ -22,6 +28,8 @@ export interface ProcessExit {
 
 export interface LaunchedProcess {
   pid: number;
+  /** The process's stdin when it was launched `duplex`, else null (it was written and closed at launch). */
+  stdin: Writable | null;
   /** The process's stdout, which the caller must read to the end. */
   stdout: Readable;
   /** Settles once the process has exited and its stdout has closed. */
@@ -41,6 +49,7 @@ export interface LaunchedProcess {
  */
 export async function launch(options: LaunchOptions): Promise<LaunchedProcess> {
   const { executable } = options;
+  if (options.duplex && options.input !== undefined) throw new Error("a duplex process is written to by its caller: it takes no `input`");
   // execa hands anything it cannot resolve to an .exe or .com to cmd.exe, a missing file included, so only an
   // existing .exe or .com may get there.
   if (process.platform === "win32" && !(startsDirectly(executable.file) && (await isFile(executable.file)))) {
@@ -60,8 +69,8 @@ export async function launch(options: LaunchOptions): Promise<LaunchedProcess> {
     reject: false,
     buffer: false,
     windowsHide: true,
-    // No input still closes stdin, so a tool that reads it sees its end rather than waiting.
-    input: options.input ?? "",
+    // No input still closes stdin, so a tool that reads it sees its end rather than waiting. A duplex process's stdin is the caller's.
+    ...(options.duplex ? { stdin: "pipe" as const } : { input: options.input ?? "" }),
     stdout: "pipe",
     stderr: "ignore",
   });
@@ -80,6 +89,7 @@ export async function launch(options: LaunchOptions): Promise<LaunchedProcess> {
   const pid = subprocess.pid;
   return {
     pid,
+    stdin: options.duplex ? subprocess.stdin : null,
     stdout: subprocess.stdout,
     exited: exited.then((result) => {
       if (result.failed && result.exitCode === undefined && result.signal === undefined) {

@@ -208,6 +208,54 @@ describe("the conformance suite finds an adapter that does not hold to its contr
     expect(check(result, "cancel:forced_tree")).toMatchObject({ status: "failed", detail: expect.stringContaining("still running") });
   });
 
+  /** An adapter with a transport cancel of its own; `clears` says whether that cancel really takes the agent's whole tree with it. */
+  function transportCancel(clears: boolean): ConformanceSubject {
+    const adapter = adapterBased(
+      { gracefulCancel: true },
+      {
+        started: (started, input) => ({
+          ...started,
+          cancel: async () => {
+            const { pidFile } = (input.options as { attempts: { pidFile: string }[] }).attempts[0]!;
+            const pids = [...new Set([started.pid, ...readFileSync(pidFile, "utf8").split("\n").filter(Boolean).map(Number)])];
+            if (!clears) leaveRunning(...pids);
+            else {
+              for (const pid of pids) {
+                try {
+                  process.kill(pid, "SIGKILL");
+                } catch {
+                  // already gone
+                }
+              }
+            }
+            return { outcome: "stopped", forced: false, via: "transport" };
+          },
+        }),
+      },
+    );
+    return subjectFor(adapter);
+  }
+
+  it("takes a transport cancel that clears a tree of processes that ignore signals as it is: forcing is for what the transport leaves", async () => {
+    const result = await runOnly(transportCancel(true), ["cancel:forced_tree"]);
+
+    expect(check(result, "cancel:forced_tree")).toMatchObject({ status: "passed", detail: expect.stringContaining("transport") });
+  });
+
+  it("fails a transport cancel that says it stopped everything unforced while the tree still runs", async () => {
+    const result = await runOnly(transportCancel(false), ["cancel:forced_tree"]);
+
+    expect(check(result, "cancel:forced_tree")).toMatchObject({ status: "failed", detail: expect.stringContaining("still running") });
+  });
+
+  it("still demands a forced tree kill of an adapter with no transport cancel", async () => {
+    const lax = adapterBased({}, { started: (started) => ({ ...started, cancel: async () => ({ outcome: "stopped", forced: false, via: "signal" }) }) });
+
+    const result = await runOnly(subjectFor(lax), ["cancel:forced_tree"]);
+
+    expect(check(result, "cancel:forced_tree")).toMatchObject({ status: "failed", detail: expect.stringContaining("can only be stopped by a tree kill") });
+  });
+
   it("fails a cancel that does not go the way the declaration says", async () => {
     const result = await runOnly(subjectFor(adapterBased({ gracefulCancel: true })), ["cancel:stops_agent"]);
 

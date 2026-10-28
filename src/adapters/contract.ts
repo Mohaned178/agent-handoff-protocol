@@ -63,6 +63,13 @@ export interface AttemptInput {
   handoff: HandoffRevision;
   /** The step's adapter options, already accepted by `validateOptions`. */
   options: unknown;
+  /**
+   * An absolute path the runtime owns, outside the workspace, where an adapter whose transport reports tool calls
+   * appends one JSON line (`ToolCallLogEntry`) for each as it happens. The runtime reads it into the recovery report of
+   * an attempt whose outcome is unknown, which no adapter's `exited` ever reaches, so it must be written during the
+   * attempt, not at its end. Metadata only. An adapter with nothing to log leaves it alone, and one that is not given a path (a caller that keeps no report) logs nothing.
+   */
+  toolCallLog?: string;
 }
 
 export interface AttemptExit {

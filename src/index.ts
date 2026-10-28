@@ -5,6 +5,7 @@ export * from "./sdk/index.ts";
 export { mock, MOCK_USAGE_SOURCE, type MockAttemptScript, type MockEdit, type MockOptions, type MockUsage } from "./adapters/index.ts";
 export { claudeCode, type ClaudeCodeOptions } from "./adapters/index.ts";
 export { codex, type CodexOptions } from "./adapters/index.ts";
+export { opencode, type OpenCodeOptions } from "./adapters/index.ts";
 export {
   classifyAttempt,
   decideAfterFailure,

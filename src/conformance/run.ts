@@ -207,6 +207,7 @@ async function start(
     capabilities: applied,
     handoff,
     options: provoked.options,
+    toolCallLog: join(pidDir, "tool-calls.jsonl"),
   });
   run.cleanups.push(async () => {
     // Whatever the check found, the agent and everything it started must not outlive it.
@@ -433,13 +434,19 @@ async function cancelForcedTree(run: CheckContext): Promise<Outcome> {
   const tree = [ran.started.pid, ...pidsListed(ran.context.pidFile)];
   const termination = await ran.started.cancel({ graceMs: 300 });
   if (termination.outcome === "unconfirmed") fail(`the cancel could not confirm the tree gone: ${termination.detail}`);
-  if (termination.outcome !== "stopped" || !termination.forced || termination.via !== "tree_kill") {
+  if (termination.outcome !== "stopped") fail(`the cancel reported ${JSON.stringify(termination)}, not a stop`);
+  // An adapter with no transport cancel can only stop processes that ignore signals by a tree kill. One with a transport
+  // cancel may clear the tree by it (OpenCode's does, and on Windows no process can ignore being terminated): forcing is
+  // for what the transport leaves, and what the cancel reports is then checked against the PIDs all the same.
+  const graceful = run.subject.adapter.declaration.gracefulCancel;
+  if (!graceful && (!termination.forced || termination.via !== "tree_kill")) {
     fail(`processes that ignore every signal can only be stopped by a tree kill; the cancel reported ${JSON.stringify(termination)}`);
   }
   // The cancel's own confirmation is a claim; the PIDs are the evidence.
   const survivors = await survivorsAfter(tree);
   if (survivors.length > 0) fail(`the cancel reported the tree stopped, and processes ${survivors.join(", ")} are still running`);
-  return passed(`killed the tree of ${tree.length} processes, which ignored every signal, and none is left`);
+  const how = termination.forced ? "killed" : "stopped, without force, by the transport's own cancel,";
+  return passed(`${how} the tree of ${tree.length} processes, which ignored every signal (${termination.via}), and none is left`);
 }
 
 async function survivorsAfter(pids: number[]): Promise<number[]> {
