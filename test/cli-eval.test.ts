@@ -26,8 +26,8 @@ describe("ahp eval", () => {
 
     expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
     expect(stdout).toContain('task greeting frozen');
-    expect(stdout).toContain("trial C0 greeting: started");
-    expect(stdout).toContain("trial C0 greeting: scored, pass");
+    expect(stdout).toContain("trial C0 greeting #1: started");
+    expect(stdout).toContain("trial C0 greeting #1: scored, pass");
     expect(stdout).toContain("verified success: 1 of 1 scored trials (100%)");
     expect(stdout).toContain("[mock]");
     const [id] = readdirSync(out);
@@ -61,7 +61,7 @@ describe("ahp eval", () => {
     const { code, stdout } = ahp(["eval", "suite.mjs", "--out", writeTree({})], dir);
 
     expect(code).toBe(0);
-    expect(stdout).toContain("trial C0 greeting: harness incident, not scored");
+    expect(stdout).toContain("trial C0 greeting #1: harness incident, not scored");
     expect(stdout).toContain("harness incidents (excluded, not failures): 1");
     expect(stdout).toContain("verified success: n/a: no scored trials");
   });
@@ -86,6 +86,19 @@ describe("ahp eval", () => {
 
   it("lists eval among the commands", () => {
     expect(ahp(["--help"], writeTree({})).stdout).toContain("eval <suite-file>");
+  });
+
+  it("shuffles the trials by the --seed given, says so, and refuses a seed that is not an unsigned 32-bit integer", () => {
+    const dir = suiteDir({ repeats: 2 });
+
+    const { code, stdout } = ahp(["eval", "suite.mjs", "--out", writeTree({}), "--seed", "4294967295"], dir);
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("2 trials scheduled in a shuffled order (seed 4294967295)");
+    expect(stdout).toContain("trial C0 greeting #2: scored, pass");
+    for (const bad of ["4294967296", "-1", "1.5", "abc"]) {
+      expect(ahp(["eval", "suite.mjs", "--out", writeTree({}), `--seed=${bad}`], dir)).toMatchObject({ code: 2, stderr: expect.stringContaining("--seed must be an integer from 0 to 4294967295") });
+    }
   });
 });
 

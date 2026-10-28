@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { formatReport } from "../src/evaluation/index.ts";
-import { APPROVES, DOES_NOTHING, evaluate, GREETS, GREETS_AND_SAYS_GOODBYE, greetingTaskDir, repoOf, runOf, scripted, suiteOf, writeTree } from "./helpers/evaluation.ts";
+import { APPROVES, DOES_NOTHING, evaluate, GREETS, GREETS_AND_SAYS_GOODBYE, greetingTaskDir, repoOf, runOf, scripted, suiteOf, trialOf, writeTree } from "./helpers/evaluation.ts";
 import { git, removeTempRepos } from "./helpers/repo.ts";
 
 afterEach(removeTempRepos);
@@ -48,7 +48,7 @@ describe("scoring is the validators' alone", () => {
 
     const { report, state } = await evaluate(suiteOf([greetingTaskDir({ id: "idle" }), greetingTaskDir({ id: "bad" })], { implement }, { conditions: ["C0"] }));
 
-    expect(state.trials.map((trial) => trial.ended!.result!.changed)).toEqual([false, true]);
+    expect([trialOf(state, "C0", "idle"), trialOf(state, "C0", "bad")].map((trial) => trial.ended!.result!.changed)).toEqual([false, true]);
     // Both are scored, but only the trial that produced something can say whether the constraint survived.
     expect(report.conditions[0]).toMatchObject({ scored: 2, constraintTrials: 1, constraintViolations: 1, constraintViolationRate: 1, unchangedResults: 1 });
     expect(formatReport(report)).toContain("scored trials whose result changed nothing, left out of the violation rate: 1");

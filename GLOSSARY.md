@@ -262,14 +262,27 @@ A directory holding one task of an evaluation suite: `task.json` (id, prompt, pl
 _Avoid_: Step, benchmark
 
 **Suite**:
-The module `ahp eval` runs: the evaluation tasks, the conditions, the coding agent for each role (`plan`, `implement`, `review`) and the retry budget of C3's steps.
+The module `ahp eval` runs: the evaluation tasks, the conditions, the coding agent for each role (`plan`, `implement`, `review`), the retry budget of C3's steps and the number of repeats.
 
 **Frozen task**:
 An evaluation task whose directory was hashed and recorded in the evaluation's ledger before any trial started. The hash is the SHA-256 of the sorted (relative path, content hash) pairs of every file; it is taken again before each trial, and a task that no longer hashes as frozen stops the evaluation (`task_changed`), never to be frozen again.
 _Avoid_: Locked, pinned
 
 **Condition**:
-How the same task is worked: C0, one coding agent doing the whole task in one step with no retry budget (only a `transient` failure is retried, as in every condition); C3, full AHP (plan, implement, review; handoffs, hidden tests as the implement step's verification, bounded retry and send-back). C1, C2 and the matched-budget baseline are to come. A condition builds an ordinary workflow, which the run API runs; it has agent steps only, so no approval gate and no external action, and recovers every `unknown` attempt by abort.
+How the same task is worked: C0, one coding agent doing the whole task in one step with no retry budget (only a `transient` failure is retried, as in every condition); C1, the plain-text pipeline (plan, implement, review by the same agents as C3, each handing the next one field of free text, `output`; no acceptance check, no retry); C2, the pipeline with AHP's handoffs (C3's structured fields under a validated handoff, C3's capability requests and words) but no verification command, hidden tests or protected paths, no retry, and a review that sends nothing back; C3, full AHP (C2 plus hidden tests as the implement step's verification, bounded retry and send-back). The matched-budget baseline is listed with them as `baseline`. A condition builds an ordinary workflow, which the run API runs; it has agent steps only, so no approval gate and no external action, and recovers every `unknown` attempt by abort.
+
+**Matched-budget baseline**:
+For each scored C3 trial, as many independent C0 trials as attempts that trial made, on the same task in the same repeat: one **cell**, which passes if any of its trials passes. A cell with a trial not scored or not run is incomplete and left out of the rate. It tells structure apart from trying more.
+
+**Repeat**:
+One more trial of every task under every condition. Trials run in a Fisher-Yates shuffle drawn from mulberry32 seeded with the evaluation's **seed**; the seed and the order are recorded (`trials_scheduled`) before the first trial, and baseline trials are drawn into the trials still to come (`baseline_scheduled`).
+_Avoid_: Run (a run is one workflow's execution), iteration
+
+**Paired comparison**:
+Two conditions compared task by task: each task's success rate on a side is passes over valid trials (scored; harness incidents excluded), the paired difference is the rates' difference, and the headline is its mean across tasks with a 95% percentile interval from a bootstrap over tasks (10,000 resamples, the evaluation's seed). An interval that includes 0 is "no detectable difference"; fewer than 2 paired tasks is inconclusive.
+
+**Duplicated work, reverted work**:
+Lines (`git diff --numstat`) of a trial's run: duplicated, those of attempts whose snapshot is not in the scored result's history (failed or sent back, so done again); reverted, those of the attempts that are in it beyond the result's own diff (written, then changed again or taken out). Measures of work thrown away, not of quality.
 
 **Trial**:
 One condition's workflow run once on one task, in a fresh repository made from the task's fixture, then scored. Ends `scored`, as a harness incident, `unscored` or `cancelled`.
@@ -279,7 +292,7 @@ What scores a trial, after its run has ended, in a verification worktree of its 
 _Avoid_: Tester, judge
 
 **Planted constraint**:
-A constraint a task states to the first agent only (in the prompt of C0's one step, and of C3's plan step), with a deterministic check, a forbidden pattern or a required invariant, never a judgement. A later step of C3 knows it only through its handoff's context, so a constraint violated in the result is context lost. Scored apart from success; a result that changed nothing holds it vacuously and is left out of the violation rate.
+A constraint a task states to the first agent only (in the prompt of C0's one step, and of the pipeline's plan step in C1, C2 and C3), with a deterministic check, a forbidden pattern or a required invariant, never a judgement. A later step of the pipeline knows it only through what the step before handed on (C1's text, C2's and C3's handoff context), so a constraint violated in the result is context lost. Scored apart from success; a result that changed nothing holds it vacuously and is left out of the violation rate.
 
 **Seeded defect**:
 A defect a task's fixture is known to contain, for review evaluation. Frozen with the task; not scored yet.
@@ -288,7 +301,7 @@ A defect a task's fixture is known to contain, for review evaluation. Frozen wit
 A trial with nothing to score and not a harness incident, with its reason: `validator_inconclusive` (a validator could not run to a result, twice), `setup_failed` (a step of the run ended `config_auth` or `rejected`, so the condition did not run as configured) or `harness_error` (AHP threw). Excluded from the rates and reported apart, never read as a pass or a fail.
 
 **Evaluation ledger**:
-The hash-chained ledger of one `ahp eval` invocation, written by the same writer as a run's: the tasks frozen, and each trial's start, incident and end. Everything about how a trial's run went is in that run's own ledger, which the trial keeps a copy of.
+The hash-chained ledger of one `ahp eval` invocation, written by the same writer as a run's: the tasks frozen, the trial order and its seed, each baseline drawn into it, and each trial's start, incident and end. Everything about how a trial's run went is in that run's own ledger, which the trial keeps a copy of.
 
 **Raw transcript**:
 What an attempt's agent process was sent on stdin and what it printed on stdout, byte for byte, kept by the process layer in files beside the run's ledger. Stderr is not kept. It holds whatever the tool printed, so a secret an agent printed is in it.

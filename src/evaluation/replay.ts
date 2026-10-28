@@ -1,4 +1,4 @@
-import type { ConditionId, EvaluationEvent, FrozenFile } from "./events.ts";
+import type { BaselineSlot, ConditionId, EvaluationEvent, FrozenFile, ScheduledTrial } from "./events.ts";
 import { CONDITIONS } from "./events.ts";
 
 /** A ledger whose events do not follow from each other, in a way a hash chain does not catch (a trial that ends twice). */
@@ -31,6 +31,9 @@ export interface TrialView {
   id: string;
   taskId: string;
   condition: ConditionId;
+  repeat: number;
+  /** Set for a trial of the matched-budget baseline. */
+  baseline: BaselineSlot | null;
   startedAtSeq: number;
   startedAt: string;
   endedAt: string | null;
@@ -49,6 +52,16 @@ export interface EvaluationView {
   suite: string;
   conditions: ConditionId[];
   retryBudget: number;
+  repeats: number;
+  /** The seed of the trial order and of the comparisons' resampling; null until the trials are scheduled. */
+  seed: number | null;
+  /**
+   * The trials still to start, the next first; null until they are scheduled. What is left when the evaluation ends was never
+   * run (it stopped or was cancelled).
+   */
+  pending: ScheduledTrial[] | null;
+  /** The matched-budget baseline of each scored C3 trial that got one: how many C0 trials it scheduled. */
+  baselines: { forTrialId: string; taskId: string; repeat: number; trials: number }[];
   state: EvaluationState;
   /** Why it stopped, if it did (`task_changed`). */
   reason: string | null;
@@ -70,6 +83,22 @@ export function replayEvaluation(events: readonly EvaluationEvent[]): Evaluation
   return state;
 }
 
+const isSameTrial = (a: ScheduledTrial, b: ScheduledTrial) =>
+  a.taskId === b.taskId &&
+  a.condition === b.condition &&
+  a.repeat === b.repeat &&
+  a.baseline?.forTrialId === b.baseline?.forTrialId &&
+  a.baseline?.index === b.baseline?.index &&
+  a.baseline?.of === b.baseline?.of;
+
+/** A trial in the planned order must be of a frozen task, a condition of the evaluation other than the baseline, and a repeat it has. */
+function checkScheduled(state: EvaluationView, event: EvaluationEvent, trial: ScheduledTrial): void {
+  if (!state.tasks.some((task) => task.id === trial.taskId)) throw new EvaluationLedgerInconsistentError(event, `task "${trial.taskId}" was never frozen`);
+  if (!CONDITIONS.includes(trial.condition) || !state.conditions.includes(trial.condition)) throw new EvaluationLedgerInconsistentError(event, `condition ${trial.condition} is not one of this evaluation's`);
+  if (trial.condition === "baseline" || trial.baseline !== null) throw new EvaluationLedgerInconsistentError(event, "a baseline trial is scheduled only once the C3 trial it matches has been scored");
+  if (!Number.isSafeInteger(trial.repeat) || trial.repeat < 1 || trial.repeat > state.repeats) throw new EvaluationLedgerInconsistentError(event, `repeat ${trial.repeat} is not one of this evaluation's ${state.repeats}`);
+}
+
 /** Applies one event; the first must be `evaluation_created`. The state is updated in place and returned. */
 export function applyEvaluationEvent(state: EvaluationView | undefined, event: EvaluationEvent): EvaluationView {
   if (event.type === "evaluation_created") {
@@ -80,6 +109,10 @@ export function applyEvaluationEvent(state: EvaluationView | undefined, event: E
       suite: event.suite,
       conditions: event.conditions,
       retryBudget: event.retryBudget,
+      repeats: event.repeats,
+      seed: null,
+      pending: null,
+      baselines: [],
       state: "running",
       reason: null,
       createdAt: event.time,
@@ -100,7 +133,7 @@ export function applyEvaluationEvent(state: EvaluationView | undefined, event: E
   switch (event.type) {
     case "task_frozen":
       // The freeze comes first: a task frozen after a trial began could have been tuned by what that trial showed.
-      if (state.trials.length > 0) throw new EvaluationLedgerInconsistentError(event, "a task was frozen after a trial had started");
+      if (state.pending !== null) throw new EvaluationLedgerInconsistentError(event, "a task was frozen after the trials were scheduled");
       if (state.tasks.some((task) => task.id === event.taskId)) throw new EvaluationLedgerInconsistentError(event, `task "${event.taskId}" is frozen twice`);
       state.tasks.push({
         id: event.taskId,
@@ -115,14 +148,41 @@ export function applyEvaluationEvent(state: EvaluationView | undefined, event: E
         frozenAt: event.time,
       });
       return state;
-    case "trial_started":
+    case "trials_scheduled":
+      if (state.pending !== null) throw new EvaluationLedgerInconsistentError(event, "the trials are scheduled twice");
+      for (const trial of event.order) checkScheduled(state, event, trial);
+      state.seed = event.seed;
+      state.pending = [...event.order];
+      return state;
+    case "baseline_scheduled": {
+      const matched = trial(event.forTrialId);
+      if (!state.conditions.includes("baseline")) throw new EvaluationLedgerInconsistentError(event, "this evaluation has no matched-budget baseline");
+      if (matched.condition !== "C3" || matched.ended?.outcome !== "scored") throw new EvaluationLedgerInconsistentError(event, "a baseline matches a scored C3 trial");
+      if (event.taskId !== matched.taskId || event.repeat !== matched.repeat) throw new EvaluationLedgerInconsistentError(event, "a baseline is for the task and repeat of the trial it matches");
+      if (event.trials !== matched.ended.attempts || event.positions.length !== event.trials) throw new EvaluationLedgerInconsistentError(event, "a baseline has one C0 trial for each attempt the C3 trial made");
+      if (state.baselines.some((baseline) => baseline.forTrialId === event.forTrialId)) throw new EvaluationLedgerInconsistentError(event, `trial "${event.forTrialId}" has a baseline already`);
+      const pending = state.pending!;
+      event.positions.forEach((position, index) => {
+        if (!Number.isSafeInteger(position) || position < 0 || position > pending.length) throw new EvaluationLedgerInconsistentError(event, `position ${position} is outside the trials still to start`);
+        pending.splice(position, 0, { taskId: event.taskId, condition: "baseline", repeat: event.repeat, baseline: { forTrialId: event.forTrialId, index: index + 1, of: event.trials } });
+      });
+      state.baselines.push({ forTrialId: event.forTrialId, taskId: event.taskId, repeat: event.repeat, trials: event.trials });
+      return state;
+    }
+    case "trial_started": {
       // A changed task ends the evaluation: nothing starts after it.
       if (state.taskChanges.length > 0) throw new EvaluationLedgerInconsistentError(event, "a trial started after a task changed");
-      if (!state.tasks.some((task) => task.id === event.taskId)) throw new EvaluationLedgerInconsistentError(event, `task "${event.taskId}" was never frozen`);
-      if (!CONDITIONS.includes(event.condition) || !state.conditions.includes(event.condition)) throw new EvaluationLedgerInconsistentError(event, `condition ${event.condition} is not one of this evaluation's`);
       if (state.trials.some((candidate) => candidate.id === event.trialId)) throw new EvaluationLedgerInconsistentError(event, `trial "${event.trialId}" started twice`);
-      state.trials.push({ id: event.trialId, taskId: event.taskId, condition: event.condition, startedAtSeq: event.seq, startedAt: event.time, endedAt: null, repo: event.repo, incident: null, ended: null });
+      // The order was recorded before any trial: each one that starts is the next of those still to start, and no other.
+      const next = state.pending?.[0];
+      if (!next) throw new EvaluationLedgerInconsistentError(event, "no trial is scheduled to start");
+      const started: ScheduledTrial = { taskId: event.taskId, condition: event.condition, repeat: event.repeat, baseline: event.baseline };
+      if (!isSameTrial(started, next)) throw new EvaluationLedgerInconsistentError(event, `the next trial scheduled is ${JSON.stringify(next)}, not ${JSON.stringify(started)}`);
+      if (state.trials.some((candidate) => !candidate.ended)) throw new EvaluationLedgerInconsistentError(event, "a trial starts only once the one before it has ended");
+      state.pending!.shift();
+      state.trials.push({ id: event.trialId, taskId: event.taskId, condition: event.condition, repeat: event.repeat, baseline: event.baseline, startedAtSeq: event.seq, startedAt: event.time, endedAt: null, repo: event.repo, incident: null, ended: null });
       return state;
+    }
     case "harness_incident": {
       const found = trial(event.trialId);
       if (found.ended) throw new EvaluationLedgerInconsistentError(event, `trial "${found.id}" has ended`);

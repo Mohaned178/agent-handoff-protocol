@@ -16,7 +16,7 @@ import {
   validateWorkflow,
 } from "../sdk/index.ts";
 import { diagnose, initWorkflow } from "../doctor/index.ts";
-import { formatReport, runEvaluation, SuiteInvalidError, TaskInvalidError, type EvaluationEvent, type EvaluationSuite, type EvaluationView } from "../evaluation/index.ts";
+import { formatReport, isSeed, runEvaluation, SuiteInvalidError, TaskInvalidError, type EvaluationEvent, type EvaluationSuite, type EvaluationView } from "../evaluation/index.ts";
 import { evaluationsRoot } from "../runtime/index.ts";
 import { formatEvent, formatRun, formatUnresumed, MOCK_NOTE } from "./format.ts";
 import { formatDoctor, formatInit } from "./format-doctor.ts";
@@ -30,7 +30,8 @@ Commands:
                         the tools doctor found, the mock adapter standing in for any it did not
   run <workflow-file>   Run the workflow exported by default from <workflow-file>
   eval <suite-file>     Run the evaluation suite exported by default from <suite-file>: its tasks are frozen,
-                        then each runs under conditions C0 and C3 and is scored by independent validators
+                        then each runs under conditions C0-C3 and the matched-budget baseline, repeated, in a
+                        shuffled order, each trial scored by independent validators, conditions compared by task
   inspect <run-id>      Show a run's state, derived from its ledger, and who is writing it
   recover <run-id>      Resume a run whose process stopped; an attempt it left with no
                         record of how it ended becomes unknown and gets a recovery report
@@ -45,6 +46,7 @@ Commands:
 Options:
   --repo <dir>          The git repository to use (default: the current directory)
   --out <dir>           eval: where the evaluation is kept (default: AHP's per-user directory)
+  --seed <n>            eval: the seed of the trial order and of the comparisons, 0 to 4294967295 (default: drawn)
   --json                inspect: print the derived state, the ledger check and the run's lock as JSON;
                         doctor: print the report as JSON; eval: print only the report, as JSON
   --policy <decision>   recover: adopt or abort
@@ -83,6 +85,7 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
       options: {
         repo: { type: "string" },
         out: { type: "string" },
+        seed: { type: "string" },
         json: { type: "boolean" },
         policy: { type: "string" },
         reason: { type: "string" },
@@ -115,7 +118,7 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
         return await runCommand(target, repo, io);
       case "eval":
         if (!target) throw new UsageError("eval needs a suite file");
-        return await evalCommand(target, values.out, values.json ?? false, io);
+        return await evalCommand(target, values.out, seedOf(values.seed), values.json ?? false, io);
       case "inspect":
         if (!target) throw new UsageError("inspect needs a run ID");
         return await inspectCommand(target, repo, values.json ?? false, io);
@@ -239,12 +242,20 @@ async function runCommand(file: string, repo: string, io: Io): Promise<number> {
   return exitCodeOf(state);
 }
 
+/** The `--seed` given, as a number: decimal digits naming an unsigned 32-bit integer. */
+function seedOf(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const seed = /^\d{1,10}$/.test(value) ? Number(value) : Number.NaN;
+  if (!isSeed(seed)) throw new UsageError(`--seed must be an integer from 0 to 4294967295, not ${value}`);
+  return seed;
+}
+
 /**
  * `ahp eval <suite-file>`: loads the suite, runs it and prints the report. Ctrl+C cancels the trial in hand, as for a run. The
  * evaluation's own exit code is 0 when it completed, whatever its trials found: a harness incident or a failed condition is a
  * finding, not a failure of the command.
  */
-async function evalCommand(file: string, out: string | undefined, json: boolean, io: Io): Promise<number> {
+async function evalCommand(file: string, out: string | undefined, seed: number | undefined, json: boolean, io: Io): Promise<number> {
   const path = resolve(file);
   let suite: unknown;
   try {
@@ -258,6 +269,7 @@ async function evalCommand(file: string, out: string | undefined, json: boolean,
       out: out === undefined ? evaluationsRoot() : resolve(out),
       baseDir: dirname(path),
       signal: interrupt.signal,
+      ...(seed !== undefined ? { seed } : {}),
       onEvent: (event: EvaluationEvent, state: Readonly<EvaluationView>) => {
         if (!json) io.stdout(formatEvaluationEvent(event, state));
       },

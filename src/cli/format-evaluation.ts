@@ -1,17 +1,25 @@
-import type { EvaluationEvent, EvaluationView } from "../evaluation/index.ts";
+import type { EvaluationEvent, EvaluationView, TrialView } from "../evaluation/index.ts";
 
 const mockTag = (isMock: boolean) => (isMock ? " [mock]" : "");
+
+/** A trial by condition, task and repeat, as the progress lines name it. */
+const labelOf = (trial: TrialView | undefined) => (trial ? `trial ${trial.condition} ${trial.taskId} #${trial.repeat}` : "a trial");
 
 /** One progress line for an event `ahp eval` has just recorded, with the state derived so far to name the trial it belongs to. */
 export function formatEvaluationEvent(event: EvaluationEvent, state: Readonly<EvaluationView>): string {
   const trial = (id: string) => state.trials.find((candidate) => candidate.id === id);
   const label = (id: string) => {
     const found = trial(id);
-    return found ? `trial ${found.condition} ${found.taskId}` : `trial ${id}`;
+    if (!found) return `trial ${id}`;
+    return found.baseline ? `${labelOf(found)} (${found.baseline.index} of ${found.baseline.of} for ${labelOf(trial(found.baseline.forTrialId))})` : labelOf(found);
   };
   switch (event.type) {
     case "evaluation_created":
-      return `evaluation ${event.evaluationId}: suite "${event.suite}", conditions ${event.conditions.join(", ")}`;
+      return `evaluation ${event.evaluationId}: suite "${event.suite}", conditions ${event.conditions.join(", ")}, ${event.repeats} repeat${event.repeats === 1 ? "" : "s"}`;
+    case "trials_scheduled":
+      return `${event.order.length} trial${event.order.length === 1 ? "" : "s"} scheduled in a shuffled order (seed ${event.seed})`;
+    case "baseline_scheduled":
+      return `baseline for ${labelOf(trial(event.forTrialId))}: ${event.trials} C0 trial${event.trials === 1 ? "" : "s"} scheduled, one for each attempt it made`;
     case "task_frozen":
       return `task ${event.taskId} frozen (${event.taskHash.slice(0, 12)}): ${event.files.length} files, ${event.hiddenTests.length} hidden test${event.hiddenTests.length === 1 ? "" : "s"}`;
     case "trial_started":

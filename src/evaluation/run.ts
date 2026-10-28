@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { LedgerWriter, readCheckedLedger, type ChainedEvent } from "../ledger/index.ts";
@@ -5,10 +6,11 @@ import { PROTOCOL_VERSION } from "../protocol/index.ts";
 import { newId, systemClock, type Clock } from "../runtime/index.ts";
 import { validateWorkflow } from "../sdk/index.ts";
 import { workflowFor } from "./conditions.ts";
-import type { EvaluationEvent, EvaluationEventBody } from "./events.ts";
+import type { EvaluationEvent, EvaluationEventBody, ScheduledTrial } from "./events.ts";
 import { changesBetween, fileListOf, hashOfFiles } from "./freeze.ts";
 import { applyEvaluationEvent, replayEvaluation, type EvaluationView } from "./replay.ts";
 import { formatReport, reportOf, type EvaluationReport } from "./report.ts";
+import { drawIndex, isSeed, seededRandom, seededShuffle } from "./statistics.ts";
 import { conditionsOf, DEFAULT_RETRY_BUDGET, validateSuite, type EvaluationSuite } from "./suite.ts";
 import { loadTask, parseTask, readTaskFiles, type LoadedTask } from "./task.ts";
 import { runTrial } from "./trial.ts";
@@ -32,6 +34,11 @@ export interface RunEvaluationOptions {
   onEvent?: (event: EvaluationEvent, state: Readonly<EvaluationView>) => void;
   /** Cancels the evaluation once aborted: the trial in hand is cancelled, and no further trial starts. */
   signal?: AbortSignal;
+  /**
+   * The seed of the trial order and of the comparisons' resampling: an integer from 0 to 2^32 − 1, recorded in the ledger.
+   * Default: one drawn at random.
+   */
+  seed?: number;
   clock?: Clock;
 }
 
@@ -45,9 +52,10 @@ export interface EvaluationResult {
 
 /**
  * Runs a suite: loads and validates every task and every workflow the conditions build, freezes the tasks in a new
- * evaluation ledger, then runs each task under each condition in turn, a trial at a time, checking the task against its
- * freeze before each one. Every trial is scored by the independent validators. Throws before writing anything if the
- * suite or a task is invalid.
+ * evaluation ledger, schedules every task under every condition once per repeat in an order shuffled from the seed, then
+ * runs them in that order, a trial at a time, drawing a scored C3 trial's baseline into the trials still to come and
+ * checking the task against its freeze before each one. Every trial is scored by the independent validators. Throws
+ * before writing anything if the suite, a task or the seed is invalid.
  */
 export async function runEvaluation(suite: EvaluationSuite, options: RunEvaluationOptions): Promise<EvaluationResult> {
   const shapeProblems = validateSuite(suite);
@@ -63,13 +71,17 @@ export async function runEvaluation(suite: EvaluationSuite, options: RunEvaluati
     ids.add(task.id);
     for (const condition of conditions) {
       try {
-        for (const problem of validateWorkflow(workflowFor(condition, task, suite))) problems.push(`task "${task.id}", ${condition}: ${problem}`);
+        const slot = { condition, repeat: 1, baselineIndex: condition === "baseline" ? 1 : null };
+        for (const problem of validateWorkflow(workflowFor(condition, task, suite, slot))) problems.push(`task "${task.id}", ${condition}: ${problem}`);
       } catch (error) {
         problems.push(`task "${task.id}", ${condition}: ${(error as Error).message}`);
       }
     }
   }
+  if (options.seed !== undefined && !isSeed(options.seed)) problems.push(`the seed must be an integer from 0 to ${0xffffffff}`);
   if (problems.length > 0) throw new SuiteInvalidError(problems);
+  const seed = options.seed ?? randomInt(0, 0x100000000);
+  const repeats = suite.repeats ?? 1;
 
   const clock = options.clock ?? systemClock;
   const evaluationId = newId("eval");
@@ -84,7 +96,7 @@ export async function runEvaluation(suite: EvaluationSuite, options: RunEvaluati
     return event;
   };
   try {
-    await record({ type: "evaluation_created", evaluationId, protocolVersion: PROTOCOL_VERSION, suite: suite.name, conditions, retryBudget: suite.retryBudget ?? DEFAULT_RETRY_BUDGET });
+    await record({ type: "evaluation_created", evaluationId, protocolVersion: PROTOCOL_VERSION, suite: suite.name, conditions, retryBudget: suite.retryBudget ?? DEFAULT_RETRY_BUDGET, repeats });
     // Every task is frozen before any trial starts, so nothing a trial shows can be used to tune one.
     for (const { task, dir: taskDir, hash, hiddenTestsHash, files } of tasks) {
       await record({
@@ -100,24 +112,37 @@ export async function runEvaluation(suite: EvaluationSuite, options: RunEvaluati
       });
     }
 
+    // Every trial but the baseline's, in an order drawn from the seed; the baseline's are drawn into it as C3 trials are scored.
+    const random = seededRandom(seed);
+    const planned: ScheduledTrial[] = [];
+    for (let repeat = 1; repeat <= repeats; repeat++) {
+      for (const { task } of tasks) for (const condition of conditions) if (condition !== "baseline") planned.push({ taskId: task.id, condition, repeat, baseline: null });
+    }
+    await record({ type: "trials_scheduled", seed, order: seededShuffle(planned, random) });
+
     const ctx = { suite, dir, record, signal: options.signal, clock };
     let end: Extract<EvaluationEventBody, { type: "evaluation_ended" }> = { type: "evaluation_ended", state: "completed", reason: null };
-    trials: for (const frozen of tasks) {
-      for (const condition of conditions) {
-        if (options.signal?.aborted) {
-          end = { type: "evaluation_ended", state: "cancelled", reason: "cancelled before the next trial" };
-          break trials;
-        }
-        const fresh = await recheck(frozen, record);
-        if (!fresh) {
-          end = { type: "evaluation_ended", state: "stopped", reason: "task_changed" };
-          break trials;
-        }
-        const ended = await runTrial(ctx, fresh, condition);
-        if (ended.outcome === "cancelled") {
-          end = { type: "evaluation_ended", state: "cancelled", reason: "cancelled during a trial" };
-          break trials;
-        }
+    // The next trial is always the first of those the ledger says are still to start.
+    for (let next = view!.pending![0]; next; next = view!.pending![0]) {
+      if (options.signal?.aborted) {
+        end = { type: "evaluation_ended", state: "cancelled", reason: "cancelled before the next trial" };
+        break;
+      }
+      const fresh = await recheck(tasks.find(({ task }) => task.id === next!.taskId)!, record);
+      if (!fresh) {
+        end = { type: "evaluation_ended", state: "stopped", reason: "task_changed" };
+        break;
+      }
+      const { trialId, ended } = await runTrial(ctx, fresh, next);
+      if (ended.outcome === "cancelled") {
+        end = { type: "evaluation_ended", state: "cancelled", reason: "cancelled during a trial" };
+        break;
+      }
+      if (next.condition === "C3" && conditions.includes("baseline") && ended.outcome === "scored") {
+        // As many C0 trials as attempts the C3 trial made, each put at a drawn position among the trials still to start.
+        const remaining = view!.pending!.length;
+        const positions = Array.from({ length: ended.attempts }, (_, index) => drawIndex(random, remaining + index + 1));
+        await record({ type: "baseline_scheduled", forTrialId: trialId, taskId: next.taskId, repeat: next.repeat, trials: ended.attempts, positions });
       }
     }
     await record(end);

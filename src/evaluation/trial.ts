@@ -8,12 +8,13 @@ import { dirname, join, relative } from "node:path";
 import { PROTOCOL_VERSION, type AttemptView, type RunView, type WorkflowDefinition } from "../protocol/index.ts";
 import { discardWorktree, git, locateRepo, locateRun, messageOf, newId, prepareWorktreeRoot, transcriptPaths, type Clock, type PullRequestProvider } from "../runtime/index.ts";
 import { readRunEvents, runWorkflow } from "../sdk/index.ts";
-import { workflowFor } from "./conditions.ts";
-import type { ConditionId, EvaluationEventBody, StoredFile, TrialArtifacts } from "./events.ts";
+import { retryBudgetOf, workflowFor } from "./conditions.ts";
+import type { EvaluationEventBody, ScheduledTrial, StoredFile, TrialArtifacts } from "./events.ts";
 import { sha256Of } from "./freeze.ts";
-import { DEFAULT_RETRY_BUDGET, type EvaluationSuite } from "./suite.ts";
+import type { EvaluationSuite } from "./suite.ts";
 import type { LoadedTask } from "./task.ts";
 import { validateResult, type Validation } from "./validators.ts";
+import { workOf } from "./work.ts";
 
 export type TrialEndedBody = Extract<EvaluationEventBody, { type: "trial_ended" }>;
 
@@ -99,18 +100,20 @@ interface Progress {
  * it ends: scored, a harness incident, unscored (with why) or cancelled. AHP throwing partway is a `harness_error` of that one
  * trial, not the end of the evaluation. The task is the one that was just checked against its freeze.
  */
-export async function runTrial(ctx: TrialContext, loaded: LoadedTask, condition: ConditionId): Promise<TrialEndedBody> {
+export async function runTrial(ctx: TrialContext, loaded: LoadedTask, scheduled: ScheduledTrial): Promise<{ trialId: string; ended: TrialEndedBody }> {
   const { task } = loaded;
+  const { condition, repeat, baseline } = scheduled;
   const trialId = newId("trial");
   const trialDir = join(ctx.dir, "trials", trialId);
   const repo = join(trialDir, "repo");
-  const workflow = workflowFor(condition, task, ctx.suite);
+  const workflow = workflowFor(condition, task, ctx.suite, { condition, repeat, baselineIndex: baseline?.index ?? null });
+  const retryBudget = retryBudgetOf(condition, ctx.suite);
   const config = await store(
     ctx.dir,
     join(trialDir, "config.json"),
-    `${JSON.stringify({ trialId, condition, task: { id: task.id, dir: loaded.dir, hash: loaded.hash }, retryBudget: ctx.suite.retryBudget ?? DEFAULT_RETRY_BUDGET, platform: process.platform, node: process.version, protocolVersion: PROTOCOL_VERSION, workflow: withoutHiddenTests(workflow) }, null, 2)}\n`,
+    `${JSON.stringify({ trialId, condition, repeat, baseline, task: { id: task.id, dir: loaded.dir, hash: loaded.hash }, retryBudget, platform: process.platform, node: process.version, protocolVersion: PROTOCOL_VERSION, workflow: withoutHiddenTests(workflow) }, null, 2)}\n`,
   );
-  await ctx.record({ type: "trial_started", trialId, taskId: task.id, condition, repo: relativeTo(ctx.dir, repo), config });
+  await ctx.record({ type: "trial_started", trialId, taskId: task.id, condition, repeat, baseline, repo: relativeTo(ctx.dir, repo), config });
 
   const place: TrialPlace = { trialId, trialDir, repo, config };
   const progress: Progress = { base: null, runId: null, state: null };
@@ -124,7 +127,7 @@ export async function runTrial(ctx: TrialContext, loaded: LoadedTask, condition:
   }
   await removeWorkspaces(repo, progress.state);
   await ctx.record(ended);
-  return ended;
+  return { trialId, ended };
 }
 
 const attemptsOf = (state: RunView | null): AttemptView[] => state?.steps.flatMap((step) => step.attempts) ?? [];
@@ -199,12 +202,14 @@ async function execute(ctx: TrialContext, loaded: LoadedTask, workflow: Workflow
   const validation = await validateResult({ repo, runId, worktreeRoot: await prepareWorktreeRoot(), task: loaded.task, base, commit: candidate.commit, signal: ctx.signal });
   const artifacts = await kept(candidate, validation);
   const result = { ...candidate, changed: validation.evidence.changed.length > 0 };
+  // A measure beside the score: one that cannot be taken is left out, and never changes how the trial ended.
+  const work = await workOf(repo, state, base, candidate.commit).catch(() => null);
   if (validation.state === "inconclusive") {
     // A validator cut short by the cancel says nothing about the trial, and the evaluation is stopping anyway.
-    if (ctx.signal?.aborted) return endOf(trialId, progress, { outcome: "cancelled", result, artifacts });
-    return endOf(trialId, progress, { outcome: "unscored", unscored: { reason: "validator_inconclusive", detail: validation.detail }, result, artifacts });
+    if (ctx.signal?.aborted) return endOf(trialId, progress, { outcome: "cancelled", result, work, artifacts });
+    return endOf(trialId, progress, { outcome: "unscored", unscored: { reason: "validator_inconclusive", detail: validation.detail }, result, work, artifacts });
   }
-  return endOf(trialId, progress, { outcome: "scored", score: validation.score, result, artifacts });
+  return endOf(trialId, progress, { outcome: "scored", score: validation.score, result, work, artifacts });
 }
 
 /** The commit to score: the last snapshot the run made, which is the work as it stands; the fixture if it made none. */
@@ -215,8 +220,10 @@ async function resultOf(repo: string, runId: string, base: string): Promise<{ co
 }
 
 /** A `trial_ended` event from what the trial has shown so far and how it ended. */
-function endOf(trialId: string, progress: Progress, how: Pick<TrialEndedBody, "outcome"> & Partial<Pick<TrialEndedBody, "unscored" | "score" | "result" | "artifacts">>): TrialEndedBody {
+function endOf(trialId: string, progress: Progress, how: Pick<TrialEndedBody, "outcome"> & Partial<Pick<TrialEndedBody, "unscored" | "score" | "result" | "work" | "artifacts">>): TrialEndedBody {
   const { state } = progress;
+  const attempts = attemptsOf(state);
+  const stepsAttempted = state?.steps.filter((step) => step.attempts.length > 0).length ?? 0;
   return {
     type: "trial_ended",
     trialId,
@@ -224,7 +231,11 @@ function endOf(trialId: string, progress: Progress, how: Pick<TrialEndedBody, "o
     runState: state?.state ?? null,
     failureClass: state?.steps.find((step) => step.state === "failed")?.failureClass ?? null,
     mock: state?.mock ?? false,
-    attempts: state?.steps.reduce((count, step) => count + step.attempts.length, 0) ?? 0,
+    attempts: attempts.length,
+    retries: attempts.length - stepsAttempted,
+    wallTimeMs: state?.endedAt ? Date.parse(state.endedAt) - Date.parse(state.createdAt) : null,
+    usage: attempts.map((attempt) => ({ attemptId: attempt.id, adapter: attempt.adapter, reportedModel: attempt.reportedModel, usage: attempt.usage })),
+    work: how.work ?? null,
     unscored: how.unscored ?? null,
     result: how.result ?? null,
     score: how.score ?? null,

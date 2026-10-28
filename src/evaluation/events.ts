@@ -4,14 +4,53 @@
 // trial's record points at. The closed lists below are like the run protocol's: a new value is a protocol change.
 
 import type { ChainedEvent } from "../ledger/index.ts";
-import type { FailureClass, PathChange, RunState, UnknownReason } from "../protocol/index.ts";
+import type { FailureClass, PathChange, RunState, UnknownReason, UsageReport } from "../protocol/index.ts";
 
 /**
- * The conditions an evaluation runs, named as the design does (`docs/design`, §7). C0 is one coding agent doing the whole
- * task in one step; C3 is full AHP. C1, C2 and the matched-budget baseline are added by a later ticket.
+ * The conditions an evaluation runs, named as the design does (`docs/design`, §7): C0 one coding agent doing the whole task
+ * in one step; C1 the plan → implement → review pipeline passing plain text; C2 that pipeline with AHP's handoffs and no
+ * acceptance checks or retry; C3 full AHP. `baseline` is the matched-budget baseline, which the design names beside the
+ * conditions: for each scored C3 trial, as many independent C0 trials as attempts that trial made, a success if any passes.
  */
-export const CONDITIONS = ["C0", "C3"] as const;
+export const CONDITIONS = ["C0", "C1", "C2", "C3", "baseline"] as const;
 export type ConditionId = (typeof CONDITIONS)[number];
+
+/** Which trial of the matched-budget baseline: the scored C3 trial it matches, and which of that trial's `of` C0 trials it is. */
+export interface BaselineSlot {
+  forTrialId: string;
+  index: number;
+  of: number;
+}
+
+/** A trial still to start, in the order the evaluation starts them. */
+export interface ScheduledTrial {
+  taskId: string;
+  condition: ConditionId;
+  /** From 1. */
+  repeat: number;
+  /** Set for a trial of the matched-budget baseline only. */
+  baseline: BaselineSlot | null;
+}
+
+/** What one attempt's tool reported using, labelled with its adapter: null when it reported nothing. */
+export interface AttemptUsage {
+  attemptId: string;
+  adapter: string;
+  reportedModel: string;
+  usage: UsageReport | null;
+}
+
+/**
+ * Lines of work, counted by `git diff --numstat` (added plus deleted; a binary file counts 0). `result` is the diff from the
+ * fixture to the commit scored. `duplicated` is the work of attempts whose snapshot is not in the result's history (a failed
+ * attempt, or one a review sent back): work done and then done again. `reverted` is the work of the attempts whose snapshot is
+ * in it, beyond what the result shows: lines one step wrote and a later one changed again or took out (never below 0).
+ */
+export interface TrialWork {
+  result: number;
+  duplicated: number;
+  reverted: number;
+}
 
 /**
  * How a trial ended, for the report.
@@ -88,11 +127,24 @@ export type EvaluationEventBody =
       suite: string;
       conditions: ConditionId[];
       /**
-       * The retry budget C3's steps run with, as resolved (the suite's own, else the default of 2); C0 has no retry budget. The
-       * agents of each trial, as requested, are in its configuration (`trial_started.config`).
+       * The retry budget C3's steps run with, as resolved (the suite's own, else the default of 2); the other conditions have no
+       * retry budget. The agents of each trial, as requested, are in its configuration (`trial_started.config`).
        */
       retryBudget: number;
+      /** How many trials each task gets under each condition. */
+      repeats: number;
     }
+  /**
+   * The order the trials start in, recorded after the freeze and before the first trial: every task under every condition
+   * but the baseline, once per repeat, in a Fisher-Yates shuffle drawn from mulberry32 seeded with `seed`. The same seed
+   * resamples the paired comparisons.
+   */
+  | { type: "trials_scheduled"; seed: number; order: ScheduledTrial[] }
+  /**
+   * The matched-budget baseline of a scored C3 trial: `trials` C0 trials (the attempts it made), each put into the trials
+   * still to start at the position in `positions`, in turn, drawn from the generator the shuffle drew from.
+   */
+  | { type: "baseline_scheduled"; forTrialId: string; taskId: string; repeat: number; trials: number; positions: number[] }
   /**
    * A task, frozen: the hash of its whole directory and of its hidden tests, and every file's hash. Every task is
    * frozen before any trial starts, and re-hashed before each trial.
@@ -109,8 +161,8 @@ export type EvaluationEventBody =
       constraints: string[];
       seededDefects: string[];
     }
-  /** Recorded before the trial's repository is made or its run started. */
-  | { type: "trial_started"; trialId: string; taskId: string; condition: ConditionId; repo: string; config: StoredFile }
+  /** Recorded before the trial's repository is made or its run started: always the first of the trials still to start. */
+  | { type: "trial_started"; trialId: string; taskId: string; condition: ConditionId; repeat: number; baseline: BaselineSlot | null; repo: string; config: StoredFile }
   /** An attempt of the trial's run is unknown: recorded before the trial ends, and the trial is not scored. */
   | { type: "harness_incident"; trialId: string; attemptId: string; unknownReason: UnknownReason; detail: string }
   | {
@@ -125,6 +177,14 @@ export type EvaluationEventBody =
       /** True when any attempt ran on the mock adapter: the results are not evidence. */
       mock: boolean;
       attempts: number;
+      /** The attempts beyond each step's first: retries of every kind, send-backs and `transient` ones among them. */
+      retries: number;
+      /** The run's wall time, from its creation to its end; null when it never ended. */
+      wallTimeMs: number | null;
+      /** What each attempt's tool reported using, never estimated. */
+      usage: AttemptUsage[];
+      /** Null when no result was validated (and so none is known). */
+      work: TrialWork | null;
       unscored: { reason: UnscoredReason; detail: string } | null;
       /**
        * The commit the validators scored: the last snapshot the run made, or the fixture if it made none. `changed` is whether

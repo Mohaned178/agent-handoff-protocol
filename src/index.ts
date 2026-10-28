@@ -23,6 +23,9 @@ export * from "./doctor/index.ts";
 // rest (the freeze hash, replay, the validators) stays inside the module. "Task" is reserved for the A2A task shape, so the
 // evaluation's are named as the glossary names them.
 export {
+  BOOTSTRAP_RESAMPLES,
+  COMPARISON_FINDINGS,
+  COMPARISONS,
   CONDITIONS,
   DEFAULT_RETRY_BUDGET,
   formatReport,
@@ -36,6 +39,10 @@ export {
   UNSCORED_REASONS,
   validateSuite,
   type AgentSource,
+  type BaselineCell,
+  type BaselineReport,
+  type ComparisonFinding,
+  type ConditionComparison,
   type ConditionId,
   type ConditionReport,
   type EvaluationEvent,
@@ -50,6 +57,9 @@ export {
   type TrialEnded,
   type TrialOutcome,
   type TrialScore,
+  type TrialSlot,
   type TrialView,
   type UnscoredReason,
+  type UsageSummary,
+  type WallTime,
 } from "./evaluation/index.ts";

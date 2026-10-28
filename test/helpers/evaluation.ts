@@ -6,11 +6,15 @@ import { writeTree } from "./repo.ts";
 
 export { writeTree };
 
-/** Runs an evaluation into a fresh directory and collects the events it records, in order. */
+/**
+ * Runs an evaluation into a fresh directory and collects the events it records, in order. The seed is fixed unless a test
+ * gives one, so a test that fails fails again in the same order; tests still read trials by condition, never by position.
+ */
 export async function evaluate(suite: EvaluationSuite, options: Partial<RunEvaluationOptions> = {}) {
   const events: EvaluationEvent[] = [];
   const result = await runEvaluation(suite, {
     out: writeTree({}),
+    seed: 1,
     ...options,
     onEvent: (event, state) => {
       events.push(event);
@@ -22,6 +26,13 @@ export async function evaluate(suite: EvaluationSuite, options: Partial<RunEvalu
 
 /** SHA-256 by plain `crypto`, so a test checking a hash the code produced does not use the code to say what it should be. */
 export const sha256Of = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
+
+/** The one trial of `condition` (on `taskId`, when given): trials start in a shuffled order, so a test never reads one by position. */
+export function trialOf(state: { trials: TrialView[] }, condition: string, taskId?: string): TrialView {
+  const found = state.trials.filter((trial) => trial.condition === condition && (taskId === undefined || trial.taskId === taskId));
+  if (found.length !== 1) throw new Error(`expected one ${condition} trial${taskId ? ` of ${taskId}` : ""}, found ${found.length}`);
+  return found[0]!;
+}
 
 /** A trial's own repository, inside the evaluation's directory. */
 export const repoOf = (dir: string, trial: Pick<TrialView, "repo">) => join(dir, ...trial.repo.split("/"));

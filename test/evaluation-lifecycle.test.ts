@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { formatReport, loadTask, readEvaluation, runEvaluation, SuiteInvalidError, TaskInvalidError } from "../src/evaluation/index.ts";
 import { LedgerCorruptError, readLedger } from "../src/ledger/index.ts";
 import { replayEvaluation, EvaluationLedgerInconsistentError, type EvaluationEvent } from "../src/evaluation/index.ts";
-import { APPROVES, DOES_NOTHING, evaluate, GREETS, greetingFiles, greetingTaskDir, HIDDEN_GREETING_TEST, IMPLEMENTS, PLANS, repoOf, runOf, scripted, sha256Of, suiteOf } from "./helpers/evaluation.ts";
+import { APPROVES, DOES_NOTHING, evaluate, GREETS, greetingFiles, greetingTaskDir, HIDDEN_GREETING_TEST, IMPLEMENTS, PLANS, repoOf, runOf, scripted, sha256Of, suiteOf, trialOf } from "./helpers/evaluation.ts";
 import { git, removeTempRepos, writeTree } from "./helpers/repo.ts";
 
 afterEach(removeTempRepos);
@@ -24,14 +24,14 @@ describe("a task that changes after it was frozen", () => {
       },
     });
 
-    expect(types).toEqual(["evaluation_created", "task_frozen", "trial_started", "trial_ended", "task_changed", "evaluation_ended"]);
+    expect(types).toEqual(["evaluation_created", "task_frozen", "trials_scheduled", "trial_started", "trial_ended", "task_changed", "evaluation_ended"]);
     const changed = events.find((event) => event.type === "task_changed");
     expect(changed).toMatchObject({ taskId: "greeting", frozenHash: frozen.hash, changed: [{ path: "hidden/check-greeting.mjs", change: "modified" }] });
     expect(changed).toMatchObject({ foundHash: expect.stringMatching(/^[0-9a-f]{64}$/) });
     expect((changed as { foundHash: string }).foundHash).not.toBe(frozen.hash);
     expect(events.at(-1)).toMatchObject({ type: "evaluation_ended", state: "stopped", reason: "task_changed" });
     // The trial that ran before the change stands; the second never started.
-    expect(state.trials.map((trial) => [trial.condition, trial.ended!.outcome])).toEqual([["C0", "scored"]]);
+    expect(state.trials.map((trial) => trial.ended!.outcome)).toEqual(["scored"]);
     expect(report.taskChanges).toEqual([expect.objectContaining({ taskId: "greeting", frozenHash: frozen.hash })]);
     expect(formatReport(report)).toContain('TASK CHANGED: "greeting"');
   });
@@ -51,7 +51,7 @@ describe("a task that changes after it was frozen", () => {
     const { state } = await evaluate(both(greetingTaskDir()));
 
     expect(state).toMatchObject({ state: "completed", reason: null });
-    expect(state.trials.map((trial) => trial.condition)).toEqual(["C0", "C3"]);
+    expect(state.trials.map((trial) => trial.condition).sort()).toEqual(["C0", "C3"]);
   });
 });
 
@@ -64,7 +64,7 @@ describe("cancelling an evaluation", () => {
       onEvent: (event) => event.type === "trial_started" && controller.abort(),
     });
 
-    expect(types).toEqual(["evaluation_created", "task_frozen", "trial_started", "trial_ended", "evaluation_ended"]);
+    expect(types).toEqual(["evaluation_created", "task_frozen", "trials_scheduled", "trial_started", "trial_ended", "evaluation_ended"]);
     expect(state.trials[0]!.ended).toMatchObject({ outcome: "cancelled", runState: "cancelled", score: null, result: null });
     expect(state).toMatchObject({ state: "cancelled" });
     // Not an incident and not a failure: a cancelled trial is in no rate.
@@ -77,7 +77,7 @@ describe("cancelling an evaluation", () => {
 
     const { types, state } = await evaluate(both(greetingTaskDir()), { signal: controller.signal });
 
-    expect(types).toEqual(["evaluation_created", "task_frozen", "evaluation_ended"]);
+    expect(types).toEqual(["evaluation_created", "task_frozen", "trials_scheduled", "evaluation_ended"]);
     expect(state.state).toBe("cancelled");
   });
 });
@@ -86,8 +86,8 @@ describe("what a trial keeps", () => {
   it("keeps its configuration, what each agent was sent and printed, the run's ledger, the result's diff and the validators' evidence, each named by path and hash", async () => {
     const { dir, state } = await evaluate(both(greetingTaskDir()));
 
-    const [, c3] = state.trials;
-    const artifacts = c3!.ended!.artifacts!;
+    const c3 = trialOf(state, "C3");
+    const artifacts = c3.ended!.artifacts!;
     const read = (file: { path: string }) => readFileSync(join(dir, ...file.path.split("/")));
     const everything = [artifacts.config, artifacts.runLedger!, artifacts.patch!, artifacts.validation!, ...artifacts.prompts.map((p) => p.file), ...artifacts.transcripts.map((t) => t.file)];
     for (const file of everything) {
@@ -95,7 +95,7 @@ describe("what a trial keeps", () => {
       expect(read(file).length).toBe(file.bytes);
     }
     // The trial's start event named the same configuration, before the trial ran.
-    expect(artifacts.config).toEqual((await readEvaluation(dir)).trials[1]!.ended!.artifacts!.config);
+    expect(artifacts.config).toEqual(trialOf(await readEvaluation(dir), "C3").ended!.artifacts!.config);
     const config = JSON.parse(read(artifacts.config).toString("utf8"));
     expect(config).toMatchObject({ condition: "C3", task: { id: "greeting" }, workflow: { name: "greeting-C3" } });
     expect(config.workflow.steps.map((step: { id: string }) => step.id)).toEqual(["plan", "implement", "review"]);
@@ -113,7 +113,7 @@ describe("what a trial keeps", () => {
   it("does not write the hidden tests into the trial's configuration, only their paths and hashes", async () => {
     const { dir, state } = await evaluate(both(greetingTaskDir()));
 
-    const c3 = state.trials[1]!;
+    const c3 = trialOf(state, "C3");
     const text = readFileSync(join(dir, ...c3.ended!.artifacts!.config.path.split("/")), "utf8");
     expect(text).not.toContain("greeting missing or wrong");
     const implement = JSON.parse(text).workflow.steps[1];
@@ -132,7 +132,7 @@ describe("what a trial keeps", () => {
     const { state } = await evaluate(suiteOf([greetingTaskDir({ id: "lost" }), greetingTaskDir({ id: "fine" })], { implement }, { conditions: ["C0"] }), { out, onEvent: sabotage(out) as never });
 
     // The incident stays an incident, and the scored trial stays scored: a disk problem is not what either found.
-    expect(state.trials.map((trial) => trial.ended!.outcome)).toEqual(["harness_incident", "scored"]);
+    expect([trialOf(state, "C0", "lost"), trialOf(state, "C0", "fine")].map((trial) => trial.ended!.outcome)).toEqual(["harness_incident", "scored"]);
     // What could be kept is kept: the prompts could not, and the transcript and the run's ledger were.
     for (const trial of state.trials) {
       expect(trial.ended!.artifacts).toMatchObject({ problem: expect.stringContaining("prompts"), prompts: [], transcripts: [expect.anything()], runLedger: expect.objectContaining({ path: expect.stringContaining("run-ledger.jsonl") }) });
@@ -185,7 +185,7 @@ describe("a suite or task that cannot be run", () => {
     const error = await problemsOf(suiteOf([writeTree(greetingFiles({ prompt: "" }))], { implement: scripted(GREETS) }, { conditions: ["C0"] }));
     expect(error).toBeInstanceOf(TaskInvalidError);
 
-    const unknown = await problemsOf(suiteOf([greetingTaskDir()], { implement: scripted(GREETS) }, { conditions: ["C1" as "C0"] }));
+    const unknown = await problemsOf(suiteOf([greetingTaskDir()], { implement: scripted(GREETS) }, { conditions: ["C9" as "C0"] }));
     expect((unknown as SuiteInvalidError).problems).toEqual([expect.stringContaining("`conditions` must be")]);
   });
 });
@@ -218,7 +218,7 @@ describe("the evaluation's ledger", () => {
 });
 
 describe("the report", () => {
-  it("states every rate with its counts, the exclusions, and the mock label, and draws no comparison", async () => {
+  it("states every rate with its counts, the exclusions, and the mock label, and, with one condition, no comparison", async () => {
     const lost = { ...GREETS, loseContact: true };
     const implement = (task: { id: string }) => scripted(task.id === "wrong" ? DOES_NOTHING : task.id === "lost" ? lost : GREETS)();
     const suite = suiteOf([greetingTaskDir({ id: "right" }), greetingTaskDir({ id: "wrong" }), greetingTaskDir({ id: "lost" })], { implement }, { conditions: ["C0"] });
@@ -233,7 +233,8 @@ describe("the report", () => {
     expect(text).toContain("scored trials whose result changed nothing, left out of the violation rate: 1");
     expect(text).toContain("harness incidents (excluded, not failures): 1");
     expect(text).toContain("lost: attempt ");
-    expect(text).toContain("This report draws no comparison between conditions.");
+    expect(text).not.toContain("Paired comparisons");
+    expect(report.comparisons).toEqual([]);
     expect(report.mock).toBe(true);
     // The same report is on disk, as data and as text.
     expect(JSON.parse(readFileSync(join(dir, "report.json"), "utf8"))).toEqual(JSON.parse(JSON.stringify(report)));
@@ -256,11 +257,14 @@ describe("replaying an evaluation's ledger", () => {
   const header = () => {
     seq = 0;
     return [
-      at({ type: "evaluation_created", evaluationId: "eval_x", protocolVersion: "0.0.0", suite: "s", conditions: ["C0"], retryBudget: 2 }),
+      at({ type: "evaluation_created", evaluationId: "eval_x", protocolVersion: "0.0.0", suite: "s", conditions: ["C0"], retryBudget: 2, repeats: 2 }),
       at({ type: "task_frozen", taskId: "t", dir: "t", taskHash: "a".repeat(64), hiddenTestsHash: "b".repeat(64), files: [], hiddenTests: [], constraints: [], seededDefects: [] }),
-      at({ type: "trial_started", trialId: "trial_1", taskId: "t", condition: "C0", repo: "trials/trial_1/repo", config: { path: "c", sha256: "c".repeat(64), bytes: 1 } }),
+      at({ type: "trials_scheduled", seed: 1, order: [slot(1), slot(2)] }),
+      started("trial_1", 1),
     ];
   };
+  const slot = (repeat: number) => ({ taskId: "t", condition: "C0", repeat, baseline: null });
+  const started = (trialId: string, repeat: number) => at({ type: "trial_started", trialId, ...slot(repeat), repo: `trials/${trialId}/repo`, config: { path: "c", sha256: "c".repeat(64), bytes: 1 } });
   const ended = (outcome: string, more: Record<string, unknown> = {}) =>
     at({ type: "trial_ended", trialId: "trial_1", outcome, runId: null, runState: null, failureClass: null, mock: false, attempts: 0, unscored: null, result: null, score: null, artifacts: null, ...more });
 
@@ -272,10 +276,39 @@ describe("replaying an evaluation's ledger", () => {
   });
 
   it("refuses a trial that starts after a task changed, and one that ends scored without a score", () => {
-    const afterChange = [...header().slice(0, 2), at({ type: "task_changed", taskId: "t", frozenHash: "a".repeat(64), foundHash: null, changed: [] }), at({ type: "trial_started", trialId: "trial_2", taskId: "t", condition: "C0", repo: "r", config: { path: "c", sha256: "c".repeat(64), bytes: 1 } })];
+    const afterChange = [...header().slice(0, 3), at({ type: "task_changed", taskId: "t", frozenHash: "a".repeat(64), foundHash: null, changed: [] }), started("trial_2", 1)];
     expect(() => replayEvaluation(afterChange)).toThrow(/after a task changed/);
     expect(() => replayEvaluation([...header(), ended("scored")])).toThrow(/a scored trial has a score/);
     // And the happy path replays.
     expect(replayEvaluation([...header(), ended("cancelled")]).trials[0]!.ended).toMatchObject({ outcome: "cancelled" });
+  });
+
+  it("refuses a trial that starts before the one in hand has ended, or that was not scheduled next, and a task frozen after the schedule", () => {
+    expect(() => replayEvaluation([...header(), started("trial_2", 2)])).toThrow(/once the one before it has ended/);
+    expect(() => replayEvaluation([...header().slice(0, 3), started("trial_2", 2)])).toThrow(/the next trial scheduled is/);
+    expect(() => replayEvaluation([...header().slice(0, 3), at({ type: "task_frozen", taskId: "u", dir: "u", taskHash: "a".repeat(64), hiddenTestsHash: "b".repeat(64), files: [], hiddenTests: [], constraints: [], seededDefects: [] })])).toThrow(
+      /frozen after the trials were scheduled/,
+    );
+  });
+
+  it("refuses a baseline for a trial that is not a scored C3 trial, or with a trial for other than each of its attempts", () => {
+    const withBaseline = () => {
+      seq = 0;
+      return [
+        at({ type: "evaluation_created", evaluationId: "eval_x", protocolVersion: "0.0.0", suite: "s", conditions: ["C3", "baseline"], retryBudget: 2, repeats: 1 }),
+        at({ type: "task_frozen", taskId: "t", dir: "t", taskHash: "a".repeat(64), hiddenTestsHash: "b".repeat(64), files: [], hiddenTests: [], constraints: [], seededDefects: [] }),
+        at({ type: "trials_scheduled", seed: 1, order: [{ taskId: "t", condition: "C3", repeat: 1, baseline: null }] }),
+        at({ type: "trial_started", trialId: "trial_1", taskId: "t", condition: "C3", repeat: 1, baseline: null, repo: "r", config: { path: "c", sha256: "c".repeat(64), bytes: 1 } }),
+      ];
+    };
+    const score = { verdict: "pass", tests: { command: "x", exitCode: 0, ran: true }, protectedPathViolations: [], constraints: [] };
+    const baseline = (more: Record<string, unknown> = {}) => at({ type: "baseline_scheduled", forTrialId: "trial_1", taskId: "t", repeat: 1, trials: 2, positions: [0, 1], ...more });
+
+    expect(() => replayEvaluation([...withBaseline(), ended("cancelled"), baseline()])).toThrow(/matches a scored C3 trial/);
+    expect(() => replayEvaluation([...withBaseline(), ended("scored", { score, attempts: 3 }), baseline()])).toThrow(/one C0 trial for each attempt/);
+    expect(() => replayEvaluation([...withBaseline(), ended("scored", { score, attempts: 2 }), baseline({ positions: [0, 5] })])).toThrow(/outside the trials still to start/);
+    // And a baseline that follows the rules puts its trials in the queue at the positions recorded.
+    const view = replayEvaluation([...withBaseline(), ended("scored", { score, attempts: 2 }), baseline()]);
+    expect(view.pending).toEqual([1, 2].map((index) => ({ taskId: "t", condition: "baseline", repeat: 1, baseline: { forTrialId: "trial_1", index, of: 2 } })));
   });
 });

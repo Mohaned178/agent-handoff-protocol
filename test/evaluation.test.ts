@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadTask } from "../src/evaluation/index.ts";
-import { APPROVES, DOES_NOTHING, evaluate, GREETS, greetingTaskDir, IMPLEMENTS, PLANS, REQUESTS_CHANGES, runEventsOf, runOf, scripted, suiteOf } from "./helpers/evaluation.ts";
+import { APPROVES, DOES_NOTHING, evaluate, GREETS, greetingTaskDir, IMPLEMENTS, PLANS, REQUESTS_CHANGES, runEventsOf, runOf, scripted, suiteOf, trialOf } from "./helpers/evaluation.ts";
 import { removeTempRepos } from "./helpers/repo.ts";
 
 // After the whole file: a describe's trials are run once, in `beforeAll`, and read by several tests.
@@ -13,7 +13,7 @@ describe("an evaluation of C0", () => {
 
     const { types, events, report } = await evaluate(suiteOf([dir], { implement: scripted(GREETS) }, { conditions: ["C0"] }));
 
-    expect(types).toEqual(["evaluation_created", "task_frozen", "trial_started", "trial_ended", "evaluation_ended"]);
+    expect(types).toEqual(["evaluation_created", "task_frozen", "trials_scheduled", "trial_started", "trial_ended", "evaluation_ended"]);
     expect(events[1]).toMatchObject({
       type: "task_frozen",
       taskId: "greeting",
@@ -22,7 +22,7 @@ describe("an evaluation of C0", () => {
       hiddenTests: ["check-greeting.mjs"],
       constraints: ["no-goodbye"],
     });
-    expect(events[3]).toMatchObject({
+    expect(events[4]).toMatchObject({
       type: "trial_ended",
       outcome: "scored",
       mock: true,
@@ -51,7 +51,7 @@ describe("an evaluation of C3", () => {
     });
 
     it("runs plan, implement and review as an ordinary workflow, scored by the validators like C0", async () => {
-      const [first, trial] = run.state.trials;
+      const [first, trial] = [trialOf(run.state, "C0"), trialOf(run.state, "C3")];
       expect(first!.ended).toMatchObject({ outcome: "scored", attempts: 1, score: { verdict: "pass" } });
       expect(trial!.ended).toMatchObject({ outcome: "scored", runState: "succeeded", attempts: 3, score: { verdict: "pass" } });
       const steps = (await runOf(run.dir, trial!)).steps;
@@ -60,7 +60,7 @@ describe("an evaluation of C3", () => {
     });
 
     it("tells the planted constraints to the first step only, so a later one has them only from its handoff", async () => {
-      const steps = (await runOf(run.dir, run.state.trials[1]!)).steps;
+      const steps = (await runOf(run.dir, trialOf(run.state, "C3"))).steps;
       const [plan, implement, review] = steps.map((step) => step.handoffs[0]!.handoff);
       const forbidden = "Never write the word goodbye";
       expect(plan!.contract.instructions).toContain("Create greeting.txt containing the word hello.");
@@ -73,7 +73,7 @@ describe("an evaluation of C3", () => {
     });
 
     it("gives every step of both conditions the task's network stance and an `abort` recovery policy, and has no approval gate or external action", async () => {
-      expect(run.state.trials.map((trial) => trial.condition)).toEqual(["C0", "C3"]);
+      expect(run.state.trials.map((trial) => trial.condition).sort()).toEqual(["C0", "C3"]);
       for (const trial of run.state.trials) {
         const created = (await runEventsOf(run.dir, trial)).find((event) => event.type === "run_created");
         if (created?.type !== "run_created") throw new Error("no run_created");
