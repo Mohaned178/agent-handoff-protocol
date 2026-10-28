@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { realpath } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -17,7 +19,8 @@ import {
 } from "../sdk/index.ts";
 import { diagnose, initWorkflow } from "../doctor/index.ts";
 import { API_KEY_NOTICE, formatReport, isSeed, runEvaluation, SuiteInvalidError, TaskInvalidError, type EvaluationEvent, type EvaluationSuite, type EvaluationView } from "../evaluation/index.ts";
-import { evaluationsRoot } from "../runtime/index.ts";
+import { evaluationsRoot, locateRepo, toolCallLogPath, transcriptPaths } from "../runtime/index.ts";
+import { watchProgress } from "./progress.ts";
 import { formatEvent, formatRun, formatUnresumed, MOCK_NOTE } from "./format.ts";
 import { formatDoctor, formatInit } from "./format-doctor.ts";
 import { formatEvaluationEvent } from "./format-evaluation.ts";
@@ -76,8 +79,17 @@ const defaultIo: Io = {
   stderr: (text) => process.stderr.write(`${text}\n`),
 };
 
-/** A problem with how ahp was invoked; exits 2. */
-class UsageError extends Error {}
+/**
+ * A problem with how ahp was invoked; exits 2. The whole usage is printed only when the command itself is missing or
+ * unknown: after any other mistake it would bury the one line that says what is wrong.
+ */
+class UsageError extends Error {
+  readonly showUsage: boolean;
+  constructor(message: string, { showUsage = false } = {}) {
+    super(message);
+    this.showUsage = showUsage;
+  }
+}
 
 /** Runs the `ahp` CLI and returns its exit code: see `USAGE`. */
 export async function main(argv: string[], io: Io = defaultIo): Promise<number> {
@@ -121,7 +133,7 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
         return await setupCommand(repo, io);
       case "run":
         if (!target) throw new UsageError("run needs a workflow file");
-        return await runCommand(target, repo, io);
+        return await runCommand(target, repo, values.repo !== undefined, io);
       case "eval":
         if (!target) throw new UsageError("eval needs a suite file");
         return await evalCommand(target, values.out, seedOf(values.seed), values.json ?? false, io);
@@ -135,11 +147,12 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
       case "reject":
         return await decideCommand(command, target, step, values.reason, repo, io);
       default:
-        throw new UsageError(command ? `unknown command: ${command}` : "no command given");
+        throw new UsageError(command ? `unknown command: ${command}` : "no command given", { showUsage: true });
     }
   } catch (error) {
     if (error instanceof UsageError || (error as { code?: string }).code?.startsWith("ERR_PARSE_ARGS")) {
-      io.stderr(`ahp: ${(error as Error).message}\n\n${USAGE}`);
+      const usage = error instanceof UsageError && !error.showUsage ? "(`ahp --help` lists the commands and options)" : USAGE;
+      io.stderr(`ahp: ${(error as Error).message}\n\n${usage}`);
       return 2;
     }
     io.stderr(`ahp: ${(error as Error).message}`);
@@ -178,18 +191,40 @@ interface Following {
  * adapter, also when `execute` throws partway. Ctrl+C meanwhile cancels the run instead of killing ahp, so the agent's
  * processes are stopped and the cancel is recorded; a second Ctrl+C only says that it is under way.
  */
-async function followRun<R>(io: Io, execute: (following: Following) => Promise<R>): Promise<R> {
+async function followRun<R>(io: Io, repo: string, execute: (following: Following) => Promise<R>): Promise<R> {
   let usedMock = false;
   const interrupt = cancelOnInterrupt(io, "the run", "waiting until the agent and every process it started are seen gone");
+  // While an agent runs, what it does and that it is alive (`progress.ts`), until its attempt has an end.
+  let watching: { attemptId: string; stop: () => void } | null = null;
+  const location = locateRepo(repo).catch(() => null);
+  const stopWatching = () => {
+    watching?.stop();
+    watching = null;
+  };
   try {
     return await execute({
       signal: interrupt.signal,
       onEvent: (event, current) => {
         usedMock = current.mock;
         io.stdout(formatEvent(event, current));
+        if (event.type === "attempt_running") {
+          stopWatching();
+          const { attemptId } = event;
+          const stepId = current.steps.find((step) => step.attempts.some((attempt) => attempt.id === attemptId))?.id ?? "?";
+          const watch = { attemptId, stop: () => undefined as void };
+          watching = watch;
+          void location.then((found) => {
+            if (!found || watching !== watch) return;
+            const files = { output: transcriptPaths(found, current.runId, attemptId).output, toolCalls: toolCallLogPath(found, current.runId, attemptId) };
+            watch.stop = watchProgress(files, `step ${stepId}: attempt ${attemptId}`, io.stdout).stop;
+          });
+        } else if ("attemptId" in event && event.attemptId === watching?.attemptId && event.type !== "ref_snapshot_taken") {
+          stopWatching();
+        }
       },
     });
   } finally {
+    stopWatching();
     interrupt.release();
     if (usedMock) io.stdout(MOCK_NOTE);
   }
@@ -247,7 +282,7 @@ async function setupCommand(repo: string, io: Io): Promise<number> {
       return 0;
     }
     io.stdout(`$ ${command}`);
-    return result.kind === "workflow" ? await runCommand(result.path, repo, io) : await evalCommand(result.path, undefined, undefined, false, io);
+    return result.kind === "workflow" ? await runCommand(result.path, repo, false, io) : await evalCommand(result.path, undefined, undefined, false, io);
   } catch (error) {
     if ((error as Error).name === "ExitPromptError") {
       io.stdout("setup cancelled: nothing was started");
@@ -257,7 +292,27 @@ async function setupCommand(repo: string, io: Io): Promise<number> {
   }
 }
 
-async function runCommand(file: string, repo: string, io: Io): Promise<number> {
+/**
+ * The repository a run will use, said before anything starts. git finds a repository by walking up from `dir`, so a
+ * folder that is not one can be inside one the user did not mean, a home folder kept under git most often: that one is
+ * refused unless `--repo` names it.
+ */
+async function repositoryOf(dir: string, named: boolean, io: Io): Promise<void> {
+  let top: string;
+  try {
+    top = (await locateRepo(dir)).repo;
+  } catch {
+    throw new UsageError(`${dir} is not in a git repository: run ahp in your project's folder, or pass --repo <dir> (a folder becomes one with \`git init\` and a first commit)`);
+  }
+  const home = await realpath(homedir()).catch(() => homedir());
+  const same = (a: string, b: string) => (process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b);
+  if (!named && same(top, home)) {
+    throw new UsageError(`the git repository around ${dir} is your home folder (${top}), which is rarely the project you mean: run ahp in your project's folder, or pass --repo "${top}" if it is`);
+  }
+  io.stdout(`repository: ${top}`);
+}
+
+async function runCommand(file: string, repo: string, repoNamed: boolean, io: Io): Promise<number> {
   const path = resolve(file);
   let workflow: unknown;
   try {
@@ -269,7 +324,8 @@ async function runCommand(file: string, repo: string, io: Io): Promise<number> {
   if (problems.length > 0) {
     throw new UsageError(`invalid workflow in ${path}:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
   }
-  const { state } = await followRun(io, (following) => runWorkflow(workflow as Parameters<typeof runWorkflow>[0], { repo, ...following }));
+  await repositoryOf(repo, repoNamed, io);
+  const { state } = await followRun(io, repo, (following) => runWorkflow(workflow as Parameters<typeof runWorkflow>[0], { repo, ...following }));
   return exitCodeOf(state);
 }
 
@@ -327,7 +383,7 @@ async function inspectCommand(runId: string, repo: string, json: boolean, io: Io
 async function recoverCommand(target: string, policy: string | undefined, repo: string, io: Io): Promise<number> {
   if (isRunId(target)) {
     if (policy !== undefined) throw new UsageError(`--policy decides an attempt: \`ahp recover <attempt-id> --policy adopt|abort\``);
-    const result = await followRun(io, (following) => resumeRun({ repo, runId: target, ...following }));
+    const result = await followRun(io, repo, (following) => resumeRun({ repo, runId: target, ...following }));
     if (!result.resumed) io.stdout(formatUnresumed(result));
     return exitCodeOf(result.state);
   }
@@ -335,7 +391,7 @@ async function recoverCommand(target: string, policy: string | undefined, repo: 
   if (policy === undefined) throw new UsageError(`recover ${target} needs --policy adopt or --policy abort`);
   if (policy === "discard_and_retry") throw new UsageError(DISCARD_AND_RETRY_DEFERRED);
   if (!RECOVERY_ACTIONS.includes(policy as RecoveryAction)) throw new UsageError(`--policy must be adopt or abort, not ${policy}`);
-  const { state } = await followRun(io, (following) => recoverAttempt({ repo, attemptId: target, policy: policy as RecoveryAction, ...following }));
+  const { state } = await followRun(io, repo, (following) => recoverAttempt({ repo, attemptId: target, policy: policy as RecoveryAction, ...following }));
   return exitCodeOf(state);
 }
 
@@ -352,7 +408,7 @@ async function decideCommand(
   if (!isRunId(runId)) throw new UsageError(`not a run ID: ${runId}`);
   if (command === "approve" && reason !== undefined) throw new UsageError("approve takes no --reason; a rejection does: `ahp reject <run-id> <step-id> --reason <text>`");
   if (command === "reject" && (reason === undefined || reason.trim() === "")) throw new UsageError("reject needs --reason <text>: it is sent back with the work");
-  const { state } = await followRun(io, (following) =>
+  const { state } = await followRun(io, repo, (following) =>
     command === "approve" ? approveStep({ repo, runId, stepId, ...following }) : rejectStep({ repo, runId, stepId, reason: reason!, ...following }),
   );
   return exitCodeOf(state);

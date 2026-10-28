@@ -206,6 +206,20 @@ export interface RetryPolicy {
 }
 
 /**
+ * How long one attempt of a step may run before AHP stops its agent and fails the attempt as `agent_error` (so it is
+ * retried from the step's `retry.budget`). 0 turns a limit off.
+ */
+export interface TimeoutDefinition {
+  /** The most an attempt may run, in milliseconds. Default 3600000 (an hour). */
+  totalMs?: number;
+  /**
+   * The most an attempt may go without its tool printing anything (its raw transcript not growing), in milliseconds.
+   * Default 600000 (ten minutes): a model that accepted the request and never answers is stopped instead of waited for.
+   */
+  idleMs?: number;
+}
+
+/**
  * Makes a step a review. Besides what its verification lists, it must report a `verdict` (`approved` or
  * `changes_requested`) and its `findings`. When it requests changes, the step it names is sent back (ADR 0004).
  */
@@ -248,6 +262,8 @@ export interface StepDefinition {
   review?: ReviewDefinition;
   /** Retry budgets; the defaults apply to whatever is left out. */
   retry?: RetryPolicy;
+  /** Limits on each attempt's running time; the defaults apply to whatever is left out. */
+  timeout?: TimeoutDefinition;
   /**
    * The coding agent that takes the step over, under the same contract, once the retry budget is spent. Off by
    * default: without it a step whose budget is spent fails. The alternative starts with budgets of its own, and a

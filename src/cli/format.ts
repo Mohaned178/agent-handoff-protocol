@@ -229,12 +229,24 @@ function describeStop(step: StepView, state: Readonly<RunView>): string | null {
     case "agent_error":
     case "verification_failed":
     case "transient":
-      return `retry budget spent${step.retryUsage.rerouted ? ", after a reroute" : ""}`;
+      return [`retry budget spent${step.retryUsage.rerouted ? ", after a reroute" : ""}`, ...(last ? describeLastFailure(last) : [])].join("\n");
     case "unknown":
       return "not retried: the attempt's outcome is unknown";
     default:
       return null;
   }
+}
+
+/**
+ * Why a step's last attempt failed, for the person reading the run's end: what the tool said went wrong, or what its
+ * verification found, hidden tests' output included (it is withheld from the agent, never from the person).
+ */
+function describeLastFailure(attempt: AttemptView): string[] {
+  if (attempt.error) return [`  last attempt ${attempt.id}: ${attempt.error.message}`];
+  const verification = attempt.verification;
+  if (verification?.state !== "fail") return [];
+  const found = verification.evidence.filter((item) => item.kind !== "diff_scope").flatMap(describeEvidence);
+  return [`  last attempt ${attempt.id} failed verification${verification.command ? `: ${verification.command}` : ""}`, ...found.map((line) => line.replace(/^ {4}/, ""))];
 }
 
 function describeVerification(label: string, verification: VerificationView, note = ""): string[] {
@@ -355,7 +367,9 @@ export function formatEvent(event: LedgerEvent, state: Readonly<RunView>): strin
       return stop ? `${line}\n  ${stop}` : line;
     }
     case "run_terminal":
-      return `run ${state.runId}: ${state.state}${mockTag(state.mock)}`;
+      return state.state === "failed"
+        ? `run ${state.runId}: failed${mockTag(state.mock)}\n  every attempt, handoff and verification: ahp inspect ${state.runId}`
+        : `run ${state.runId}: ${state.state}${mockTag(state.mock)}`;
     case "ledger_truncated":
       return `run ${state.runId}: ${describeTruncation(event.droppedBytes)}`;
     case "run_resumed":

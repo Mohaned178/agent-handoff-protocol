@@ -52,6 +52,7 @@ import {
   validatorError,
   verdictOf,
 } from "./verification.ts";
+import { overrunMessage, resolveTimeout, watchAttempt, type Overrun } from "./timeout.ts";
 import { addWorktree, discardWorktree, removeWorktree, snapshotWorktree } from "./workspace.ts";
 
 export interface ExecuteRunOptions {
@@ -511,12 +512,17 @@ async function executeAttempt(step: StepDefinition, index: number, run: RunConte
   // reaches the await below, which records the attempt as unknown.
   started.exited.catch(() => undefined);
   await record({ type: "attempt_running", attemptId, pid: started.pid });
-  let exit: AttemptExit | typeof CANCELLED;
+  let exit: AttemptExit | Overrun | typeof CANCELLED;
+  const watching = new AbortController();
   try {
-    exit = await unlessCancelled(started.exited, run.cancel.signal);
+    const overrun = watchAttempt(transcriptPaths(location, runId, attemptId).output, resolveTimeout(step.timeout), watching.signal);
+    exit = await unlessCancelled(Promise.race([started.exited, overrun]), run.cancel.signal);
   } catch (error) {
     return record({ type: "attempt_unknown", attemptId, reason: "lost_contact", detail: `the adapter lost track of the agent: ${messageOf(error)}` });
+  } finally {
+    watching.abort();
   }
+  if (exit !== CANCELLED && "limit" in exit) return timeOutAttempt(attemptId, started, exit, run);
   // An agent that failed just as the run was cancelled may have failed of the cancel (a console Ctrl+C on Windows):
   // what is left of its tree is stopped as for any cancel.
   if (exit === CANCELLED || (await cancelledAround(exitOutcome(exit) === "ok", run.cancel, run.clock))) {
@@ -581,6 +587,42 @@ async function cancelAttempt(attemptId: string, started: StartedAttempt, run: Ru
     error: null,
     ...reportedBy(exited ?? { reportedModel: null, usage: null }),
     cancel: { forced: termination.forced, via: termination.via },
+  });
+}
+
+/**
+ * Stops a running attempt's agent because it ran past one of its step's limits, and records the attempt as failed
+ * (`agent_error`, so the step's retry budget decides what follows), or as `unknown` (`unconfirmed_kill`) if some process
+ * of its tree could still be running. An agent that had ended by itself before it was stopped keeps its own exit.
+ */
+async function timeOutAttempt(attemptId: string, started: StartedAttempt, overrun: Overrun, run: RunContext): Promise<void> {
+  const { record } = run;
+  let termination: Termination;
+  try {
+    termination = await started.cancel({ graceMs: run.cancel.graceMs });
+  } catch (error) {
+    termination = { outcome: "unconfirmed", survivors: [started.pid], detail: `the adapter could not stop the agent: ${messageOf(error)}` };
+  }
+  if (termination.outcome === "unconfirmed") {
+    const detail = `${overrunMessage(overrun)}, and not every process of its tree (PID ${started.pid}) could be seen gone: ${termination.detail}`;
+    return record({ type: "attempt_unknown", attemptId, reason: "unconfirmed_kill", detail });
+  }
+  const exit = await within(started.exited.catch(() => null), EXIT_AFTER_CANCEL_MS, run.clock);
+  const exited = exit === TIMED_OUT || exit === null ? null : exit;
+  if (termination.outcome === "already_gone" && exited) {
+    return record({ type: "attempt_exited", attemptId, outcome: exitOutcome(exited), ...exited, ...reportedBy(exited), cancel: null });
+  }
+  await record({
+    type: "attempt_exited",
+    attemptId,
+    outcome: "error",
+    exitCode: exited?.exitCode ?? null,
+    signal: exited?.signal ?? null,
+    reportedOutput: {},
+    stopReason: null,
+    error: { kind: "agent_error", message: overrunMessage(overrun) },
+    ...reportedBy(exited ?? { reportedModel: null, usage: null }),
+    cancel: null,
   });
 }
 

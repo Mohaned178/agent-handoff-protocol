@@ -30,7 +30,7 @@ export class WorkflowValidationError extends Error {
 }
 
 const WORKFLOW_KEYS = ["name", "steps"];
-const STEP_KEYS = ["id", "agent", "verification", "artifacts", "instructions", "retry", "reroute", "recovery", "review", "capabilities", "network"];
+const STEP_KEYS = ["id", "agent", "verification", "artifacts", "instructions", "retry", "reroute", "recovery", "review", "capabilities", "network", "timeout"];
 const CAPABILITY_KEYS: Record<CapabilityKind, string[]> = {
   read_only: ["kind", "require"],
   write_scope: ["kind", "paths", "require"],
@@ -42,6 +42,7 @@ const REVIEW_KEYS = ["sendBackTo"];
 const AGENT_KEYS = ["adapter", "model", "options"];
 const RETRY_KEYS = ["budget", "transientBudget", "backoff"];
 const BACKOFF_KEYS = ["initialMs", "factor", "maxTotalMs"];
+const TIMEOUT_KEYS = ["totalMs", "idleMs"];
 const VERIFICATION_KEYS = ["command", "requiredOutputFields", "protectedPaths", "hiddenTests", "install"];
 /** Why the design's fourth recovery policy is not one, for whoever asks for it. */
 export const DISCARD_AND_RETRY_DEFERRED =
@@ -102,6 +103,16 @@ function validateAgent(agent: unknown, key: "agent" | "reroute", problem: (messa
     for (const message of adapter.validateOptions(agent.options)) problem(`${prefix}${message}`);
   }
   if (agent.model !== undefined && typeof agent.model !== "string") problem(`\`${key}.model\` must be a string`);
+}
+
+/** Checks a step's attempt limits. */
+function validateTimeout(timeout: Record<string, unknown>, problem: (message: string) => void): void {
+  for (const name of Object.keys(timeout)) if (!TIMEOUT_KEYS.includes(name)) problem(`unknown property \`timeout.${name}\``);
+  for (const name of TIMEOUT_KEYS) {
+    if (timeout[name] !== undefined && !isWaitMs(timeout[name])) {
+      problem(`\`timeout.${name}\` must be a non-negative integer number of milliseconds (0: no limit), at most ${MAX_WAIT_MS}`);
+    }
+  }
 }
 
 /** Checks a step's retry budgets and backoff. */
@@ -385,6 +396,10 @@ function validateStep(step: unknown, index: number, seen: Set<string>, positions
   if (step.retry !== undefined) {
     if (isRecord(step.retry)) validateRetry(step.retry, problem);
     else problem("`retry` must be an object");
+  }
+  if (step.timeout !== undefined) {
+    if (isRecord(step.timeout)) validateTimeout(step.timeout, problem);
+    else problem("`timeout` must be an object");
   }
   if (step.recovery === "discard_and_retry") {
     problem(`\`recovery\`: ${DISCARD_AND_RETRY_DEFERRED}`);

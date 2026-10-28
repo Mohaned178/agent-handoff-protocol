@@ -19,7 +19,7 @@ export { ApprovalRefusedError, decideApproval, pendingApprovalOf, type DecideApp
 // What the evaluation engine's validators and trial repositories are built from; evaluation has no runtime of its own.
 export { git } from "./git.ts";
 export { introduceHiddenTests } from "./hidden-tests.ts";
-export { evaluationsRoot, prepareWorktreeRoot, transcriptPaths, worktreePath } from "./paths.ts";
+export { evaluationsRoot, prepareWorktreeRoot, toolCallLogPath, transcriptPaths, worktreePath } from "./paths.ts";
 export { changedPaths, checkProtectedPaths } from "./scope.ts";
 export { evidenceVerdict, installDependencies, messageOf, runVerificationCommand, type CommandCancel } from "./verification.ts";
 export { addWorktree, discardWorktree } from "./workspace.ts";
