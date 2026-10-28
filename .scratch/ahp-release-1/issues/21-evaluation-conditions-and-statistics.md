@@ -4,7 +4,7 @@
 
 **Blocked by:** 20
 
-**Status:** implemented, decisions confirmed; awaiting the first green CI run
+**Status:** done
 
 **Model:** Opus 5.5 · high
 
@@ -63,3 +63,5 @@
 **Not done, on purpose.** The spend cap, invalid cells, version pinning and the API-key expectation (ticket 22); comparing anything but verified success; any real-tool trial.
 
 **Confirmed by the maintainer on 2026-10-28 ("do recommendation"): decisions 1 to 19 above stand as recommended; reopen one only with a new decision.** That includes decision 5 (the baseline is on by default and is the expensive condition; leave it out of a suite's `conditions` to skip it), decision 7 (a baseline cell is scored only when every one of its trials was scored, departing from the literal "success if any passes") and decision 19 (hidden tests readable in C3's run ledger stay accepted for the pilot: read the transcripts of C3 trials that pass where the others fail, and move ledgers out of the trial repository before the full suite).
+
+2026-10-28, done. First green CI run after the push: run 40697014679 on `9e7a5bf` (the first run this ticket's commits had). Ubuntu, Windows and macOS all succeeded: 728 passed and 1 skipped on Ubuntu and on macOS, 725 passed and 4 skipped on Windows (729 tests in all; the skips are the ones that need another OS). No trial in it, or anywhere in this ticket, ran a real coding agent: every result the evaluation produces is `[mock]` and none is evidence.
