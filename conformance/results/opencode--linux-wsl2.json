@@ -1,0 +1,96 @@
+{
+  "suiteVersion": 1,
+  "adapter": "opencode",
+  "mock": false,
+  "platform": "linux",
+  "osLabel": "Linux (WSL2)",
+  "toolVersion": "1.19.4",
+  "ranAt": "2026-10-28T01:01:02.663Z",
+  "checks": [
+    {
+      "id": "declaration:complete",
+      "status": "passed",
+      "detail": "transport, model reporting, login, graceful cancel and a level for every capability, stance and operating system"
+    },
+    {
+      "id": "spawn_and_exit",
+      "status": "passed",
+      "detail": "started as process 27154, exited 0, reported its summary, and its file is in the workspace"
+    },
+    {
+      "id": "failure:agent_error",
+      "status": "skipped",
+      "detail": "the subject cannot make its agent do \"fails\""
+    },
+    {
+      "id": "failure:config_auth",
+      "status": "skipped",
+      "detail": "the subject cannot make its agent do \"login_problem\""
+    },
+    {
+      "id": "failure:transient",
+      "status": "skipped",
+      "detail": "the subject cannot make its agent do \"rate_limited\""
+    },
+    {
+      "id": "model:reported",
+      "status": "skipped",
+      "detail": "the adapter reported the requested model \"opencode/deepseek-v4.1-flash-free\", and the subject cannot make the tool say another, so an echo of the request cannot be told from a report"
+    },
+    {
+      "id": "model:not_reported",
+      "status": "skipped",
+      "detail": "the subject cannot make its agent do \"no_model_report\""
+    },
+    {
+      "id": "usage:reported",
+      "status": "passed",
+      "detail": "reported usage labelled with its source \"opencode acp session/prompt result (usage); inputTokens excludes cachedReadTokens, and totalTokens is input + output + thought + cached read; no cost reported (a zero cost is not taken as one)\""
+    },
+    {
+      "id": "usage:not_reported",
+      "status": "skipped",
+      "detail": "the subject cannot make its agent do \"no_usage_report\""
+    },
+    {
+      "id": "cancel:stops_agent",
+      "status": "passed",
+      "detail": "stopped the hung agent (transport, forced: false) and it is gone"
+    },
+    {
+      "id": "cancel:forced_tree",
+      "status": "passed",
+      "detail": "killed the tree of 3 processes, which ignored every signal (tree_kill), and none is left"
+    },
+    {
+      "id": "capability:read_only",
+      "status": "passed",
+      "detail": "accepted at \"cooperative\" on linux. cooperative is a request the agent may ignore, not enforcement: the suite checks that the attempt accepts it, not that the agent obeys"
+    },
+    {
+      "id": "capability:write_scope",
+      "status": "passed",
+      "detail": "accepted at \"cooperative\" on linux. cooperative is a request the agent may ignore, not enforcement: the suite checks that the attempt accepts it, not that the agent obeys"
+    },
+    {
+      "id": "capability:no_external_actions",
+      "status": "passed",
+      "detail": "accepted at \"cooperative\" on linux. cooperative is a request the agent may ignore, not enforcement: the suite checks that the attempt accepts it, not that the agent obeys"
+    },
+    {
+      "id": "network:deny",
+      "status": "not_applicable",
+      "detail": "declared \"none\" on linux: nothing is applied"
+    },
+    {
+      "id": "network:package_registries",
+      "status": "not_applicable",
+      "detail": "declared \"none\" on linux: nothing is applied"
+    },
+    {
+      "id": "declaration:refuses_above_declared",
+      "status": "passed",
+      "detail": "declares read_only \"cooperative\" on linux and refused to apply it at \"enforced_by_tool\": opencode adapter declares read_only \"cooperative\" on linux and cannot apply it at \"enforced_by_tool\""
+    }
+  ]
+}

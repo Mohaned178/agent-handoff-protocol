@@ -124,9 +124,56 @@ function signalGroup(pgid: number, signal: NodeJS.Signals): void {
   }
 }
 
+/** A process by its PID and the time it started, which tell it apart from a later process given the same PID. */
+interface Descendant {
+  pid: number;
+  started: string;
+}
+
+/** Every process on the machine: PID, parent, state and start time, as `ps` prints them. */
+async function psTable(): Promise<{ pid: number; ppid: number; zombie: boolean; started: string }[] | null> {
+  const { code, stdout } = await execFileText("ps", ["-A", "-o", "pid=,ppid=,stat=,lstart="]);
+  if (code !== 0) return null;
+  return stdout.split("\n").flatMap((line) => {
+    const match = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.+?)\s*$/.exec(line);
+    return match ? [{ pid: Number(match[1]), ppid: Number(match[2]), zombie: match[3]!.startsWith("Z"), started: match[4]! }] : [];
+  });
+}
+
+/**
+ * The processes descended from `pid` by parent PID, wherever their process group is: a process that starts its own
+ * session (OpenCode's shell commands do, observed on Linux, ticket 18) is not in the root's group, and once the root has
+ * gone it is no longer anyone's child, so it has to be found while the root is still there.
+ */
+async function descendantsOf(pid: number): Promise<Descendant[]> {
+  const table = await psTable();
+  if (table === null) return [];
+  const found: Descendant[] = [];
+  const queue = [pid];
+  while (queue.length > 0) {
+    const parent = queue.shift()!;
+    for (const entry of table) {
+      if (entry.ppid !== parent || entry.pid === pid || found.some((known) => known.pid === entry.pid)) continue;
+      found.push({ pid: entry.pid, started: entry.started });
+      queue.push(entry.pid);
+    }
+  }
+  return found;
+}
+
+/** Those of `known` still running, as the same process. Without `ps`, whatever answers signal 0. */
+async function runningOf(known: Descendant[]): Promise<Descendant[]> {
+  if (known.length === 0) return [];
+  const table = await psTable();
+  if (table === null) return known.filter((entry) => answers(entry.pid));
+  return known.filter((entry) => table.some((row) => row.pid === entry.pid && row.started === entry.started && !row.zombie));
+}
+
 async function terminateGroup(root: TreeRoot, { graceful, graceMs, confirmMs }: ResolvedOptions): Promise<Termination> {
   const pgid = root.pid;
-  const gone = async () => !(await groupAlive(pgid));
+  // Read before anything is sent: the group alone does not hold a process that left it.
+  let known = await descendantsOf(root.pid);
+  const gone = async () => !(await groupAlive(pgid)) && (await runningOf(known)).length === 0;
   if (await gone()) return { outcome: "already_gone" };
   // The transport's stop takes SIGTERM's place: the agent gets one grace period, not two.
   if (await tryGraceful(graceful)) {
@@ -135,9 +182,20 @@ async function terminateGroup(root: TreeRoot, { graceful, graceMs, confirmMs }: 
     signalGroup(pgid, "SIGTERM");
     if (await goneWithin(graceMs, gone)) return { outcome: "stopped", forced: false, via: "signal" };
   }
+  // Whatever the agent started during the grace period is added, while it can still be found; then all of it goes.
+  const added = await descendantsOf(root.pid);
+  known = [...known, ...added.filter((entry) => !known.some((old) => old.pid === entry.pid))];
   signalGroup(pgid, "SIGKILL");
+  for (const entry of await runningOf(known)) {
+    try {
+      process.kill(entry.pid, "SIGKILL");
+    } catch {
+      // gone in the meantime
+    }
+  }
   if (await goneWithin(confirmMs, gone)) return { outcome: "stopped", forced: true, via: "tree_kill" };
-  return { outcome: "unconfirmed", survivors: [pgid], detail: `processes of group ${pgid} were still running ${confirmMs} ms after SIGKILL` };
+  const survivors = [...((await groupAlive(pgid)) ? [pgid] : []), ...(await runningOf(known)).map((entry) => entry.pid)];
+  return { outcome: "unconfirmed", survivors, detail: `processes ${survivors.join(", ")} were still running ${confirmMs} ms after SIGKILL` };
 }
 
 // ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 
 **Blocked by:** 12, 14
 
-**Status:** implemented and committed; waiting on the maintainer for the Linux (WSL2) conformance run and for the decisions below
+**Status:** implemented, committed and pushed; both conformance cells recorded; decisions 1 to 13 confirmed, decision 14 below is new
 
 **Model:** Sonnet 5.5 · high
 
@@ -12,9 +12,9 @@
 - [x] Uses ACP `session/cancel` for graceful cancel; `request_permission` treated as cooperative only
 - [x] Model reporting level declared from what ACP session config exposes (`enumerable`)
 - [x] Tool-call log captured for recovery reports
-- [ ] Passes the conformance suite on Windows native and Linux (WSL2); results recorded as matrix cells
+- [x] Passes the conformance suite on Windows native and Linux (WSL2); results recorded as matrix cells
   - [x] Windows native: recorded, `conformance/results/opencode--windows.json`. 9 checks passed, none failed, 2 not applicable, 6 skipped (the tool cannot be made to do them), so the outcome is `untested`, not `passed` (decision 10)
-  - [ ] Linux (WSL2): not run; needs a Linux `opencode` (commands in the comments)
+  - [x] Linux (WSL2): recorded, `conformance/results/opencode--linux-wsl2.json`. OpenCode 1.19.4, same result: 9 checks passed, none failed, 2 not applicable, 6 skipped, so `untested`
 
 ## Implementer notes
 
@@ -75,3 +75,13 @@ Then commit `conformance/results/opencode--linux-wsl2.json`. The default model i
 **Code review (two reviewers, before the commit).** Fixed: an empty tool-call log now exists from the start (an attempt lost before any call reads "empty", not "none"); the model is not looked up for a cancelled attempt (the export is a process outside the cancelled tree); a cancel that arrives after the turn ended no longer discards its output; a process that cannot be stopped after its stdin ended makes `exited` reject (the attempt is then `unknown`) instead of waiting for ever; every step that may write now has `edit: ask`, so the `.git` and outside-workspace guard covers plain steps too; the log records what was answered, not what was meant; `any` and a dead `close()` removed. Not done, as judgement calls: the declaration guard and `validateOptions` are now copied three times across the adapters (a shared helper would be a follow-up touching the other two), `index.ts` could be split into session and tool-log modules as Codex's is, and the external-action command list is also in Claude Code's settings.
 
 **Confirmed by the maintainer on 2026-10-28 ("do recommendation"): decisions 1 to 13 above stand as recommended; reopen one only with a new decision.** Decision 9 includes the `cancel:forced_tree` relaxation, and decision 13 is a follow-up not done here. Still open for this ticket: the Linux (WSL2) conformance run, which needs a Linux `opencode`.
+
+2026-10-28, Linux (WSL2) run, on the maintainer's instruction ("run it"). Set up at user level only in the WSL2 Ubuntu home: Node 24.21.0 (the official tarball in `~/.local`), `npm install -g opencode-ai --prefix ~/.local` (1.19.4), and a clone of the repository at `~/ahp`; nothing else on the distro was changed, and no login was needed (free-tier model). Commands used: `npm ci`, then `env -u OPENAI_API_KEY -u CODEX_API_KEY -u ANTHROPIC_API_KEY npm run conformance -- run opencode`.
+
+**The first Linux run failed `cancel:forced_tree`, and found a real defect in the process layer rather than in the adapter.** `session/cancel` plus the end of stdin made OpenCode exit, and the process layer reported the tree stopped, unforced, via the transport, while `node hang.js` and its child were still running. OpenCode starts shell commands in a session of its own (the script was its own process group leader, `pgid` = its PID), which the agent's process group does not hold, and once OpenCode had exited they were nobody's child. Windows did not show it because there the tree is read by parent PID. This is the claim "cancelled only once every process of the tree was seen gone" being wrong on Linux for any agent that detaches children; it was reproduced by a new test first (`test/process.test.ts`, "finds a process the agent started in a session of its own"), which failed on Linux with the same wrong report.
+
+**Fix (`src/process/tree.ts`, `terminateGroup`):** the descendants are read by parent PID, with their start times, before anything is sent; the termination is confirmed only when the group and every one of them is gone; at the kill, what the agent started in the meantime is added and the ones outside the group are killed one by one; an unconfirmed result lists them. It applies to every adapter on Linux and macOS. Verified on Linux: the new test, the whole suite (623 passed, 1 skipped), and `cancel:forced_tree` three times in a row (the cancel is now honestly `forced`, `tree_kill`, on Linux); and on Windows the process and cancel tests. macOS is covered by CI only (`ps -o lstart` exists there).
+
+**The Linux cell is recorded: `conformance/results/opencode--linux-wsl2.json`** (OpenCode 1.19.4): 9 passed, 2 not applicable, 6 skipped, so `untested`, the same as Windows. One earlier Linux run failed `cancel:forced_tree` with "the agent did not list the processes it started within 30 s": the free model had not run the script in time. That is the check depending on the model, not a cancel result, and the check passed on the next three runs and in the recorded one.
+
+14. **The process layer's Linux and macOS termination now finds descendants by parent PID, for all adapters.** *Recommended: adopt.* Without it a cancel on Linux can report a tree gone that is running. Cost: one more `ps` per poll (every 100 ms) while a cancel waits. Shared with Claude Code and Codex, which gain the same protection; their recorded cells were made before it and are not re-run.

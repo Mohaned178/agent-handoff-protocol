@@ -263,6 +263,17 @@ grandchild.stdout.once("data", () => { grandchild.stdout.destroy(); fs.writeFile
 setInterval(() => {}, 60000);
 `;
 
+/**
+ * An agent whose child runs in a session of its own, as OpenCode's shell commands do (observed on Linux, ticket 18): the
+ * agent's process group does not hold it. Writes the child's PID and its own, and the child ignores every signal.
+ */
+const DETACHED_TREE_AGENT = `const { spawn } = require("child_process");
+const fs = require("fs");
+const child = spawn(process.execPath, ["-e", 'for (const s of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(s, () => {}); process.stdout.write("ready"); setTimeout(() => {}, 600000);'], { detached: true, stdio: ["ignore", "pipe", "ignore"] });
+child.stdout.once("data", () => { child.stdout.destroy(); fs.writeFileSync(process.argv[2], process.pid + "\\n" + child.pid + "\\n"); });
+setInterval(() => {}, 60000);
+`;
+
 /** Hangs until the file named by its first argument exists, then exits: a transport's cancel, as far as a test can tell. */
 const STOPPABLE_AGENT = `const fs = require("fs");
 setInterval(() => { if (fs.existsSync(process.argv[2])) process.exit(0); }, 50);
@@ -295,6 +306,26 @@ describe("terminate", () => {
     expect(termination).toEqual({ outcome: "stopped", forced: true, via: "tree_kill" });
     for (const pid of tree) expect(isRunning(pid)).toBe(false);
     await started.exited;
+  });
+
+  it("finds a process the agent started in a session of its own, and kills it too, though the agent leaves at the transport's cancel", async () => {
+    const dir = tempDir();
+    const { started, pids, pidFile } = await startScript(dir, DETACHED_TREE_AGENT);
+    const tree = await pids();
+    const [, child] = tree as [number, number];
+
+    // The transport's stop ends the agent and leaves its detached child, which is the case a process group cannot see.
+    const termination = await started.terminate({
+      graceful: async () => {
+        process.kill(started.pid, "SIGKILL");
+      },
+      graceMs: 500,
+    });
+
+    expect(termination).toEqual({ outcome: "stopped", forced: true, via: "tree_kill" });
+    expect(isRunning(child)).toBe(false);
+    expect(isRunning(started.pid)).toBe(false);
+    expect(existsSync(pidFile)).toBe(true);
   });
 
   it("asks first: an agent that stops on SIGTERM is not forced, except on Windows", async () => {
