@@ -5,7 +5,7 @@
   "platform": "win32",
   "osLabel": "Windows",
   "toolVersion": "1.18.35",
-  "ranAt": "2026-10-28T00:20:14.755Z",
+  "ranAt": "2026-10-28T17:17:32.715Z",
   "checks": [
     {
       "id": "declaration:complete",
@@ -15,41 +15,41 @@
     {
       "id": "spawn_and_exit",
       "status": "passed",
-      "detail": "started as process 19976, exited 0, reported its summary, and its file is in the workspace"
+      "detail": "started as process 20716, exited 0, reported its summary, and its file is in the workspace"
     },
     {
       "id": "failure:agent_error",
-      "status": "skipped",
+      "status": "unprovokable",
       "detail": "the subject cannot make its agent do \"fails\""
     },
     {
       "id": "failure:config_auth",
-      "status": "skipped",
+      "status": "unprovokable",
       "detail": "the subject cannot make its agent do \"login_problem\""
     },
     {
       "id": "failure:transient",
-      "status": "skipped",
+      "status": "unprovokable",
       "detail": "the subject cannot make its agent do \"rate_limited\""
     },
     {
       "id": "model:reported",
-      "status": "skipped",
-      "detail": "the adapter reported the requested model \"opencode/deepseek-v4.1-flash-free\", and the subject cannot make the tool say another, so an echo of the request cannot be told from a report"
+      "status": "passed",
+      "detail": "reported \"opencode/deepseek-v4.1-flash-free\", which is what the tool said (no model was requested)"
     },
     {
       "id": "model:not_reported",
-      "status": "skipped",
+      "status": "unprovokable",
       "detail": "the subject cannot make its agent do \"no_model_report\""
     },
     {
       "id": "usage:reported",
       "status": "passed",
-      "detail": "reported usage labelled with its source \"opencode acp session/prompt result (usage); inputTokens excludes cachedReadTokens, and totalTokens is input + output + thought + cached read; 19 thoughtTokens were reported, included in totalTokens only; no cost reported (a zero cost is not taken as one)\""
+      "detail": "reported usage labelled with its source \"opencode acp session/prompt result (usage); inputTokens excludes cachedReadTokens, and totalTokens is input + output + thought + cached read; 48 thoughtTokens were reported, included in totalTokens only; no cost reported (a zero cost is not taken as one)\""
     },
     {
       "id": "usage:not_reported",
-      "status": "skipped",
+      "status": "unprovokable",
       "detail": "the subject cannot make its agent do \"no_usage_report\""
     },
     {
@@ -60,7 +60,7 @@
     {
       "id": "cancel:forced_tree",
       "status": "passed",
-      "detail": "stopped, without force, by the transport's own cancel, the tree of 3 processes, which ignored every signal (transport), and none is left"
+      "detail": "killed the tree of 3 processes, which ignored every signal (tree_kill), and none is left"
     },
     {
       "id": "capability:read_only",
