@@ -4,7 +4,7 @@
 
 **Blocked by:** 21, 22
 
-**Status:** implemented, awaiting review of the decisions below
+**Status:** implemented and committed; waiting on the maintainer to read OpenAI's and OpenCode's own terms and add them to the review
 
 **Model:** Sonnet 5.5 · high
 
@@ -34,6 +34,8 @@ Each with a recommendation; answer "do recommendation" to adopt them all.
 8. **The terms review could not retrieve OpenAI's terms (HTTP 403 to `curl`, and 429 from the web archive) or OpenCode's own (404).** They are listed as not retrieved, with nothing filled in. *Recommended: the maintainer reads them in a browser before the pilot and adds the sentences to `docs/terms-review-2026-10-28.md`.*
 9. **A discrepancy for the maintainer (not acted on):** Gemini CLI's own quota page now describes a free tier, for a Google login and for an API key, while the repository says in several places (spec, design doc §9 item 1, ticket 19, `docs/adapters/gemini-cli.md`, CLAUDE.md) that it needs paid access. *Recommended: try a free AI Studio API key with `npm run conformance -- run gemini-cli --only spawn_and_exit` before assuming paid access is needed; if it works, ticket 19 can finish without a paid plan, and the unpaid-use data terms (quoted in the review) apply.*
 10. **The pilot's tests take about two minutes on Windows** (thirteen of the tests run trials: six per-task discrimination tests, six end-to-end tests and the freeze test); every condition runs end to end on `password-reset` only, C0 and C3 on the rest. *Recommended: adopt; trim further if CI time matters.*
+
+**Confirmed by the maintainer on 2026-10-28 ("do recommendation"): decisions 1 to 10 above stand as recommended; reopen one only with a new decision.** Still open for this ticket, both the maintainer's to do: reading OpenAI's terms and OpenCode's own in a browser and adding what they say, with the date, to `docs/terms-review-2026-10-28.md` (decision 8; the fourth box stays unchecked until then), and trying a free Gemini API key as decision 9 suggests.
 
 ## Comments
 
