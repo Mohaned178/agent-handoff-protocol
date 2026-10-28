@@ -66,7 +66,9 @@ const call = {
 };
 const save = () => fs.writeFileSync(callsDir + "/" + process.pid + ".json", JSON.stringify(call));
 save();
-const fill = (value) => JSON.parse(JSON.stringify(value).split("{{workspace}}").join(JSON.stringify(process.cwd()).slice(1, -1)));
+// The captures were made on Windows: a backslash right after the workspace is a path separator, here as on the machine running the test.
+const escaped = (text) => JSON.stringify(text).slice(1, -1);
+const fill = (value) => JSON.parse(JSON.stringify(value).split("{{workspace}}\\\\").join(escaped(process.cwd() + require("path").sep)).split("{{workspace}}").join(escaped(process.cwd())));
 const send = (message) => process.stdout.write(JSON.stringify(fill(message)) + "\n");
 const reply = (id, result) => send({ jsonrpc: "2.0", id, result });
 const replyError = (id, error) => send({ jsonrpc: "2.0", id, error });
