@@ -6,3 +6,5 @@ coverage/
 .env.*
 .claude/settings.local.json
 smoke-run/
+# workflows written by ahp setup or ahp init while trying AHP here
+/*.workflow.mjs
