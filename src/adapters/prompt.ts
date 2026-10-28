@@ -72,3 +72,24 @@ export function promptFor(
   }
   return `${sections.join("\n\n")}\n`;
 }
+
+/**
+ * For a tool with no structured output: the words that ask the agent to report its fields as one JSON object, which is
+ * the whole of its final message (`promptFor`'s `reportHow`), and `jsonObjectIn`, which reads it back.
+ */
+export const REPORT_AS_JSON_MESSAGE = "as one JSON object, which is the whole of your final message and nothing else (no text around it), with these fields as its keys";
+
+/** The JSON object a message is, or the one in its last code fence; null when it is neither. */
+export function jsonObjectIn(message: string): Record<string, unknown> | null {
+  const candidates = [message.trim()];
+  for (const fence of message.matchAll(/```(?:json)?\s*\n([\s\S]*?)```/gi)) candidates.push(fence[1]!.trim());
+  for (const candidate of candidates.reverse()) {
+    try {
+      const parsed: unknown = JSON.parse(candidate);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    } catch {
+      // not this one
+    }
+  }
+  return null;
+}

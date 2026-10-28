@@ -1,6 +1,6 @@
 # OpenCode adapter
 
-Adapter name `opencode`. It runs the `opencode` binary found on `PATH` as `opencode acp`, OpenCode's own Agent Client Protocol server, over stdio, one process per attempt, started through the shared process layer (ADR 0001, ticket 18). AHP is the ACP client: there is no third-party bridge and no ACP library, and the protocol code is a few hundred lines (`src/adapters/opencode/acp.ts`). The transport was chosen in `docs/spikes/2026-10-27-transport-spike-windows.md` (decision 3); the headless `opencode run --format json` fallback it mentions is not implemented.
+Adapter name `opencode`. It runs the `opencode` binary found on `PATH` as `opencode acp`, OpenCode's own Agent Client Protocol server, over stdio, one process per attempt, started through the shared process layer (ADR 0001, ticket 18). AHP is the ACP client: there is no third-party bridge and no ACP library, and the protocol code is a few hundred lines (`src/adapters/acp/connection.ts`, shared with the Gemini CLI adapter). The transport was chosen in `docs/spikes/2026-10-27-transport-spike-windows.md` (decision 3); the headless `opencode run --format json` fallback it mentions is not implemented.
 
 ## Your login
 

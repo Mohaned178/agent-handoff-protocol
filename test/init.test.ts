@@ -41,7 +41,10 @@ describe("the generated workflow", () => {
   });
 
   it("refuses to be written for an adapter the build does not have, rather than produce a workflow `ahp run` would reject", () => {
-    expect(() => renderWorkflow(assignRoles(["gemini-cli"]))).toThrow(/the generated workflow is invalid[^]*unknown adapter "gemini-cli"/);
+    // All four tools have an adapter now, so the casting is made by hand with a name the build has not got.
+    const casting = assignRoles([]).map((assignment) => (assignment.role === "plan" ? { ...assignment, adapter: "future-tool" } : assignment));
+
+    expect(() => renderWorkflow(casting)).toThrow(/the generated workflow is invalid[^]*unknown adapter "future-tool"/);
   });
 });
 

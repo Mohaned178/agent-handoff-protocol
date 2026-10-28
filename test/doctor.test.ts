@@ -157,6 +157,19 @@ describe("diagnose: capabilities", () => {
     expect(formatDoctor(onLinux)).toContain("none in this build yet");
   });
 
+  it("shows Gemini CLI's registered adapter with its declared levels, and still says it needs paid access", async () => {
+    const { dir, log } = fakeToolsDir();
+    installAll(dir, log);
+
+    const report = await diagnose({ env: await pathWithFakes(dir), platform: "win32" });
+    const gemini = toolOf(report, "gemini-cli");
+
+    expect(gemini.adapter).toMatchObject({ name: "gemini-cli", transport: "acp" });
+    expect(gemini.adapter?.capabilities).toContainEqual({ kind: "read_only", level: "cooperative" });
+    expect(gemini.paidAccess).toMatch(/paid Gemini access/);
+    expect(formatDoctor(report)).toMatch(/Gemini CLI[^]*paid access: needs paid Gemini access/);
+  });
+
   it("counts a tool as usable only when it is installed, has an adapter, and is not known to be logged out", async () => {
     const { dir, log } = fakeToolsDir();
     installAll(dir, log);

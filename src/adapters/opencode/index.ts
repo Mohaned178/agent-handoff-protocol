@@ -8,17 +8,17 @@
 // `session/cancel`, then the end of stdin, which is what makes an ACP agent exit; the process layer kills the tree only
 // if that does not end it within the grace period.
 
-import { appendFileSync, mkdirSync } from "node:fs";
-import { dirname, relative } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { launch, resolveExecutable, type LaunchedProcess } from "../../process/index.ts";
 import { isOutputFieldName, levelOn, meetsLevel, sameOnEveryOs } from "../../protocol/index.ts";
-import type { AgentRef, ToolCallLogEntry } from "../../protocol/index.ts";
+import type { AgentRef } from "../../protocol/index.ts";
 import type { Adapter, AttemptExit, AttemptInput } from "../contract.ts";
-import { promptFor } from "../prompt.ts";
-import { AcpConnection, AcpError, ConnectionClosedError } from "./acp.ts";
-import { configContentOf, decide, policyOf, type PermissionPolicy, type ToolCallRequest } from "./policy.ts";
-import { AcpTurn, classify, redacted, type ToolCall } from "./turn.ts";
+import { AcpConnection, AcpError, ConnectionClosedError } from "../acp/connection.ts";
+import { answerPermission, policyOf } from "../acp/permissions.ts";
+import { redacted, toolCallLogger } from "../acp/tool-calls.ts";
+import { promptFor, REPORT_AS_JSON_MESSAGE } from "../prompt.ts";
+import { configContentOf } from "./policy.ts";
+import { AcpTurn, classify } from "./turn.ts";
 
 export interface OpenCodeOptions {
   /** Output fields to report on top of the ones the step requires. */
@@ -33,14 +33,10 @@ export function opencode(options: OpenCodeOptions & { model?: string } = {}): Ag
   return { adapter: "opencode", ...(model === undefined ? {} : { model }), options: rest };
 }
 
-/** OpenCode has no structured output: the fields are asked for in words and read from the last message. */
-const REPORT_HOW = "as one JSON object, which is the whole of your final message and nothing else (no text around it), with these fields as its keys";
-
 /** How long OpenCode is given to exit once its stdin has ended, before its tree is killed. */
 const EXIT_AFTER_INPUT_MS = 10_000;
 /** How long `opencode export` is given before it is stopped and the model is reported as unknown. */
 const EXPORT_MS = 30_000;
-const MAX_TITLE_CHARS = 300;
 
 export const openCodeAdapter: Adapter = {
   // `cooperative` at most on every system: OpenCode's permission rules and the answers AHP gives its permission requests
@@ -120,11 +116,11 @@ async function start({ workspace, requestedModel, capabilities, handoff, options
     },
     request: async (method, params) => {
       if (method !== "session/request_permission") return undefined;
-      return answerPermission(params, policy, turn, log);
+      return answerPermission(params, policy, (id) => turn.toolCall(id), log);
     },
   });
 
-  const prompt = promptFor(handoff, reportFields, chosen.extraInstructions, REPORT_HOW);
+  const prompt = promptFor(handoff, reportFields, chosen.extraInstructions, REPORT_AS_JSON_MESSAGE);
   const conversation = converse();
   conversation.catch(() => undefined);
 
@@ -203,29 +199,6 @@ async function exitOf(agent: LaunchedProcess) {
   return agent.exited;
 }
 
-/** Answers a `session/request_permission` by the policy: one option of the kind chosen, `allow_once` or `reject_once`, never `allow_always` (it would outlive the attempt in the user's own rules). */
-async function answerPermission(params: unknown, policy: PermissionPolicy, turn: AcpTurn, log: ToolCallLogger): Promise<unknown> {
-  const request = (typeof params === "object" && params !== null ? params : {}) as { toolCall?: unknown; options?: { optionId?: string; kind?: string }[] };
-  const tool = (typeof request.toolCall === "object" && request.toolCall !== null ? request.toolCall : {}) as Record<string, unknown>;
-  const known: ToolCall | undefined = typeof tool.toolCallId === "string" ? turn.toolCall(tool.toolCallId) : undefined;
-  const rawInput = typeof tool.rawInput === "object" && tool.rawInput !== null ? (tool.rawInput as Record<string, unknown>) : {};
-  const locations: string[] = Array.isArray(tool.locations)
-    ? tool.locations.flatMap((location: unknown) => (typeof (location as { path?: unknown } | null)?.path === "string" ? [(location as { path: string }).path] : []))
-    : [];
-  const call: ToolCallRequest = {
-    kind: typeof tool.kind === "string" ? tool.kind : (known?.kind ?? null),
-    title: typeof tool.title === "string" ? tool.title : (known?.title ?? null),
-    paths: locations.length > 0 ? locations : (known?.paths ?? []),
-    command: typeof rawInput.command === "string" ? rawInput.command : (known?.command ?? null),
-  };
-  const decision = decide(policy, call);
-  const wanted = decision.allow ? "allow_once" : "reject_once";
-  const option = request.options?.find((candidate) => candidate.kind === wanted);
-  // What was answered, not what was meant: with no option of the kind, the answer is `cancelled`, which allows nothing.
-  if (typeof tool.toolCallId === "string") log.permission(tool.toolCallId, call, decision.allow && option?.optionId ? "allowed" : "rejected");
-  return { outcome: option?.optionId ? { outcome: "selected", optionId: option.optionId } : { outcome: "cancelled" } };
-}
-
 /** The model OpenCode records for the session's last answer (`opencode export`), as `provider/model`; null when it cannot be read. */
 async function modelOf(sessionId: string, workspace: string, env: NodeJS.ProcessEnv): Promise<string | null> {
   try {
@@ -246,53 +219,4 @@ async function modelOf(sessionId: string, workspace: string, env: NodeJS.Process
   } catch {
     return null;
   }
-}
-
-interface ToolCallLogger {
-  call(call: ToolCall): void;
-  permission(toolCallId: string, call: ToolCallRequest, permission: "allowed" | "rejected"): void;
-}
-
-/** Appends a line to the runtime's tool-call log when a call's status, title or paths change, and when a permission request is answered. Never fails the attempt. */
-function toolCallLogger(file: string | null, workspace: string): ToolCallLogger {
-  if (file !== null) {
-    try {
-      mkdirSync(dirname(file), { recursive: true });
-      // Made now, so a log with no entry reads as the agent having made no tool call, not as an adapter that keeps none.
-      appendFileSync(file, "");
-    } catch {
-      // the log is a convenience for a person; the attempt does not depend on it
-    }
-  }
-  const last = new Map<string, string>();
-  const pathOf = (path: string) => {
-    const rel = relative(workspace, path);
-    return rel === "" ? "." : rel.startsWith("..") ? path : rel.replaceAll("\\", "/");
-  };
-  const write = (entry: ToolCallLogEntry) => {
-    if (file === null) return;
-    try {
-      appendFileSync(file, `${JSON.stringify(entry)}\n`);
-    } catch {
-      // see above
-    }
-  };
-  const entry = (toolCallId: string, parts: Omit<ToolCallLogEntry, "time" | "toolCallId">): ToolCallLogEntry => ({
-    time: new Date().toISOString(),
-    toolCallId,
-    ...parts,
-    title: parts.title === null ? null : parts.title.slice(0, MAX_TITLE_CHARS),
-    paths: parts.paths.map(pathOf),
-  });
-  return {
-    call(call) {
-      const fingerprint = JSON.stringify([call.kind, call.title, call.status, call.paths]);
-      if (last.get(call.toolCallId) === fingerprint) return;
-      last.set(call.toolCallId, fingerprint);
-      write(entry(call.toolCallId, { kind: call.kind, title: call.title, status: call.status, paths: call.paths, permission: null }));
-    },
-    permission(toolCallId, call, permission) {
-      write(entry(toolCallId, { kind: call.kind, title: call.title, status: "permission_requested", paths: call.paths, permission }));
-    },
-  };
 }

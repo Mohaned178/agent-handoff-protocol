@@ -5,31 +5,13 @@
 
 import type { AdapterErrorKind, AttemptError, OutputFieldValue, StopReason, UsageReport } from "../../protocol/index.ts";
 import { STOP_REASONS } from "../../protocol/index.ts";
+import { mergeToolCall, type ToolCall } from "../acp/tool-calls.ts";
+import { jsonObjectIn } from "../prompt.ts";
 
 type Json = Record<string, unknown>;
 const isObject = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
 const count = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null);
 const text = (value: unknown): string | null => (typeof value === "string" ? value : null);
-
-/** A tool call as OpenCode has described it so far: each `tool_call_update` fills in or replaces what it carries. */
-export interface ToolCall {
-  toolCallId: string;
-  kind: string | null;
-  title: string | null;
-  status: string | null;
-  paths: string[];
-  /** The shell command of an `execute` call. */
-  command: string | null;
-}
-
-/** Keeps a message from a tool, or a secret that got into one, from being copied whole into the ledger. */
-const MAX_ERROR_CHARS = 500;
-
-/** An API key in a message (a masked one too) is not repeated: this record is public. */
-export function redacted(message: string): string {
-  const clean = message.replace(/\bsk-[\w*-]+/g, "sk-[redacted]").replace(/\b(Bearer|Basic)\s+[\w.~+/=-]+/gi, "$1 [redacted]");
-  return clean.length > MAX_ERROR_CHARS ? `${clean.slice(0, MAX_ERROR_CHARS)}…` : clean;
-}
 
 /**
  * The class of a failure by what the tool said, since OpenCode's errors carry a JSON-RPC code (-32602 for a bad
@@ -101,21 +83,10 @@ export class AcpTurn {
   }
 
   private toolCallUpdate(update: Json): void {
-    const id = text(update.toolCallId);
-    if (id === null) return;
+    const call = mergeToolCall(update, typeof update.toolCallId === "string" ? this.calls.get(update.toolCallId) : undefined);
+    if (call === null) return;
     this.answeredSeen = true;
-    const known = this.calls.get(id) ?? { toolCallId: id, kind: null, title: null, status: null, paths: [], command: null };
-    const locations = Array.isArray(update.locations) ? update.locations.flatMap((location) => (isObject(location) && typeof location.path === "string" ? [location.path] : [])) : [];
-    const rawInput = isObject(update.rawInput) ? update.rawInput : {};
-    const call: ToolCall = {
-      toolCallId: id,
-      kind: text(update.kind) ?? known.kind,
-      title: text(update.title) ?? known.title,
-      status: text(update.status) ?? known.status,
-      paths: locations.length > 0 ? locations : known.paths,
-      command: text(rawInput.command) ?? known.command,
-    };
-    this.calls.set(id, call);
+    this.calls.set(call.toolCallId, call);
     this.onToolCall(call);
   }
 
@@ -146,7 +117,7 @@ export class AcpTurn {
     const fields: Record<string, OutputFieldValue> = {};
     const last = [...this.messages.values()].at(-1);
     if (last === undefined) return fields;
-    const structured = objectIn(last);
+    const structured = jsonObjectIn(last);
     if (structured === null) return fields;
     for (const [name, value] of Object.entries(structured)) {
       if (typeof value === "string" || (Array.isArray(value) && value.every((item) => typeof item === "string"))) fields[name] = value as OutputFieldValue;
@@ -180,19 +151,4 @@ export class AcpTurn {
     if (!reported.some((value) => value > 0) && cost === null) return null;
     return { source: parts.filter((part) => part !== null).join("; "), inputTokens, outputTokens, totalTokens, cachedInputTokens, cost };
   }
-}
-
-/** The JSON object a message is, or the one in its last code fence; null when it is neither. */
-function objectIn(message: string): Json | null {
-  const candidates = [message.trim()];
-  for (const fence of message.matchAll(/```(?:json)?\s*\n([\s\S]*?)```/gi)) candidates.push(fence[1]!.trim());
-  for (const candidate of candidates.reverse()) {
-    try {
-      const parsed: unknown = JSON.parse(candidate);
-      if (isObject(parsed)) return parsed;
-    } catch {
-      // not this one
-    }
-  }
-  return null;
 }
