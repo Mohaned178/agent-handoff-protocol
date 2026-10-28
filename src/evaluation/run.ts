@@ -6,7 +6,7 @@ import { PROTOCOL_VERSION } from "../protocol/index.ts";
 import { newId, systemClock, type Clock } from "../runtime/index.ts";
 import { validateWorkflow } from "../sdk/index.ts";
 import { workflowFor } from "./conditions.ts";
-import type { EvaluationEvent, EvaluationEventBody, ScheduledTrial } from "./events.ts";
+import type { ConditionId, EvaluationEvent, EvaluationEventBody, ScheduledTrial } from "./events.ts";
 import { changesBetween, fileListOf, hashOfFiles } from "./freeze.ts";
 import { applyEvaluationEvent, replayEvaluation, type EvaluationView } from "./replay.ts";
 import { formatReport, reportOf, type EvaluationReport } from "./report.ts";
@@ -40,6 +40,8 @@ export interface RunEvaluationOptions {
    */
   seed?: number;
   clock?: Clock;
+  /** The environment the tools' versions are read in (PATH included). Default `process.env`. */
+  env?: NodeJS.ProcessEnv;
 }
 
 export interface EvaluationResult {
@@ -69,13 +71,23 @@ export async function runEvaluation(suite: EvaluationSuite, options: RunEvaluati
   for (const { task } of tasks) {
     if (ids.has(task.id)) problems.push(`two tasks are named "${task.id}"`);
     ids.add(task.id);
+    // What a condition is told about the network is part of what is compared: it must be the same under every one.
+    const networks = new Map<string, ConditionId[]>();
     for (const condition of conditions) {
       try {
         const slot = { condition, repeat: 1, baselineIndex: condition === "baseline" ? 1 : null };
-        for (const problem of validateWorkflow(workflowFor(condition, task, suite, slot))) problems.push(`task "${task.id}", ${condition}: ${problem}`);
+        const workflow = workflowFor(condition, task, suite, slot);
+        for (const problem of validateWorkflow(workflow)) problems.push(`task "${task.id}", ${condition}: ${problem}`);
+        const stances = new Set(workflow.steps.flatMap((step) => ("agent" in step ? [JSON.stringify(step.network ?? null)] : [])));
+        const key = [...stances].sort().join(" + ");
+        networks.set(key, [...(networks.get(key) ?? []), condition]);
       } catch (error) {
         problems.push(`task "${task.id}", ${condition}: ${(error as Error).message}`);
       }
+    }
+    if (networks.size > 1) {
+      const stances = [...networks].map(([network, under]) => `${network} under ${under.join(", ")}`).join("; ");
+      problems.push(`task "${task.id}": the network stance differs across conditions (${stances}); it must be the same under every one`);
     }
   }
   if (options.seed !== undefined && !isSeed(options.seed)) problems.push(`the seed must be an integer from 0 to ${0xffffffff}`);
@@ -96,7 +108,10 @@ export async function runEvaluation(suite: EvaluationSuite, options: RunEvaluati
     return event;
   };
   try {
-    await record({ type: "evaluation_created", evaluationId, protocolVersion: PROTOCOL_VERSION, suite: suite.name, conditions, retryBudget: suite.retryBudget ?? DEFAULT_RETRY_BUDGET, repeats });
+    await record({ type: "evaluation_created", evaluationId, protocolVersion: PROTOCOL_VERSION, suite: suite.name, conditions, retryBudget: suite.retryBudget ?? DEFAULT_RETRY_BUDGET,
+      repeats,
+      safeguards: { spendCap: suite.spendCap ?? null, maxIncidentRate: suite.maxIncidentRate ?? null, toolVersions: suite.toolVersions ?? null },
+    });
     // Every task is frozen before any trial starts, so nothing a trial shows can be used to tune one.
     for (const { task, dir: taskDir, hash, hiddenTestsHash, files } of tasks) {
       await record({
@@ -120,12 +135,19 @@ export async function runEvaluation(suite: EvaluationSuite, options: RunEvaluati
     }
     await record({ type: "trials_scheduled", seed, order: seededShuffle(planned, random) });
 
-    const ctx = { suite, dir, record, signal: options.signal, clock };
+    const ctx = { suite, dir, record, signal: options.signal, clock, env: options.env };
     let end: Extract<EvaluationEventBody, { type: "evaluation_ended" }> = { type: "evaluation_ended", state: "completed", reason: null };
     // The next trial is always the first of those the ledger says are still to start.
     for (let next = view!.pending![0]; next; next = view!.pending![0]) {
       if (options.signal?.aborted) {
         end = { type: "evaluation_ended", state: "cancelled", reason: "cancelled before the next trial" };
+        break;
+      }
+      // Reported spend, between trials: the trial that took it to the cap has run, and none after it starts.
+      const cap = suite.spendCap;
+      const spend = view!.spend;
+      if (cap && spend && spend.amount >= cap.amount) {
+        end = { type: "evaluation_ended", state: "stopped", reason: `spend_cap: reported spend ${spend.amount} ${cap.currency} reached the cap of ${cap.amount}` };
         break;
       }
       const fresh = await recheck(tasks.find(({ task }) => task.id === next!.taskId)!, record);
@@ -134,6 +156,7 @@ export async function runEvaluation(suite: EvaluationSuite, options: RunEvaluati
         break;
       }
       const { trialId, ended } = await runTrial(ctx, fresh, next);
+      if (suite.spendCap) await record(spendAfter(view!, trialId, suite.spendCap.currency));
       if (ended.outcome === "cancelled") {
         end = { type: "evaluation_ended", state: "cancelled", reason: "cancelled during a trial" };
         break;
@@ -158,6 +181,19 @@ export async function runEvaluation(suite: EvaluationSuite, options: RunEvaluati
   await writeFile(join(dir, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
   await writeFile(join(dir, "report.txt"), `${formatReport(report)}\n`);
   return { evaluationId, dir, state, report };
+}
+
+/** The cost the tools reported in `currency` over every trial that has ended, and the attempts that reported none in it. */
+function spendAfter(view: EvaluationView, trialId: string, currency: string): Extract<EvaluationEventBody, { type: "spend_observed" }> {
+  let amount = 0;
+  let attemptsWithoutCost = 0;
+  for (const trial of view.trials) {
+    for (const { usage } of trial.ended?.usage ?? []) {
+      if (usage?.cost?.currency === currency) amount += usage.cost.amount;
+      else attemptsWithoutCost += 1;
+    }
+  }
+  return { type: "spend_observed", trialId, currency, amount, attemptsWithoutCost };
 }
 
 /**

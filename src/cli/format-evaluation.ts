@@ -22,8 +22,13 @@ export function formatEvaluationEvent(event: EvaluationEvent, state: Readonly<Ev
       return `baseline for ${labelOf(trial(event.forTrialId))}: ${event.trials} C0 trial${event.trials === 1 ? "" : "s"} scheduled, one for each attempt it made`;
     case "task_frozen":
       return `task ${event.taskId} frozen (${event.taskHash.slice(0, 12)}): ${event.files.length} files, ${event.hiddenTests.length} hidden test${event.hiddenTests.length === 1 ? "" : "s"}`;
-    case "trial_started":
-      return `${label(event.trialId)}: started`;
+    case "trial_started": {
+      const mismatched = event.tools.filter((tool) => tool.matches === false);
+      const warning = mismatched.map((tool) => ` VERSION MISMATCH: ${tool.tool} is ${tool.found ?? `unreadable (${tool.problem})`}, the suite pins ${tool.pinned}`).join(";");
+      return `${label(event.trialId)}: started${warning}`;
+    }
+    case "spend_observed":
+      return `reported spend so far: ${event.amount} ${event.currency}${event.attemptsWithoutCost > 0 ? ` (${event.attemptsWithoutCost} attempt${event.attemptsWithoutCost === 1 ? "" : "s"} reported no cost in it)` : ""}`;
     case "harness_incident":
       return `${label(event.trialId)}: attempt ${event.attemptId} is unknown (${event.unknownReason})`;
     case "trial_ended": {

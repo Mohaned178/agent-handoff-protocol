@@ -1,6 +1,6 @@
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { AcpConnection, AcpError, ConnectionClosedError } from "../src/adapters/opencode/acp.ts";
+import { AcpConnection, AcpError, ConnectionClosedError } from "../src/adapters/acp/connection.ts";
 
 /** An agent's two pipes, as the client sees them, and the lines the client has written to the agent so far. */
 function pipes() {

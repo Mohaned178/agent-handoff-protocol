@@ -82,10 +82,24 @@ export default {
   },
   retryBudget: 2,                                           // C3's steps; the others have none
   repeats: 3,                                               // trials per task and condition; default 1
+  spendCap: { amount: 40, currency: "USD" },                // optional: see Safeguards
+  maxIncidentRate: 0.34,                                    // optional: see Safeguards
+  toolVersions: { codex: "0.146.0", "claude-code": "2.1.311" }, // optional: see Safeguards
 };
 ```
 
 `implement` is always needed, since C0 (and so the baseline) is that one agent alone; `plan` and `review` are needed when C1, C2 or C3 runs. The baseline needs C3. An agent may also be a function of the task and the trial (`implement: (task, { condition, repeat, baselineIndex }) => ...`), which is how a scripted mock agent is given the right edits for each fixture; it is called while the suite is validated too. Every workflow a condition would build is validated against the registered adapters before anything is written: an invalid suite or task is a usage error (exit 2) that names the task, the condition and the problem.
+
+## Safeguards
+
+Four limits keep an evaluation from overspending, from producing numbers out of a flaky cell, or from comparing conditions that differ in ways nobody chose. All are recorded in the ledger (`evaluation_created.safeguards`).
+
+- **Spend cap** (`spendCap: { amount, currency }`). After each trial AHP adds up the cost the tools *reported*, in that currency, over every trial that has ended, and records it (`spend_observed`). Once the total reaches the cap no further trial starts and the evaluation ends `stopped` with reason `spend_cap`. It is checked between trials, so the trial that reaches the cap, and one under way, run to the end: the total can pass the cap by up to a trial's cost. It counts only what a tool reports: an attempt that reported no cost (a subscription, a tool that does not say, another currency) adds nothing, and the report says how many attempts that was, since their spend is unknown and not zero. A cap that no tool ever reports against never stops anything. **So it does not replace the spend limit in each provider's console: set one there for every key the evaluation uses.**
+- **Invalid cells** (`maxIncidentRate`, 0 to 1). A cell is one task under one condition. When more than that share of its ended trials (cancelled ones aside) are harness incidents, the cell is **invalid**: its trials are left out of that condition's rates and of every comparison (for the baseline, its cells are incomplete), and the report names it, with the incident count. A rate exactly at the threshold is valid. With no threshold set no cell is marked, though every incident is still shown. The design leaves the number to the pilot (§9, item 3), so there is no default.
+- **Network stance.** A task's stance is on every step of every condition, and a suite is rejected (a usage error, exit 2) if the workflows its conditions build give a task's agent steps more than one network setting. Conditions build theirs from the task today, so this guards against a change to a condition rather than against a suite file.
+- **Tool versions** (`toolVersions`, by `ahp doctor` tool id: `claude-code`, `codex`, `opencode`, `gemini-cli`). At the start of each trial AHP runs each tool the trial's agents use with its `--version` (what `ahp doctor` does, nothing else) and records the version number it printed beside the pin (`trial_started.tools`). A trial whose version is not the pin, or cannot be read, is flagged as a **version mismatch** in the progress line and in the report, which lists every version found and how many trials ran on it. A mismatch does not stop the evaluation or exclude the trial: whether a trial on another version still counts is the evaluator's call. A tool in use with no pin is recorded as not pinned. The mock is no tool and records none.
+
+`ahp eval` says before it starts that it expects each tool to be logged in with an **API key** configured in that tool (see below), on stderr with `--json`.
 
 ## Freezing
 
@@ -158,4 +172,4 @@ The hidden tests are never in an agent's workspace, its snapshot or its handoff.
 
 ## Before a real evaluation
 
-Not done by this ticket, and needed before the pilot: set spend limits in each provider's console (AHP can only see what a tool reports), use API-key logins configured in each tool (design doc §9, item 9; subscription use under `ahp eval` falls under each vendor's terms), pin and record tool versions, and expect that verification executes agent-written code on your machine: a worktree is isolation, not a security boundary.
+Needed before the pilot, and not something AHP can check for you: set spend limits in each provider's console (AHP can only see what a tool reports, and says so), use API-key logins configured in each tool (design doc §9, item 9; subscription use under `ahp eval` falls under each vendor's terms; `ahp eval` states this expectation but reads no credential), pin the tool versions in the suite (the safeguards above record and report them), and expect that verification executes agent-written code on your machine: a worktree is isolation, not a security boundary.

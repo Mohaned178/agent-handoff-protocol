@@ -1,3 +1,4 @@
+import { TOOL_IDS } from "../doctor/tools.ts";
 import type { AgentRef } from "../protocol/index.ts";
 import { CONDITIONS, type ConditionId } from "./events.ts";
 import type { EvaluationTask } from "./task.ts";
@@ -44,6 +45,20 @@ export interface EvaluationSuite {
   retryBudget?: number;
   /** How many trials each task gets under each condition (default 1); the baseline gets a cell per repeat. */
   repeats?: number;
+  /**
+   * Stops new trials once the cost the tools reported, in this currency, over every trial that has ended reaches `amount`. It
+   * sees only what a tool reports: an attempt that reports no cost (a subscription, or a tool that does not) adds nothing, so
+   * this does not replace the spend limit in each provider's console. A trial under way is never cut short.
+   */
+  spendCap?: { amount: number; currency: string };
+  /**
+   * A cell (one task under one condition) whose harness incidents exceed this share (0 to 1) of its ended trials is invalid:
+   * its trials are left out of that condition's rates and of every comparison, and the report names it. Unset: no cell is
+   * marked, and the report still shows every incident.
+   */
+  maxIncidentRate?: number;
+  /** The version number of each tool (`ahp doctor`'s ids) the suite is meant to run on; a trial records what it found. */
+  toolVersions?: Partial<Record<(typeof TOOL_IDS)[number], string>>;
 }
 
 export const DEFAULT_RETRY_BUDGET = 2;
@@ -61,7 +76,7 @@ export function validateSuite(suite: unknown): string[] {
   if (!isRecord(suite)) return ["a suite must be an object"];
   const problems: string[] = [];
   for (const key of Object.keys(suite)) {
-    if (!["name", "tasks", "conditions", "agents", "retryBudget", "repeats"].includes(key)) problems.push(`unknown suite property \`${key}\``);
+    if (!["name", "tasks", "conditions", "agents", "retryBudget", "repeats", "spendCap", "maxIncidentRate", "toolVersions"].includes(key)) problems.push(`unknown suite property \`${key}\``);
   }
   if (typeof suite.name !== "string" || suite.name.trim() === "") problems.push("suite needs a non-empty `name`");
   if (!Array.isArray(suite.tasks) || suite.tasks.length === 0 || !suite.tasks.every((task) => typeof task === "string" && task !== "")) {
@@ -100,5 +115,23 @@ export function validateSuite(suite: unknown): string[] {
     problems.push("`retryBudget` must be a non-negative integer");
   }
   if (suite.repeats !== undefined && !(Number.isSafeInteger(suite.repeats) && (suite.repeats as number) >= 1)) problems.push("`repeats` must be a positive integer");
+  const cap = suite.spendCap;
+  if (cap !== undefined) {
+    if (!isRecord(cap) || !(typeof cap.amount === "number" && Number.isFinite(cap.amount) && cap.amount > 0) || typeof cap.currency !== "string" || cap.currency.trim() === "") {
+      problems.push("`spendCap` must be `{ amount, currency }`: a positive amount and the currency the tools report their cost in");
+    }
+  }
+  if (suite.maxIncidentRate !== undefined && !(typeof suite.maxIncidentRate === "number" && suite.maxIncidentRate >= 0 && suite.maxIncidentRate <= 1)) {
+    problems.push("`maxIncidentRate` must be a number from 0 to 1");
+  }
+  if (suite.toolVersions !== undefined) {
+    if (!isRecord(suite.toolVersions)) problems.push("`toolVersions` must map a tool to its version");
+    else {
+      for (const [tool, pinned] of Object.entries(suite.toolVersions)) {
+        if (!(TOOL_IDS as readonly string[]).includes(tool)) problems.push(`unknown tool \`toolVersions.${tool}\` (tools: ${TOOL_IDS.join(", ")})`);
+        else if (typeof pinned !== "string" || !/^\d+(\.\d+)+\S*$/.test(pinned)) problems.push(`\`toolVersions.${tool}\` must be a version number such as "2.1.311"`);
+      }
+    }
+  }
   return problems;
 }

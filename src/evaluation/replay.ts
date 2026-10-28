@@ -1,4 +1,4 @@
-import type { BaselineSlot, ConditionId, EvaluationEvent, FrozenFile, ScheduledTrial } from "./events.ts";
+import type { BaselineSlot, ConditionId, EvaluationEvent, FrozenFile, Safeguards, ScheduledTrial, ToolVersionRecord } from "./events.ts";
 import { CONDITIONS } from "./events.ts";
 
 /** A ledger whose events do not follow from each other, in a way a hash chain does not catch (a trial that ends twice). */
@@ -36,6 +36,8 @@ export interface TrialView {
   baseline: BaselineSlot | null;
   startedAtSeq: number;
   startedAt: string;
+  /** The tools the trial's agents run on, with their versions. */
+  tools: ToolVersionRecord[];
   endedAt: string | null;
   repo: string;
   /** Set when an attempt of the trial's run was unknown; the trial then ends as a harness incident. */
@@ -53,6 +55,9 @@ export interface EvaluationView {
   conditions: ConditionId[];
   retryBudget: number;
   repeats: number;
+  safeguards: Safeguards;
+  /** The last spend observed (`spend_observed`); null before one, and always with no cap. */
+  spend: { currency: string; amount: number; attemptsWithoutCost: number } | null;
   /** The seed of the trial order and of the comparisons' resampling; null until the trials are scheduled. */
   seed: number | null;
   /**
@@ -110,6 +115,8 @@ export function applyEvaluationEvent(state: EvaluationView | undefined, event: E
       conditions: event.conditions,
       retryBudget: event.retryBudget,
       repeats: event.repeats,
+      safeguards: event.safeguards ?? { spendCap: null, maxIncidentRate: null, toolVersions: null },
+      spend: null,
       seed: null,
       pending: null,
       baselines: [],
@@ -180,7 +187,7 @@ export function applyEvaluationEvent(state: EvaluationView | undefined, event: E
       if (!isSameTrial(started, next)) throw new EvaluationLedgerInconsistentError(event, `the next trial scheduled is ${JSON.stringify(next)}, not ${JSON.stringify(started)}`);
       if (state.trials.some((candidate) => !candidate.ended)) throw new EvaluationLedgerInconsistentError(event, "a trial starts only once the one before it has ended");
       state.pending!.shift();
-      state.trials.push({ id: event.trialId, taskId: event.taskId, condition: event.condition, repeat: event.repeat, baseline: event.baseline, startedAtSeq: event.seq, startedAt: event.time, endedAt: null, repo: event.repo, incident: null, ended: null });
+      state.trials.push({ id: event.trialId, taskId: event.taskId, condition: event.condition, repeat: event.repeat, baseline: event.baseline, startedAtSeq: event.seq, startedAt: event.time, tools: event.tools ?? [], endedAt: null, repo: event.repo, incident: null, ended: null });
       return state;
     }
     case "harness_incident": {
@@ -200,6 +207,13 @@ export function applyEvaluationEvent(state: EvaluationView | undefined, event: E
       found.ended = event;
       found.endedAt = event.time;
       if (event.mock) state.mock = true;
+      return state;
+    }
+    case "spend_observed": {
+      const found = trial(event.trialId);
+      if (!found.ended) throw new EvaluationLedgerInconsistentError(event, "spend is observed once the trial has ended");
+      if (!state.safeguards.spendCap) throw new EvaluationLedgerInconsistentError(event, "this evaluation has no spend cap");
+      state.spend = { currency: event.currency, amount: event.amount, attemptsWithoutCost: event.attemptsWithoutCost };
       return state;
     }
     case "task_changed":

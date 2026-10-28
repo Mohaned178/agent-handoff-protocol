@@ -16,7 +16,7 @@ import {
   validateWorkflow,
 } from "../sdk/index.ts";
 import { diagnose, initWorkflow } from "../doctor/index.ts";
-import { formatReport, isSeed, runEvaluation, SuiteInvalidError, TaskInvalidError, type EvaluationEvent, type EvaluationSuite, type EvaluationView } from "../evaluation/index.ts";
+import { API_KEY_NOTICE, formatReport, isSeed, runEvaluation, SuiteInvalidError, TaskInvalidError, type EvaluationEvent, type EvaluationSuite, type EvaluationView } from "../evaluation/index.ts";
 import { evaluationsRoot } from "../runtime/index.ts";
 import { formatEvent, formatRun, formatUnresumed, MOCK_NOTE } from "./format.ts";
 import { formatDoctor, formatInit } from "./format-doctor.ts";
@@ -263,6 +263,8 @@ async function evalCommand(file: string, out: string | undefined, seed: number |
   } catch (error) {
     throw new UsageError(`cannot load suite file ${path}: ${(error as Error).message}`);
   }
+  // The expectation is stated before anything runs; with --json stdout is the report alone, so it goes to stderr.
+  (json ? io.stderr : io.stdout)(API_KEY_NOTICE);
   const interrupt = cancelOnInterrupt(io, "the evaluation", "waiting until the trial in hand and every process it started are seen gone");
   try {
     const result = await runEvaluation(suite as EvaluationSuite, {

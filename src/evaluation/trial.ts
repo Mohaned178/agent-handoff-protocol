@@ -11,6 +11,7 @@ import { readRunEvents, runWorkflow } from "../sdk/index.ts";
 import { retryBudgetOf, workflowFor } from "./conditions.ts";
 import type { EvaluationEventBody, ScheduledTrial, StoredFile, TrialArtifacts } from "./events.ts";
 import { sha256Of } from "./freeze.ts";
+import { recordToolVersions } from "./tools.ts";
 import type { EvaluationSuite } from "./suite.ts";
 import type { LoadedTask } from "./task.ts";
 import { validateResult, type Validation } from "./validators.ts";
@@ -26,6 +27,8 @@ export interface TrialContext {
   record: (body: EvaluationEventBody) => Promise<unknown>;
   signal?: AbortSignal;
   clock?: Clock;
+  /** The environment the tools' versions are read in. Default `process.env`. */
+  env?: NodeJS.ProcessEnv;
 }
 
 /** A path relative to the evaluation's directory, with `/` separators, as the ledger names files. */
@@ -113,7 +116,9 @@ export async function runTrial(ctx: TrialContext, loaded: LoadedTask, scheduled:
     join(trialDir, "config.json"),
     `${JSON.stringify({ trialId, condition, repeat, baseline, task: { id: task.id, dir: loaded.dir, hash: loaded.hash }, retryBudget, platform: process.platform, node: process.version, protocolVersion: PROTOCOL_VERSION, workflow: withoutHiddenTests(workflow) }, null, 2)}\n`,
   );
-  await ctx.record({ type: "trial_started", trialId, taskId: task.id, condition, repeat, baseline, repo: relativeTo(ctx.dir, repo), config });
+  // Read at each trial, not once: a tool that updates itself between trials is what a pin is there to catch.
+  const tools = await recordToolVersions(workflow, ctx.suite.toolVersions, ctx.env ?? process.env);
+  await ctx.record({ type: "trial_started", trialId, taskId: task.id, condition, repeat, baseline, repo: relativeTo(ctx.dir, repo), config, tools });
 
   const place: TrialPlace = { trialId, trialDir, repo, config };
   const progress: Progress = { base: null, runId: null, state: null };

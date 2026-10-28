@@ -35,6 +35,18 @@ describe("ahp eval", () => {
     expect(readFileSync(join(out, id!, "report.txt"), "utf8")).toContain("verified success: 1 of 1 scored trials (100%)");
   });
 
+  it("says before it starts that it expects API-key logins and a provider-console spend limit, on stderr with --json", () => {
+    const dir = suiteDir();
+
+    const text = ahp(["eval", "suite.mjs", "--out", writeTree({})], dir);
+    const json = ahp(["eval", "suite.mjs", "--out", writeTree({}), "--json"], dir);
+
+    expect(text.stdout.split("\n")[0]).toContain("expects each coding-agent tool to be logged in with an API key");
+    expect(text.stdout).toContain("spend limit in each provider's console");
+    expect(json.stderr).toContain("API key");
+    expect(() => JSON.parse(json.stdout)).not.toThrow();
+  });
+
   it("keeps its evaluations under the per-user AHP directory when no --out is given", () => {
     const dir = suiteDir();
     const home = writeTree({});

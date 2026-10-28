@@ -1,6 +1,6 @@
 // A minimal Agent Client Protocol connection over an agent's stdio: JSON-RPC 2.0 messages, one per line. AHP is the
-// client. This is the whole of the protocol machinery the OpenCode adapter needs (requests, responses, notifications,
-// and requests from the agent); what the messages mean is the adapter's. No third-party bridge is involved (ticket 18).
+// client. This is the whole of the protocol machinery the ACP adapters (OpenCode, Gemini CLI) need (requests, responses, notifications,
+// and requests from the agent); what the messages mean is the adapter's. No third-party bridge is involved (tickets 18, 19).
 
 import type { Readable, Writable } from "node:stream";
 

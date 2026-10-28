@@ -74,6 +74,29 @@ export type TrialOutcome = (typeof TRIAL_OUTCOMES)[number];
 export const UNSCORED_REASONS = ["validator_inconclusive", "setup_failed", "harness_error"] as const;
 export type UnscoredReason = (typeof UNSCORED_REASONS)[number];
 
+/** A coding-agent tool a trial used: the version pinned for it by the suite (null when unpinned) and the one found on this machine. */
+export interface ToolVersionRecord {
+  /** The tool's id in `ahp doctor` (`claude-code`, `codex`, ...). */
+  tool: string;
+  pinned: string | null;
+  /** The version number read from the tool's `--version` output; null when it could not be read. */
+  found: string | null;
+  /** Null when there is no pin to compare with. A tool whose version could not be read does not match its pin. */
+  matches: boolean | null;
+  /** Why `found` is null; null otherwise. */
+  problem: string | null;
+}
+
+/** The limits an evaluation was configured with, as the ledger records them: null for one not set. */
+export interface Safeguards {
+  /** Reported spend, in one currency, at which no further trial is started. */
+  spendCap: { amount: number; currency: string } | null;
+  /** The share of a cell's ended trials that may be harness incidents before the cell is invalid (0 to 1). */
+  maxIncidentRate: number | null;
+  /** Tool id to pinned version number. */
+  toolVersions: Record<string, string> | null;
+}
+
 /** A file of a task directory: its path relative to the directory, with `/` separators, and the SHA-256 of its bytes. */
 export interface FrozenFile {
   path: string;
@@ -133,6 +156,7 @@ export type EvaluationEventBody =
       retryBudget: number;
       /** How many trials each task gets under each condition. */
       repeats: number;
+      safeguards: Safeguards;
     }
   /**
    * The order the trials start in, recorded after the freeze and before the first trial: every task under every condition
@@ -162,7 +186,12 @@ export type EvaluationEventBody =
       seededDefects: string[];
     }
   /** Recorded before the trial's repository is made or its run started: always the first of the trials still to start. */
-  | { type: "trial_started"; trialId: string; taskId: string; condition: ConditionId; repeat: number; baseline: BaselineSlot | null; repo: string; config: StoredFile }
+  | { type: "trial_started"; trialId: string; taskId: string; condition: ConditionId; repeat: number; baseline: BaselineSlot | null; repo: string; config: StoredFile; tools: ToolVersionRecord[] }
+  /**
+   * Recorded after each trial ends when the suite has a spend cap: what the tools reported spending in the cap's currency over
+   * every trial that has ended, and how many attempts reported no cost in it (their spend is unknown, not nil).
+   */
+  | { type: "spend_observed"; trialId: string; currency: string; amount: number; attemptsWithoutCost: number }
   /** An attempt of the trial's run is unknown: recorded before the trial ends, and the trial is not scored. */
   | { type: "harness_incident"; trialId: string; attemptId: string; unknownReason: UnknownReason; detail: string }
   | {

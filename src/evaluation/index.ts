@@ -45,6 +45,7 @@ export {
   type TaskTally,
 } from "./statistics.ts";
 export {
+  API_KEY_NOTICE,
   COMPARISONS,
   formatReport,
   MOCK_REPORT_NOTE,
@@ -56,9 +57,13 @@ export {
   type ConditionReport,
   type EvaluationReport,
   type FailureOutcome,
+  type InvalidCell,
+  type SpendReport,
+  type ToolVersionReport,
   type TrialCondition,
   type UsageCount,
   type UsageSummary,
   type WallTime,
 } from "./report.ts";
+export { recordToolVersions, toolsUsedBy, versionNumberOf } from "./tools.ts";
 export { readEvaluation, runEvaluation, SuiteInvalidError, type EvaluationResult, type RunEvaluationOptions } from "./run.ts";

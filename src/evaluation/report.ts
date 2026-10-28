@@ -55,8 +55,43 @@ interface Exclusions {
   notRun: number;
 }
 
+/**
+ * A cell (one task under one condition) whose harness incidents are more than the suite's `maxIncidentRate` of its ended
+ * trials (cancelled ones aside): its trials are in no rate and no comparison, because what is left of it is a biased sample.
+ */
+export interface InvalidCell {
+  taskId: string;
+  incidents: number;
+  /** The cell's ended trials, incidents included. */
+  trials: number;
+  /** The scored trials left out of the rates because of it. */
+  leftOut: number;
+}
+
+/** What the tools reported spending, against the suite's cap; present only for a suite with a `spendCap`. */
+export interface SpendReport {
+  cap: { amount: number; currency: string };
+  /** The cost the tools reported in the cap's currency; an attempt that reported none adds nothing, not zero. */
+  reported: number;
+  attemptsWithoutCost: number;
+  /** True when the evaluation stopped because `reported` reached the cap. */
+  capReached: boolean;
+}
+
+/** A tool the evaluation's trials ran on: the versions found across them, against the suite's pin. */
+export interface ToolVersionReport {
+  tool: string;
+  pinned: string | null;
+  /** Each version found and the trials that found it; `version` null for a trial that could not read one. */
+  found: { version: string | null; trials: number }[];
+  /** Trials whose version is not the pin (zero for an unpinned tool). */
+  mismatchedTrials: number;
+}
+
 export interface ConditionReport extends Exclusions {
   condition: TrialCondition;
+  /** Cells left out of every rate below and every comparison for their incident rate. */
+  invalidCells: InvalidCell[];
   /** Trials that ended, however they ended. */
   trials: number;
   /** The valid trials: the validators ran to a result. Only these are in the rates and the measures below. */
@@ -108,6 +143,8 @@ export interface BaselineCell {
 
 export interface BaselineReport extends Exclusions {
   condition: "baseline";
+  /** Tasks whose baseline trials had too high an incident rate: their cells are incomplete. */
+  invalidCells: InvalidCell[];
   /** One per scored C3 trial whose baseline was scheduled. */
   cells: BaselineCell[];
   /** The cells whose every trial was scored: only these are in the rate. */
@@ -150,6 +187,9 @@ export interface EvaluationReport {
   repeats: number;
   /** The seed of the trial order and of the comparisons' resampling; null when no trial was scheduled. */
   seed: number | null;
+  maxIncidentRate: number | null;
+  spend: SpendReport | null;
+  tools: ToolVersionReport[];
   conditions: ConditionReport[];
   /** Null when the evaluation had no matched-budget baseline. */
   baseline: BaselineReport | null;
@@ -221,9 +261,24 @@ function exclusionsOf(ended: readonly TrialView[], notRun: number): Exclusions {
   };
 }
 
+/** The cells of `condition` (one per task) that the suite's incident threshold makes invalid. */
+function invalidCellsOf(view: EvaluationView, condition: ConditionId): InvalidCell[] {
+  const max = view.safeguards.maxIncidentRate;
+  if (max === null) return [];
+  const cells: InvalidCell[] = [];
+  for (const { id: taskId } of view.tasks) {
+    const trials = view.trials.filter((trial) => trial.condition === condition && trial.taskId === taskId && trial.ended && trial.ended.outcome !== "cancelled");
+    const incidents = trials.filter((trial) => trial.ended!.outcome === "harness_incident").length;
+    if (trials.length > 0 && incidents / trials.length > max) cells.push({ taskId, incidents, trials: trials.length, leftOut: trials.filter(isScored).length });
+  }
+  return cells;
+}
+
 function conditionReportOf(view: EvaluationView, condition: TrialCondition, constrained: ReadonlySet<string>): ConditionReport {
   const ended = view.trials.filter((trial) => trial.condition === condition && trial.ended);
-  const scored = ended.filter(isScored);
+  const invalidCells = invalidCellsOf(view, condition);
+  const invalid = new Set(invalidCells.map((cell) => cell.taskId));
+  const scored = ended.filter(isScored).filter((trial) => !invalid.has(trial.taskId));
   const passes = scored.filter(isPass);
   const withConstraints = scored.filter((trial) => constrained.has(trial.taskId));
   const constrainedTrials = withConstraints.filter((trial) => trial.ended!.result!.changed);
@@ -239,6 +294,7 @@ function conditionReportOf(view: EvaluationView, condition: TrialCondition, cons
   const sum = (part: "result" | "duplicated" | "reverted") => counted.reduce((total, trial) => total + trial.ended!.work![part], 0);
   return {
     condition,
+    invalidCells,
     trials: ended.length,
     scored: scored.length,
     passes: passes.length,
@@ -262,14 +318,17 @@ function baselineReportOf(view: EvaluationView): BaselineReport {
   const trials = view.trials.filter((trial) => trial.condition === "baseline");
   const ended = trials.filter((trial) => trial.ended);
   const pending = (view.pending ?? []).filter((trial) => trial.condition === "baseline");
+  const invalidCells = invalidCellsOf(view, "baseline");
+  const invalid = new Set(invalidCells.map((cell) => cell.taskId));
   const cells = view.baselines.map((baseline): BaselineCell => {
     const ofCell = ended.filter((trial) => trial.baseline!.forTrialId === baseline.forTrialId);
     const scored = ofCell.filter(isScored).length;
     const passes = ofCell.filter(isPass).length;
     // A cell is scored only whole: one with a trial missing could not have had all of the C3 trial's attempts.
     const missing = baseline.trials - ofCell.length;
-    const incomplete =
-      missing > 0 ? `${missing} of its ${baseline.trials} trials never ended` : scored < baseline.trials ? `${baseline.trials - scored} of its ${baseline.trials} trials were not scored` : null;
+    const incomplete = invalid.has(baseline.taskId)
+      ? "the baseline's trials of this task had too many harness incidents, so its cell is invalid"
+      : missing > 0 ? `${missing} of its ${baseline.trials} trials never ended` : scored < baseline.trials ? `${baseline.trials - scored} of its ${baseline.trials} trials were not scored` : null;
     const times = ofCell.map((trial) => trial.ended!.wallTimeMs);
     return {
       forTrialId: baseline.forTrialId,
@@ -287,6 +346,7 @@ function baselineReportOf(view: EvaluationView): BaselineReport {
   const passing = complete.filter((cell) => cell.verdict === "pass");
   return {
     condition: "baseline",
+    invalidCells,
     cells,
     completeCells: complete.length,
     passingCells: passing.length,
@@ -303,12 +363,35 @@ function talliesOf(view: EvaluationView, condition: ConditionId, baseline: Basel
   return view.tasks.map(({ id: taskId }) => {
     const trials = view.trials.filter((trial) => trial.condition === condition && trial.taskId === taskId && trial.ended);
     const incidents = trials.filter((trial) => trial.ended!.outcome === "harness_incident").length;
+    if (condition !== "baseline" && invalidCellsOf(view, condition).some((cell) => cell.taskId === taskId)) return { taskId, passes: 0, valid: 0, incidents };
     if (condition === "baseline") {
       const cells = (baseline?.cells ?? []).filter((cell) => cell.taskId === taskId && cell.verdict !== null);
       return { taskId, passes: cells.filter((cell) => cell.verdict === "pass").length, valid: cells.length, incidents };
     }
     return { taskId, passes: trials.filter(isPass).length, valid: trials.filter(isScored).length, incidents };
   });
+}
+
+function spendOf(view: EvaluationView): SpendReport | null {
+  const cap = view.safeguards.spendCap;
+  if (!cap) return null;
+  const reported = view.spend?.amount ?? 0;
+  return { cap, reported, attemptsWithoutCost: view.spend?.attemptsWithoutCost ?? 0, capReached: view.reason?.startsWith("spend_cap") === true };
+}
+
+function toolsOf(view: EvaluationView): ToolVersionReport[] {
+  const byTool = new Map<string, ToolVersionReport>();
+  for (const trial of view.trials) {
+    for (const record of trial.tools) {
+      const entry = byTool.get(record.tool) ?? { tool: record.tool, pinned: record.pinned, found: [], mismatchedTrials: 0 };
+      byTool.set(record.tool, entry);
+      const version = entry.found.find((candidate) => candidate.version === record.found);
+      if (version) version.trials += 1;
+      else entry.found.push({ version: record.found, trials: 1 });
+      if (record.matches === false) entry.mismatchedTrials += 1;
+    }
+  }
+  return [...byTool.values()].sort((x, y) => byPath(x.tool, y.tool));
 }
 
 export function reportOf(view: EvaluationView): EvaluationReport {
@@ -332,12 +415,23 @@ export function reportOf(view: EvaluationView): EvaluationReport {
     mock: view.mock,
     repeats: view.repeats,
     seed,
+    maxIncidentRate: view.safeguards.maxIncidentRate,
+    spend: spendOf(view),
+    tools: toolsOf(view),
     conditions,
     baseline,
     comparisons,
     taskChanges: view.taskChanges.map(({ taskId, frozenHash, foundHash, changed }) => ({ taskId, frozenHash, foundHash, changed })),
   };
 }
+
+/**
+ * What `ahp eval` says before it starts: a scripted evaluation expects each tool to be logged in with an API key, so that the
+ * trials stay within the vendors' terms and are billed where the provider's own limits can cap them. AHP reads no credential and
+ * cannot check this.
+ */
+export const API_KEY_NOTICE =
+  "ahp eval expects each coding-agent tool to be logged in with an API key configured in that tool, not a subscription login (a subscription's use falls under the vendor's terms, and its cost is not reported). AHP stores and reads no credential and cannot check this. Set a spend limit in each provider's console too: AHP only sees the cost a tool reports.";
 
 export const MOCK_REPORT_NOTE = "These results come from the mock adapter. They are labelled [mock] and are not evidence.";
 
@@ -377,8 +471,12 @@ function usageLines(usage: readonly UsageSummary[]): string[] {
   return lines;
 }
 
-function exclusionLines(report: Exclusions): string[] {
-  const lines = [`  harness incidents (excluded, not failures): ${report.harnessIncidents.count}`];
+function exclusionLines(report: Exclusions & { invalidCells: InvalidCell[] }): string[] {
+  const lines: string[] = [];
+  for (const cell of report.invalidCells) {
+    lines.push(`  INVALID CELL ${cell.taskId}: ${cell.incidents} of ${plural(cell.trials, "ended trial")} were harness incidents, over the threshold; its ${plural(cell.leftOut, "scored trial")} left out of every rate and comparison`);
+  }
+  lines.push(`  harness incidents (excluded, not failures): ${report.harnessIncidents.count}`);
   for (const incident of report.harnessIncidents.trials) lines.push(`    ${incident.taskId}: attempt ${incident.attemptId} unknown (${incident.reason}): ${incident.detail}`);
   lines.push(`  unscored (excluded, not failures): ${report.unscored.count}`);
   for (const trial of report.unscored.trials) lines.push(`    ${trial.taskId}: ${trial.reason}: ${trial.detail}`);
@@ -426,6 +524,15 @@ export function formatReport(report: EvaluationReport): string {
     const found = change.foundHash === null ? "no longer readable" : `now hashes ${change.foundHash.slice(0, 12)}`;
     lines.push(`TASK CHANGED: "${change.taskId}" was frozen as ${change.frozenHash.slice(0, 12)} and ${found}; no further trial was started.`);
     for (const { path, change: how } of change.changed) lines.push(`  ${how}: ${path}`);
+  }
+  if (report.spend) {
+    const { cap, reported, attemptsWithoutCost } = report.spend;
+    lines.push(`Reported spend: ${reported} ${cap.currency} of a cap of ${cap.amount}${report.spend.capReached ? ", reached: no further trial was started" : ""}. Only cost a tool reports is counted (${plural(attemptsWithoutCost, "attempt")} reported none in ${cap.currency}); the real limit is the one set in each provider's console.`);
+  }
+  for (const tool of report.tools) {
+    const found = tool.found.map(({ version, trials }) => `${version ?? "unreadable"} (${plural(trials, "trial")})`).join(", ");
+    const pin = tool.pinned === null ? "not pinned" : tool.mismatchedTrials > 0 ? `PINNED ${tool.pinned}, MISMATCH in ${plural(tool.mismatchedTrials, "trial")}` : `pinned ${tool.pinned}, matched`;
+    lines.push(`Tool ${tool.tool}: ${found}; ${pin}`);
   }
   for (const condition of report.conditions) {
     lines.push("", `${condition.condition} (${CONDITION_NAMES[condition.condition]}): ${plural(condition.trials, "trial")}`);
