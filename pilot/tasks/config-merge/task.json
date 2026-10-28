@@ -1,0 +1,33 @@
+{
+  "id": "config-merge",
+  "prompt": "Add `resolveConfig({ defaults, file, env })` in a new `src/config.js`. It returns the service's configuration, merged from three layers.\n\n- Precedence: `defaults`, then `file`, then `env`; a later layer wins. Each layer is optional (`undefined` is an empty layer). `env` is a process-environment-like object, read with `parseEnv(env)` (prefix `APP_`), and what it yields is coerced: the strings `\"true\"` and `\"false\"` become booleans, and a string that is an optional minus sign and then digits becomes a number; any other string stays a string. Values from `defaults` and `file` are never coerced.\n- Plain objects are merged key by key, as deep as they go. Anything else (an array, a Date, a function, a number, a string, `null`) replaces what was there, whole: an array in a later layer replaces the earlier one and is never merged or concatenated. An object and a non-object replace each other either way. A value of `undefined` does not override anything, and a key that is `undefined` is left out of the result.\n- The result shares no plain object or array with any layer, however deep, and no layer is modified. Dates are copied. A function is kept as it is.\n- The keys `__proto__`, `constructor` and `prototype` are ignored in every layer, the environment included: they do not appear in the result and nothing reaches `Object.prototype` through them.",
+  "constraints": [
+    {
+      "id": "parse-env-keeps-strings",
+      "statement": "parseEnv is used by other tools: it must keep returning every value as the string it was given.",
+      "check": { "kind": "required_invariant", "command": "node invariants/parse-env.mjs" }
+    },
+    {
+      "id": "copy-by-hand",
+      "statement": "Copy configuration by hand: no structuredClone and no JSON.parse(JSON.stringify(...)) round trip anywhere in src.",
+      "check": { "kind": "forbidden_pattern", "pattern": "structuredClone|JSON\\.parse\\(\\s*JSON\\.stringify", "paths": ["src"] }
+    }
+  ],
+  "seededDefects": [
+    {
+      "id": "is-plain-object-accepts-arrays-and-dates",
+      "description": "isPlainObject returns true for every non-null object, so an array or a Date is taken for a plain object.",
+      "path": "src/types.js"
+    },
+    {
+      "id": "parse-env-reaches-the-prototype",
+      "description": "parseEnv walks `node[key] ??= {}` for every segment, so a name such as APP_CONSTRUCTOR__PROTOTYPE__X writes to Object.prototype.",
+      "path": "src/env.js"
+    }
+  ],
+  "verification": {
+    "command": "node --test",
+    "protectedPaths": ["package.json", "test/config.test.js"]
+  },
+  "network": { "stance": "deny" }
+}

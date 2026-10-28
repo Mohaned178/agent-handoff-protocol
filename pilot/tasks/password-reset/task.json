@@ -1,0 +1,28 @@
+{
+  "id": "password-reset",
+  "prompt": "Add password reset to the accounts library, in `src/auth.js`. `createAuth(...)` gains two methods.\n\n`requestPasswordReset(email)` returns `{ token }` for a known user and `null` for an unknown email. An email address identifies a user whatever its letter case. The token is an unguessable string of at least 32 characters, good for 30 minutes from the moment it is issued (the `now` option is the clock, in milliseconds). Asking again for the same user retires the earlier token. The caller delivers the token by email; delivering it is not part of this task.\n\n`resetPassword(token, newPassword)` returns `{ ok: true }` and sets the new password, or `{ ok: false, reason }`, where reason is `\"invalid\"` (a token that is unknown, already used or retired), `\"expired\"` (30 minutes or more have passed) or `\"weak\"` (the new password is shorter than 8 characters; the token stays usable). Check in that order. A token works once. After a reset the old password no longer logs in and the new one does.",
+  "constraints": [
+    {
+      "id": "no-logging",
+      "statement": "Never log anything from src: no console calls (a reset token is a credential).",
+      "check": { "kind": "forbidden_pattern", "pattern": "console\\.", "paths": ["src"] }
+    },
+    {
+      "id": "stored-passwords-keep-working",
+      "statement": "Passwords that are already stored must keep working: do not change how passwords are hashed or verified, or what a failed login returns.",
+      "check": { "kind": "required_invariant", "command": "node invariants/login.mjs" }
+    }
+  ],
+  "seededDefects": [
+    {
+      "id": "email-lookup-is-case-sensitive",
+      "description": "UserStore.findByEmail compares emails exactly, so a user created as Ada@Example.com is not found as ada@example.com.",
+      "path": "src/users.js"
+    }
+  ],
+  "verification": {
+    "command": "node --test",
+    "protectedPaths": ["package.json", "test/auth.test.js"]
+  },
+  "network": { "stance": "deny" }
+}

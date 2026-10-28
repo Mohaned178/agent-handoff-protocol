@@ -1,0 +1,28 @@
+{
+  "id": "csv-export",
+  "prompt": "Add a CSV export of the sales report, in a new `src/csv.js`.\n\n`toCsv(rows, columns)`: `columns` is an array of `{ header, key, value? }`. The first line holds the headers. Each row after it has one cell per column: `value(row)` if the column has a `value` function, else `row[key]`. Every line, the last one too, ends in `\\r\\n`.\n\nCells: `null`, `undefined` and a missing key are empty; a number or a boolean is written as `String(it)`; a `Date` as `toISOString()`; a string as it is. A cell (a header too) that contains a comma, a double quote, CR or LF is wrapped in double quotes, with its inner double quotes doubled. A string cell (not a header) that starts with `=`, `+`, `-` or `@` is prefixed with a single quote `'`, before any quoting, so that a spreadsheet does not run it as a formula; a number is never prefixed (`-5` stays `-5`).\n\n`salesReportCsv(sales = SALES)`: `toCsv` over `reportRows(sales)`, with the columns `Month`, `Region`, `Units` and `Revenue (USD)`. The revenue is in dollars with two decimals and no thousands separator (`109.47`), made from `revenueCents`. `reportRows` is documented to return its rows ordered by month, then region, and the export must come out in that order for any sales, in any order.",
+  "constraints": [
+    {
+      "id": "report-rows-unchanged",
+      "statement": "The rows reportRows returns for the shop's own sales (SALES) must stay exactly what they are now: other code depends on their fields.",
+      "check": { "kind": "required_invariant", "command": "node invariants/report-rows.mjs" }
+    },
+    {
+      "id": "inputs-not-modified",
+      "statement": "Exporting must not modify the rows, columns or sales it is given, or the objects in them: they are shared and frozen elsewhere.",
+      "check": { "kind": "required_invariant", "command": "node invariants/inputs.mjs" }
+    }
+  ],
+  "seededDefects": [
+    {
+      "id": "report-rows-sort-comparator-returns-a-boolean",
+      "description": "reportRows sorts with a comparator that returns true or false instead of a negative, zero or positive number, so it does not sort: rows come out in the order the sales were first seen.",
+      "path": "src/sales.js"
+    }
+  ],
+  "verification": {
+    "command": "node --test",
+    "protectedPaths": ["package.json", "test/sales.test.js"]
+  },
+  "network": { "stance": "deny" }
+}

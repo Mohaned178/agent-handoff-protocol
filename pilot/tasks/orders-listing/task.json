@@ -1,0 +1,28 @@
+{
+  "id": "orders-listing",
+  "prompt": "Extend `listOrders` in `src/orders.js`. It is called as `listOrders(options, orders = ORDERS)` and returns `{ items, total, page, pageSize, hasMore }`; pages count from 1.\n\n- `options.status` keeps only the orders with that status (`pending`, `paid`, `shipped` or `cancelled`); with none, every order is listed. `total` counts the orders that were kept.\n- `options.sort` is `\"newest\"` (the default: `placedAt` descending), `\"oldest\"` or `\"highest\"` (`totalCents` descending). In all three, orders that tie are ordered by `id` ascending.\n- Each item in `items` keeps its own fields and gains `totalFormatted`, its total in dollars: `$12.50`, `$0.05`, `$1,234.56` (thousands separated by commas, always two decimals).\n- Add `formatCents(cents)` in a new `src/money.js` that does that formatting. `cents` must be a non-negative safe integer; anything else is a `RangeError`.\n- `hasMore` is true exactly when more orders come after the page.\n- A `status` or `sort` that is not one of those, a `page` that is not a positive integer and a `pageSize` that is not a positive integer are each a `RangeError`.",
+  "constraints": [
+    {
+      "id": "no-float-money",
+      "statement": "Format money with integer arithmetic only: no toFixed, parseFloat, toLocaleString or Intl.NumberFormat anywhere in src.",
+      "check": { "kind": "forbidden_pattern", "pattern": "toFixed|parseFloat|toLocaleString|Intl\\.NumberFormat", "paths": ["src"] }
+    },
+    {
+      "id": "inputs-not-modified",
+      "statement": "listOrders must not modify the orders it is given, or the objects in them: the shop's order list is shared and frozen elsewhere.",
+      "check": { "kind": "required_invariant", "command": "node invariants/inputs.mjs" }
+    }
+  ],
+  "seededDefects": [
+    {
+      "id": "has-more-true-on-exact-last-page",
+      "description": "paginate computes hasMore as end <= items.length, so it is true on a last page that ends exactly at the end of the list.",
+      "path": "src/paginate.js"
+    }
+  ],
+  "verification": {
+    "command": "node --test",
+    "protectedPaths": ["package.json", "test/orders.test.js"]
+  },
+  "network": { "stance": "deny" }
+}

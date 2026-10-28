@@ -179,8 +179,11 @@ describe("the pilot suites", () => {
     }
   });
 
+  // Every condition on the reference scenario's task; C0 and C3 on the rest, since a trial costs a repository, worktrees and processes.
+  const EVERY_CONDITION_ON = "password-reset";
   for (const id of TASK_IDS) {
-    it(`run ${id} end to end under every condition on scripted mock agents, each scored by the validators as a pass`, async () => {
+    const everyCondition = id === EVERY_CONDITION_ON;
+    it(`run ${id} end to end under ${everyCondition ? "every condition" : "C0 and C3"} on scripted mock agents, each scored by the validators as a pass`, async () => {
       const { solution } = referenceOf(id);
       const reports = (task: EvaluationTask) => ({
         summary: "done",
@@ -193,6 +196,7 @@ describe("the pilot suites", () => {
         ...(await pilotSuite("suite-a")),
         tasks: [taskDir(id)],
         repeats: 1,
+        ...(everyCondition ? {} : { conditions: ["C0", "C3"] as const }),
         agents: {
           plan: (task) => script({ outputFields: reports(task) }),
           implement: (task) => script({ edits: solution, outputFields: reports(task) }),
@@ -204,18 +208,15 @@ describe("the pilot suites", () => {
 
       expect(state.state).toBe("completed");
       expect(state.mock).toBe(true);
-      // C0, C1, C2, C3, and the matched-budget baseline's one trial per attempt C3 made: plan, implement and review.
-      expect(state.trials.map((trial) => trial.condition).sort()).toEqual(["C0", "C1", "C2", "C3", "baseline", "baseline", "baseline"]);
+      // The matched-budget baseline has one trial per attempt C3 made: plan, implement and review.
+      expect(state.trials.map((trial) => trial.condition).sort()).toEqual(everyCondition ? ["C0", "C1", "C2", "C3", "baseline", "baseline", "baseline"] : ["C0", "C3"]);
       for (const trial of state.trials) {
         expect(trial.ended, `${trial.condition}`).toMatchObject({ outcome: "scored", score: { verdict: "pass" } });
         expect(trial.ended!.score!.constraints.every((constraint) => constraint.outcome === "held"), trial.condition).toBe(true);
       }
-      expect(report.conditions.map((condition) => [condition.condition, condition.passes, condition.scored])).toEqual([
-        ["C0", 1, 1],
-        ["C1", 1, 1],
-        ["C2", 1, 1],
-        ["C3", 1, 1],
-      ]);
+      expect(report.conditions.map((condition) => [condition.condition, condition.passes, condition.scored])).toEqual(
+        (everyCondition ? ["C0", "C1", "C2", "C3"] : ["C0", "C3"]).map((condition) => [condition, 1, 1]),
+      );
       expect(trialOf(state, "C3").ended!.runState).toBe("succeeded");
     });
   }

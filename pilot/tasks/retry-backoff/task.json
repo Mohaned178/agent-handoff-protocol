@@ -1,0 +1,28 @@
+{
+  "id": "retry-backoff",
+  "prompt": "Add `withRetry(fn, options)` in a new `src/retry.js`. It is an async function: it returns a promise and never throws synchronously.\n\n- It calls `fn(attempt)` (`attempt` counts from 1) and returns what `fn` resolves to. If `fn` rejects with an error that is worth retrying, it waits and calls `fn` again, up to `retries` retries (default 3, so at most 4 calls); when they run out it rejects with the last error, as it is. An error that is not worth retrying is rejected at once, as it is.\n- What is worth retrying is `options.isRetryable(error)`, by default the `isRetryable` in `src/errors.js`, whose rule is: any 5xx status (500 included), 429, 408, and a dropped network connection.\n- The wait before retry number k (k from 1) is based on `cap = min(maxMs, baseMs * factor ** (k - 1))`, with `baseMs` default 100, `maxMs` default 10000 and `factor` default 2. With `jitter` on (the default) the delay is `Math.floor(cap * random())`, with one `random()` call per retry; with `jitter: false` it is `cap`. If the error has a `retryAfterMs` number, the delay is at least that, even when that is past `maxMs`.\n- Waiting is `await sleep(delayMs)`, where `options.sleep` defaults to `realSleep` from `src/clock.js`. `options.random` is the source of `random()`, defaulting to `defaultRandom` from `src/random.js`.\n- `options.onRetry({ attempt, delayMs, error })`, if given, is called before each wait; `attempt` is the number of the attempt that just failed.\n- `options.signal` (an AbortSignal) is checked before every attempt, the first included: if it is aborted, reject with `signal.reason` without calling `fn`.\n- `retries` must be a non-negative integer, `baseMs` and `maxMs` non-negative numbers and `factor` at least 1; otherwise reject with a `RangeError`.",
+  "constraints": [
+    {
+      "id": "no-math-random",
+      "statement": "All randomness comes from the injected random function: no Math.random anywhere in src.",
+      "check": { "kind": "forbidden_pattern", "pattern": "Math\\.random", "paths": ["src"] }
+    },
+    {
+      "id": "no-timers-in-retry",
+      "statement": "src/retry.js never starts a timer itself: no setTimeout or setInterval in it, since all waiting goes through the sleep option.",
+      "check": { "kind": "forbidden_pattern", "pattern": "setTimeout|setInterval", "paths": ["src/retry.js"] }
+    }
+  ],
+  "seededDefects": [
+    {
+      "id": "is-retryable-skips-500",
+      "description": "isRetryable tests status > 500, so a plain 500 Internal Server Error is not treated as retryable although the rule is any 5xx.",
+      "path": "src/errors.js"
+    }
+  ],
+  "verification": {
+    "command": "node --test",
+    "protectedPaths": ["package.json", "test/errors.test.js"]
+  },
+  "network": { "stance": "deny" }
+}

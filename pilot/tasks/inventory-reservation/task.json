@@ -1,0 +1,23 @@
+{
+  "id": "inventory-reservation",
+  "prompt": "Add reservations to the inventory in `src/inventory.js`. A reservation holds stock for an order. `createInventory({ audit })` gains three methods.\n\n- `reserve(orderId, sku, qty)` returns `{ ok: true }`, or `{ ok: false, reason }` where reason is `\"already_reserved\"` (the order already holds a reservation, for any sku) or `\"insufficient_stock\"` (`available(sku)` is less than `qty`); check in that order. A reservation lowers `available(sku)` and leaves `onHand(sku)` alone. `qty` must be a positive integer; anything else is a `RangeError`.\n- `release(orderId)` returns `{ ok: true, sku, qty }` and the stock is available again, or `{ ok: false, reason: \"not_reserved\" }`.\n- `ship(orderId)` returns `{ ok: true, sku, qty }`: the reserved stock leaves the warehouse, so `onHand(sku)` goes down by `qty` while `available(sku)` stays what it was; or `{ ok: false, reason: \"not_reserved\" }`.\n\nAn order holds at most one reservation at a time; once it has been released or shipped it may reserve again. `available(sku)` is `onHand(sku)` minus what reservations hold. Stock must never go negative by any operation: `receive` adds stock, so a `qty` that is not a positive integer is a `RangeError` and changes nothing.",
+  "constraints": [
+    {
+      "id": "audit-every-change",
+      "statement": "Every operation that changes stock or reservations must be recorded with audit.record, as an entry of type receive, reserve, release or ship with the fields orderId (not for receive), sku and qty; a rejected reserve is recorded too, as type reserve_rejected with the same fields and a reason. An operation that changes nothing and is not a rejected reserve is not recorded.",
+      "check": { "kind": "required_invariant", "command": "node invariants/audit.mjs" }
+    }
+  ],
+  "seededDefects": [
+    {
+      "id": "receive-accepts-negative-quantities",
+      "description": "receive only checks that qty is an integer, so receive(sku, -5) takes stock away and can drive it negative.",
+      "path": "src/inventory.js"
+    }
+  ],
+  "verification": {
+    "command": "node --test",
+    "protectedPaths": ["package.json", "test/inventory.test.js"]
+  },
+  "network": { "stance": "deny" }
+}
