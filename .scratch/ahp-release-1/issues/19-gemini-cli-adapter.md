@@ -63,3 +63,5 @@ git add conformance/results/gemini-cli--*.json
 ```
 
 Then replace the source-derived messages in `test/fixtures/gemini-cli/captures.json` with captures from the run (the transcript files of an attempt hold them), re-read `docs/adapters/gemini-cli.md` and turn each "source" tag into "observed" or correct it, and tick the last box. The cheapest first look, before the whole suite: `npm run conformance -- run gemini-cli --only spawn_and_exit` (never recorded) shows whether the conversation as built works at all.
+
+**Confirmed by the maintainer on 2026-10-28 ("do recommendation"): decisions 1 to 12 above stand as recommended; reopen one only with a new decision.** Still open for this ticket: the Windows and Linux (WSL2) conformance runs, which need paid Gemini access, and the follow-up that moves the duplicated ACP turn and cancel code into `src/adapters/acp/`.
