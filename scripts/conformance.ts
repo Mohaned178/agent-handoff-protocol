@@ -4,6 +4,7 @@
 //   npm run conformance -- run <adapter> [--tool-version <v>] [--out <dir>] [--only <id,id>]
 //   npm run conformance -- matrix [--dir <dir>] [--adapters <a,b>]
 import { parseArgs } from "node:util";
+import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { claudeCodeSubject } from "../src/adapters/claude-code/conformance.ts";
 import { codexSubject } from "../src/adapters/codex/conformance.ts";
@@ -17,6 +18,7 @@ import {
   readResults,
   recordResult,
   renderMatrix,
+  renderSupportMatrixDoc,
   runConformance,
   type ConformanceSubject,
 } from "../src/conformance/index.ts";
@@ -28,11 +30,13 @@ const defaultDir = fileURLToPath(new URL("../conformance/results", import.meta.u
 
 const USAGE = `Usage:
   npm run conformance -- run <adapter> [--tool-version <v>] [--out <dir>] [--only <id,id>]
-  npm run conformance -- matrix [--dir <dir>] [--adapters <a,b>]
+  npm run conformance -- matrix [--dir <dir>] [--adapters <a,b>] [--write [<file>]]
 
 Adapters: ${Object.keys(subjects).join(", ")}
 run records the result in <dir> (default conformance/results), except for the mock, which is recorded only with --out, and for --only, which is never recorded.
+matrix --write publishes the support matrix page (default docs/support-matrix.md) from the recorded results.
 Exit codes: 0 passed, 1 failed, 2 refused or usage error, 3 untested (a check was skipped).`;
+const defaultDoc = fileURLToPath(new URL("../docs/support-matrix.md", import.meta.url));
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -42,11 +46,16 @@ const { values, positionals } = parseArgs({
     only: { type: "string" },
     dir: { type: "string" },
     adapters: { type: "string" },
+    write: { type: "boolean" },
   },
 });
 const [command, adapter] = positionals;
 
-if (command === "matrix") {
+if (command === "matrix" && values.write) {
+  const file = adapter ?? defaultDoc;
+  writeFileSync(file, renderSupportMatrixDoc(readResults(values.dir ?? defaultDir)));
+  console.log(`wrote ${file}`);
+} else if (command === "matrix") {
   const results = readResults(values.dir ?? defaultDir);
   const names = values.adapters?.split(",") ?? [...new Set(results.filter((r) => !r.mock).map((r) => r.adapter))].sort();
   console.log(renderMatrix(matrixOf(results, names)));

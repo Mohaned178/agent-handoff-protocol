@@ -4,7 +4,7 @@ AHP makes handoffs between AI coding agents explicit, verifiable and measurable,
 
 Release 1 targets four coding-agent CLIs (Claude Code, Codex CLI, Gemini CLI, OpenCode), combinable in one workflow, each through a dedicated adapter. A step succeeds only when verification passes, never on an agent's own claim; every event is written to an append-only ledger so a crash never silently runs work twice; and an evaluation engine tests whether structured handoffs actually beat a single agent and a plain-text pipeline. A negative result is a legitimate outcome.
 
-**Status: early development.** Linear multi-step workflows run end to end with the mock adapter, each step receiving a validated, versioned handoff, a run whose process stopped is recovered with `ahp recover`, and Ctrl+C cancels a run; no real coding-agent adapter exists yet.
+**Status: early development.** Linear multi-step workflows run end to end with the mock adapter, each step receiving a validated, versioned handoff, a run whose process stopped is recovered with `ahp recover`, and Ctrl+C cancels a run. Adapters exist for Claude Code, Codex CLI and OpenCode; the Gemini CLI adapter has never run a turn. See the [support matrix](docs/support-matrix.md).
 
 ## Development
 
@@ -111,6 +111,8 @@ Agents are started without a shell: AHP resolves the tool's real executable on P
 
 ## Read first
 
+- [Support matrix](docs/support-matrix.md): which core and adapter combinations are tested, on which system, with which tool version.
+- [Limits](docs/limits.md): a worktree is not a security boundary; verification runs agent-written code on your machine; subscription terms; no credentials stored.
 - [Design direction](docs/design/ahp-v2-direction.md): the agreed direction; §9 records the settled decisions.
 - [Architecture decisions](docs/adr/)
 - [Glossary](GLOSSARY.md)
