@@ -24,6 +24,8 @@ export interface RoleAssignment {
   tool: ToolId | null;
   /** Why this adapter, in a sentence. */
   reason: string;
+  /** The model the step requests; absent for the tool's own default. */
+  model?: string;
 }
 
 /**
@@ -126,8 +128,9 @@ const MOCK_SCRIPTS: Record<Role, MockAttemptScript[]> = {
   ],
 };
 
-function agentOf({ role, adapter }: RoleAssignment) {
-  return adapter === "mock" ? { adapter, options: { attempts: MOCK_SCRIPTS[role] } } : { adapter };
+function agentOf({ role, adapter, model }: RoleAssignment) {
+  if (adapter === "mock") return { adapter, options: { attempts: MOCK_SCRIPTS[role] } };
+  return model === undefined ? { adapter } : { adapter, model };
 }
 
 /** The reference scenario as a workflow definition: plan, implement, review (with send-back), approval gate, push. */
@@ -169,16 +172,16 @@ export function buildWorkflow(assignments: readonly RoleAssignment[], branch = D
 }
 
 /** The text of a workflow file for `assignments`; its header says which steps are scripted by the mock. */
-export function renderWorkflow(assignments: readonly RoleAssignment[], branch = DEFAULT_BRANCH): string {
+export function renderWorkflow(assignments: readonly RoleAssignment[], branch = DEFAULT_BRANCH, writtenBy = "init"): string {
   const workflow = buildWorkflow(assignments, branch);
   const problems = validateWorkflow(workflow);
   if (problems.length > 0) throw new Error(`the generated workflow is invalid:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
-  const cast = assignments.map(({ role, adapter, tool }) => `//   ${role.padEnd(9)} ${adapter}${tool === null ? "  (scripted mock: not a real coding agent, and its output is no evidence)" : ""}`);
+  const cast = assignments.map(({ role, adapter, tool, model }) => `//   ${role.padEnd(9)} ${adapter}${model ? `, model ${model}` : ""}${tool === null ? "  (scripted mock: not a real coding agent, and its output is no evidence)" : ""}`);
   return [
     "// The password-reset reference scenario: plan, implement (verified by a hidden test), review (a request for",
     "// changes sends implement back), an approval gate, then AHP itself pushes the approved commit.",
     "//",
-    "// Written by `ahp init`. Who plays each step:",
+    `// Written by \`ahp ${writtenBy}\`. Who plays each step:`,
     ...cast,
     "//",
     "// Run it in a git repository with a commit and a remote named origin: `ahp run " + DEFAULT_WORKFLOW_FILE + "`.",

@@ -21,6 +21,7 @@ import { evaluationsRoot } from "../runtime/index.ts";
 import { formatEvent, formatRun, formatUnresumed, MOCK_NOTE } from "./format.ts";
 import { formatDoctor, formatInit } from "./format-doctor.ts";
 import { formatEvaluationEvent } from "./format-evaluation.ts";
+import { modelsFor, runSetup, terminalPrompter } from "../setup/index.ts";
 
 const USAGE = `Usage: ahp <command> [options]
 
@@ -28,6 +29,8 @@ Commands:
   doctor                Report this machine and which coding agent tools AHP can use (--json for data)
   init [file]           Write the password-reset example workflow (default ahp.workflow.mjs), cast from
                         the tools doctor found, the mock adapter standing in for any it did not
+  setup                 Choose, in menus, a workflow or an evaluation and the tool and model of each
+                        step; writes the file (never replacing one) and offers to start it
   run <workflow-file>   Run the workflow exported by default from <workflow-file>
   eval <suite-file>     Run the evaluation suite exported by default from <suite-file>: its tasks are frozen,
                         then each runs under conditions C0-C3 and the matched-budget baseline, repeated, in a
@@ -113,6 +116,9 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
         return await doctorCommand(values.json ?? false, io);
       case "init":
         return await initCommand(target, repo, io);
+      case "setup":
+        if (target) throw new UsageError(`unexpected argument: ${target}`);
+        return await setupCommand(repo, io);
       case "run":
         if (!target) throw new UsageError("run needs a workflow file");
         return await runCommand(target, repo, io);
@@ -224,6 +230,31 @@ async function doctorCommand(json: boolean, io: Io): Promise<number> {
 async function initCommand(file: string | undefined, repo: string, io: Io): Promise<number> {
   io.stdout(formatInit(await initWorkflow({ dir: repo, file })));
   return 0;
+}
+
+/**
+ * `ahp setup`: the questions need a terminal. What it writes is started through the same `run` and `eval` commands, so it
+ * runs exactly as the file would by hand. Ctrl+C at a question ends it with nothing started.
+ */
+async function setupCommand(repo: string, io: Io): Promise<number> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) throw new UsageError("setup asks questions: run it in an interactive terminal (or write the file by hand, or use `ahp init`)");
+  io.stdout("Looking at the tools on this machine (as ahp doctor does)...");
+  try {
+    const result = await runSetup({ prompter: terminalPrompter(io.stdout), dir: repo, report: await diagnose(), models: (tool) => modelsFor(tool) });
+    const command = result.kind === "workflow" ? `ahp run ${result.path}` : `ahp eval ${result.path}`;
+    if (!result.start) {
+      io.stdout(`Start it when you are ready: ${command}`);
+      return 0;
+    }
+    io.stdout(`$ ${command}`);
+    return result.kind === "workflow" ? await runCommand(result.path, repo, io) : await evalCommand(result.path, undefined, undefined, false, io);
+  } catch (error) {
+    if ((error as Error).name === "ExitPromptError") {
+      io.stdout("setup cancelled: nothing was started");
+      return 130;
+    }
+    throw error;
+  }
 }
 
 async function runCommand(file: string, repo: string, io: Io): Promise<number> {
