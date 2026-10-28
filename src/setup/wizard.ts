@@ -12,7 +12,7 @@ import type { DoctorReport } from "../doctor/doctor.ts";
 import { TOOLS, type ToolId } from "../doctor/tools.ts";
 import { CONDITIONS, type ConditionId } from "../evaluation/events.ts";
 import { validateSuite, type EvaluationRole } from "../evaluation/suite.ts";
-import { effortsFor, type ModelList } from "./models.ts";
+import { effortsFor, offeredByOpenCode, OPENCODE_ACCESS, OPENCODE_ACCESS_NAMES, type ModelList, type OpenCodeAccess } from "./models.ts";
 
 export interface Choice<T> {
   name: string;
@@ -82,7 +82,11 @@ async function castRole(options: SetupOptions, role: Role, allowMock: boolean): 
   const adapter = await prompter.select({ message: `Who ${ROLE_WORDS[role]}? (${role})`, choices });
   if (adapter === "mock") return { role, adapter, tool: null, reason: "chosen in ahp setup" };
   const tool = adapter as ToolId;
-  const list = await options.models(tool);
+  let list = await options.models(tool);
+  if (tool === "opencode") {
+    const access = await openCodeAccess(options);
+    list = { ...list, choices: list.choices.filter((choice) => choice.value === null || offeredByOpenCode(choice.value, access)) };
+  }
   const typed = "\u0000typed";
   const picked = await prompter.select<string | null>({
     message: `Which model for ${role}? (${list.source})`,
@@ -99,6 +103,20 @@ async function castRole(options: SetupOptions, role: Role, allowMock: boolean): 
         default: null,
       });
   return { role, adapter: tool, tool, reason: "chosen in ahp setup", ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
+}
+
+const openCodeAccessAnswers = new WeakMap<SetupOptions, OpenCodeAccess[]>();
+
+/** What OpenCode access the person says they have, asked once per setup whatever the number of OpenCode roles. */
+async function openCodeAccess(options: SetupOptions): Promise<OpenCodeAccess[]> {
+  const known = openCodeAccessAnswers.get(options);
+  if (known) return known;
+  const access = await options.prompter.checkbox<OpenCodeAccess>({
+    message: "Which OpenCode access do you have? (AHP cannot check it; Zen's free models are always offered, and any name can be typed)",
+    choices: OPENCODE_ACCESS.map((id) => ({ ...OPENCODE_ACCESS_NAMES[id], value: id })),
+  });
+  openCodeAccessAnswers.set(options, access);
+  return access;
 }
 
 /** A file name in `dir` that does not exist yet: asked for again while the one given does. */

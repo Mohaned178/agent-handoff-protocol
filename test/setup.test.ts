@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { DoctorReport, ToolReport } from "../src/doctor/index.ts";
 import { validateSuite } from "../src/evaluation/index.ts";
 import { validateWorkflow } from "../src/sdk/index.ts";
-import { openCodeModelsIn, runSetup, tasksUnder, type Choice, type ModelList, type Prompter } from "../src/setup/index.ts";
+import { offeredByOpenCode, openCodeModelsIn, runSetup, tasksUnder, type Choice, type ModelList, type Prompter } from "../src/setup/index.ts";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -79,7 +79,7 @@ describe("ahp setup: a workflow", () => {
       "workflow",
       "claude-code", "claude-code-model", "high", // plan
       "codex", null, null, // implement: the tool's own model and effort
-      "opencode", "\u0000typed", "opencode/typed-free", // review: a name typed in
+      "opencode", [], "\u0000typed", "opencode/typed-free", // review: free models only, and a name typed in
       "ahp/reset",
       "flow.mjs",
       false,
@@ -137,7 +137,7 @@ describe("ahp setup: an evaluation", () => {
       ["C0", "C3"],
       "claude-code", null, "low",
       "claude-code", "claude-code-model", null,
-      "opencode", "opencode-model",
+      "opencode", ["providers"], "opencode-model",
       "2",
       "3",
       "smoke.mjs",
@@ -174,6 +174,43 @@ describe("ahp setup: an evaluation", () => {
 });
 
 describe("the models offered", () => {
+  it("asks once what OpenCode access the person has and offers Zen's free models plus only the models of what they named", async () => {
+    const dir = tempDir();
+    const openCodeModels = async (): Promise<ModelList> => ({
+      choices: [null, "opencode/glm-5.3-flash-free", "opencode/claude-sonnet-5-5", "opencode-go/kimi-k3", "openai/o3"].map((value) => ({ value, label: value ?? "default" })),
+      source: "test",
+    });
+    const offered = (choices: Choice<unknown>[]) => choices.map((choice) => choice.value).filter((value) => value !== "\u0000typed");
+    const { prompter, asked, left } = scripted([
+      "workflow",
+      "opencode", ["go"], "opencode-go/kimi-k3", // plan
+      "opencode", "opencode/glm-5.3-flash-free", // implement: not asked again
+      "mock",
+      "ahp/x",
+      "flow.mjs",
+      false,
+    ]);
+
+    const result = await runSetup({ prompter, dir, report: everyTool, models: openCodeModels });
+
+    expect(left).toEqual([]);
+    expect(asked.filter((question) => question.message.startsWith("Which OpenCode access"))).toHaveLength(1);
+    const modelQuestions = asked.filter((question) => question.message.startsWith("Which model"));
+    expect(modelQuestions.map((question) => offered(question.choices!))).toEqual([
+      [null, "opencode/glm-5.3-flash-free", "opencode-go/kimi-k3"],
+      [null, "opencode/glm-5.3-flash-free", "opencode-go/kimi-k3"],
+    ]);
+    const workflow = (await load(result.path)) as { steps: { id: string; agent?: unknown }[] };
+    expect(workflow.steps.find((step) => step.id === "plan")!.agent).toEqual({ adapter: "opencode", model: "opencode-go/kimi-k3" });
+  });
+
+  it("offers each provider's models by the access named", () => {
+    const names = ["opencode/big-pickle", "opencode/glm-5.3-flash-free", "opencode-go/kimi-k3", "openai/o3"];
+    expect(names.filter((name) => offeredByOpenCode(name, []))).toEqual(["opencode/glm-5.3-flash-free"]);
+    expect(names.filter((name) => offeredByOpenCode(name, ["zen"]))).toEqual(["opencode/big-pickle", "opencode/glm-5.3-flash-free"]);
+    expect(names.filter((name) => offeredByOpenCode(name, ["go", "providers"]))).toEqual(["opencode/glm-5.3-flash-free", "opencode-go/kimi-k3", "openai/o3"]);
+  });
+
   it("reads OpenCode's own list, one provider/model per line, ignoring anything else it prints", () => {
     expect(openCodeModelsIn("opencode/big-pickle\r\nopencode/deepseek-v4.1-flash-free\n\nWARN something\nopencode/big-pickle\n")).toEqual([
       "opencode/big-pickle",

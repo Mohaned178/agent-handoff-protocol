@@ -43,6 +43,27 @@ export function openCodeModelsIn(stdout: string): string[] {
   return [...new Set(stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => /^[\w.-]+\/[\w.:@-]+$/.test(line)))];
 }
 
+/**
+ * The OpenCode access a person can say they have. AHP cannot find out (it never reads OpenCode's credentials, and never
+ * claims to discover an entitlement), so `ahp setup` asks, and offers only the models of what was named.
+ */
+export const OPENCODE_ACCESS = ["zen", "go", "providers"] as const;
+export type OpenCodeAccess = (typeof OPENCODE_ACCESS)[number];
+
+export const OPENCODE_ACCESS_NAMES: Record<OpenCodeAccess, { name: string; description: string }> = {
+  zen: { name: "OpenCode Zen, paid (a Zen balance)", description: "every opencode/... model" },
+  go: { name: "OpenCode Go subscription", description: "the opencode-go/... models" },
+  providers: { name: "Other providers logged in to in OpenCode", description: "openai/..., google/..., and the rest `opencode models` lists" },
+};
+
+/** Whether a model of `opencode models` is offered to someone with `access`. Zen's free models need no account. */
+export function offeredByOpenCode(name: string, access: readonly OpenCodeAccess[]): boolean {
+  const provider = name.split("/")[0];
+  if (provider === "opencode") return /-free$/.test(name) || access.includes("zen");
+  if (provider === "opencode-go") return access.includes("go");
+  return access.includes("providers");
+}
+
 const DEFAULT: ModelChoice = { value: null, label: "the tool's own default (no model requested)" };
 
 /** The models to offer for `tool`. `env` is the environment the tool is run with; nothing else is read. */
