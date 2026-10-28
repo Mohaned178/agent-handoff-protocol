@@ -4,7 +4,7 @@
 
 **Blocked by:** 20
 
-**Status:** implemented, awaiting review of the decisions below
+**Status:** implemented, decisions confirmed; awaiting the first green CI run
 
 **Model:** Opus 5.5 · high
 
@@ -61,3 +61,5 @@
 **Code review (two reviewers).** Fixed: `merge-base --is-ancestor` failures other than exit 1 counted an attempt's lines as duplicated (now they make the count unavailable); replay compared the scheduled trial by JSON text, so by key order (now field by field); `work.ts` re-implemented `findHandoff`; a comparator copied where `byPath` exists; the comparison's exclusion reason was free text that the report rewrote by string replacement (now the closed list `PAIRING_GAPS`); C3's retry budget derived in two places (now `retryBudgetOf`); C1's steps written as one-line literals beside multi-line ones. Not done, as judgement calls: `TrialSlot` and `ScheduledTrial` overlap (the slot is what an agent source needs, without a trial id it cannot have during validation); `baseline_scheduled` repeats the task and repeat that follow from its C3 trial (kept so the ledger reads on its own, and replay checks they agree); `evalCommand` takes five arguments. The spec review's points are decisions 1, 4, 6, 7 and 9 above.
 
 **Not done, on purpose.** The spend cap, invalid cells, version pinning and the API-key expectation (ticket 22); comparing anything but verified success; any real-tool trial.
+
+**Confirmed by the maintainer on 2026-10-28 ("do recommendation"): decisions 1 to 19 above stand as recommended; reopen one only with a new decision.** That includes decision 5 (the baseline is on by default and is the expensive condition; leave it out of a suite's `conditions` to skip it), decision 7 (a baseline cell is scored only when every one of its trials was scored, departing from the literal "success if any passes") and decision 19 (hidden tests readable in C3's run ledger stay accepted for the pilot: read the transcripts of C3 trials that pass where the others fail, and move ledgers out of the trial repository before the full suite).
