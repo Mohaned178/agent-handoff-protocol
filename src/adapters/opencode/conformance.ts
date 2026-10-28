@@ -49,6 +49,9 @@ export function openCodeSubject(): ConformanceSubject {
   return {
     adapter: openCodeAdapter,
     requestedModel: process.env.AHP_CONFORMANCE_OPENCODE_MODEL || "opencode/deepseek-v4.1-flash-free",
+    // The free model needs no login, a failed ACP turn leaves exit code 0 and no way is known to cause a rate limit, so
+    // these are recorded `unprovokable`. `model:reported` is not: OpenCode records the name it was asked for, so it stays skipped as an echo.
+    unprovokable: ["fails", "login_problem", "rate_limited", "no_model_report", "no_usage_report"],
     toolVersion: async () => {
       const result = await probe("opencode", ["--version"], { cwd: tmpdir() });
       const version = result.outcome === "exited" && result.exitCode === 0 ? /(\d+\.\d+\.\d+\S*)/.exec(result.stdout)?.[1] : undefined;
