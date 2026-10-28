@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -85,6 +85,7 @@ async function attempt(
     tornTail?: string;
     platform?: NodeJS.Platform;
     session?: string;
+    transcript?: { input: string; output: string };
   } = {},
 ) {
   const home = codexHome();
@@ -100,6 +101,7 @@ async function attempt(
     capabilities: applied,
     handoff: handoffOf(applied, parts),
     options: { codexHome: home, ...(run.options as object | undefined) },
+    transcript: run.transcript,
   });
   const exit = await started.exited;
   return { exit, call: codexFake.call(), workspace, home };
@@ -123,6 +125,17 @@ describe("the Codex adapter's command line", () => {
     expect(valueOf(call.argv, "--cd")).toBe(workspace);
     expect(call.cwd).toBe(realpathSync.native(workspace));
     expect(call.pwd).toBe(workspace);
+  });
+
+  it("keeps the prompt it sent and the stream the tool printed, raw, when the runtime gives it transcript files", async () => {
+    const dir = createTempRepo({ "README.md": "x\n" });
+    const transcript = { input: join(dir, "transcripts", "att.in.txt"), output: join(dir, "transcripts", "att.out.txt") };
+
+    const { call } = await attempt(fixture("complete"), { instructions: "Add the password-reset endpoint & its test." }, { transcript });
+
+    expect(readFileSync(transcript.input, "utf8")).toBe(call.stdin);
+    expect(readFileSync(transcript.input, "utf8")).toContain("Add the password-reset endpoint & its test.");
+    expect(readFileSync(transcript.output, "utf8")).toBe(fixture("complete"));
   });
 
   it("states the sandbox and the approval policy for every attempt, and leaves the user's config and rules out", async () => {

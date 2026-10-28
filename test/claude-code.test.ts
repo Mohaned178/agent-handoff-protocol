@@ -63,7 +63,7 @@ const appliedFor = (capabilities: CapabilityRequest[] = [], platform = process.p
 async function attempt(
   stream: string,
   parts: Parameters<typeof handoffOf>[1] = {},
-  run: { capabilities?: CapabilityRequest[]; requestedModel?: string | null; options?: unknown; exitCode?: number; tornTail?: string } = {},
+  run: { capabilities?: CapabilityRequest[]; requestedModel?: string | null; options?: unknown; exitCode?: number; tornTail?: string; transcript?: { input: string; output: string } } = {},
 ) {
   const claude = fake({ stream, exitCode: run.exitCode, tornTail: run.tornTail });
   const workspace = join(createTempRepo({ "README.md": "x\n" }), "work space");
@@ -77,6 +77,7 @@ async function attempt(
     capabilities: applied,
     handoff: handoffOf(applied, parts),
     options: run.options,
+    transcript: run.transcript,
   });
   const exit = await started.exited;
   return { exit, call: claude.call(), workspace };
@@ -95,6 +96,17 @@ describe("the Claude Code adapter's command line", () => {
     expect(call.argv.join(" ")).not.toContain("password-reset");
     expect(call.cwd).toBe(realpathSync.native(workspace));
     expect(call.pwd).toBe(workspace);
+  });
+
+  it("keeps the prompt it sent and the stream the tool printed, raw, when the runtime gives it transcript files", async () => {
+    const dir = createTempRepo({ "README.md": "x\n" });
+    const transcript = { input: join(dir, "transcripts", "att.in.txt"), output: join(dir, "transcripts", "att.out.txt") };
+
+    const { call } = await attempt(fixture("complete"), { instructions: "Add the password-reset endpoint & its test." }, { transcript });
+
+    expect(readFileSync(transcript.input, "utf8")).toBe(call.stdin);
+    expect(readFileSync(transcript.input, "utf8")).toContain("Add the password-reset endpoint & its test.");
+    expect(readFileSync(transcript.output, "utf8")).toBe(fixture("complete"));
   });
 
   it("passes the requested model only when one was requested, and the effort, budget and config directory only when given", async () => {

@@ -239,6 +239,60 @@ describe("launch", () => {
     for (const pid of tree) expect(isRunning(pid)).toBe(false);
   });
 
+  it("keeps what it sent and what the tool printed, byte for byte, complete once the process has exited, while the caller still reads stdout", async () => {
+    const cwd = tempDir();
+    const script = write(
+      join(cwd, "talk.js"),
+      `let sent = ""; process.stdin.setEncoding("utf8"); process.stdin.on("data", (c) => (sent += c));
+process.stdin.on("end", () => { process.stdout.write("h\\u00e9llo "); setTimeout(() => process.stdout.write("you sent " + sent.length + " characters\\n"), 30); });`,
+    );
+    const transcript = { input: join(cwd, "transcripts", "in.txt"), output: join(cwd, "transcripts", "out.txt") };
+
+    const started = await launch({ executable: node, args: [script], cwd, input: PROMPT, transcript });
+    started.stdout.setEncoding("utf8");
+    let read = "";
+    for await (const chunk of started.stdout as AsyncIterable<string>) read += chunk;
+    expect(await started.exited).toEqual({ exitCode: 0, signal: null });
+
+    expect(read).toBe(`héllo you sent ${PROMPT.length} characters\n`);
+    expect(readFileSync(transcript.input, "utf8")).toBe(PROMPT);
+    expect(readFileSync(transcript.output, "utf8")).toBe(read);
+  });
+
+  it("in duplex mode keeps every write the caller made, in order, and what the tool printed", async () => {
+    const cwd = tempDir();
+    const script = write(join(cwd, "upper.js"), `process.stdin.setEncoding("utf8"); process.stdin.on("data", (c) => process.stdout.write(c.toUpperCase()));`);
+    const transcript = { input: join(cwd, "t", "in.txt"), output: join(cwd, "t", "out.txt") };
+
+    const started = await launch({ executable: node, args: [script], cwd, duplex: true, transcript });
+    started.stdout.setEncoding("utf8");
+    const replies: string[] = [];
+    started.stdout.on("data", (chunk: string) => replies.push(chunk));
+    started.stdin!.write("first\n");
+    started.stdin!.write("second\n");
+    await until(() => (replies.join("") === "FIRST\nSECOND\n" ? true : undefined), "both replies");
+    started.stdin!.end();
+    await started.exited;
+
+    expect(readFileSync(transcript.input, "utf8")).toBe("first\nsecond\n");
+    expect(readFileSync(transcript.output, "utf8")).toBe("FIRST\nSECOND\n");
+  });
+
+  it("starts the tool anyway when its transcript cannot be written: a transcript is for a person, and the attempt does not depend on it", async () => {
+    const cwd = tempDir();
+    const script = write(join(cwd, "hi.js"), `process.stdout.write("hi");`);
+    // A file where the transcript's directory would have to be.
+    const blocker = write(join(cwd, "blocker"), "not a directory");
+
+    const started = await launch({ executable: node, args: [script], cwd, transcript: { input: join(blocker, "in.txt"), output: join(blocker, "out.txt") } });
+    started.stdout.setEncoding("utf8");
+    let read = "";
+    for await (const chunk of started.stdout as AsyncIterable<string>) read += chunk;
+
+    expect(read).toBe("hi");
+    expect(await started.exited).toEqual({ exitCode: 0, signal: null });
+  });
+
   it("fails to start a command that is not there", async () => {
     const cwd = tempDir();
     const missing: Executable = { file: join(cwd, process.platform === "win32" ? "missing.exe" : "missing"), prefixArgs: [], via: "executable", path: "" };

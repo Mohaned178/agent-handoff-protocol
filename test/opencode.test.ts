@@ -48,6 +48,7 @@ interface Run {
   options?: unknown;
   requiredOutputFields?: string[];
   adapter?: typeof openCodeAdapter;
+  transcript?: { input: string; output: string };
 }
 
 /** Starts one attempt of the adapter against the fake `opencode` in a repository whose path has a space. */
@@ -68,8 +69,9 @@ async function start(scenario: FakeOpencodeScenario, run: Run = {}) {
     handoff: handoffOf(applied, { requiredOutputFields: run.requiredOutputFields }),
     options: run.options,
     toolCallLog,
+    transcript: run.transcript,
   });
-  const log = (): ToolCallLogEntry[] => (existsSync(toolCallLog) ? readFileSync(toolCallLog, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as ToolCallLogEntry) : []);
+  const log =(): ToolCallLogEntry[] => (existsSync(toolCallLog) ? readFileSync(toolCallLog, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as ToolCallLogEntry) : []);
   return { started, fake, workspace, log, applied, toolCallLog };
 }
 
@@ -82,6 +84,22 @@ async function attempt(scenario: FakeOpencodeScenario, run: Run = {}) {
 
 const method = (call: { received: Record<string, unknown>[] }, name: string) => call.received.filter((message) => message.method === name);
 const chunk = (text: string, messageId = "msg_1") => ({ ...captures.messageChunkOk, params: { sessionId: "ses_fixture", update: { sessionUpdate: "agent_message_chunk", messageId, content: { type: "text", text } } } });
+
+describe("the OpenCode adapter's transcript", () => {
+  it("keeps every message it sent the agent and every line the agent printed, raw, when the runtime gives it transcript files", async () => {
+    const dir = realpathSync.native(createTempRepo({ "README.md": "x\n" }));
+    const transcript = { input: join(dir, "transcripts", "att.in.txt"), output: join(dir, "transcripts", "att.out.txt") };
+
+    const { call } = await attempt(completingScenario(), { transcript, options: { extraInstructions: "Use the repo's style." } });
+
+    const sent = readFileSync(transcript.input, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as { method?: string });
+    expect(sent.map((message) => message.method)).toEqual(["initialize", "session/new", "session/prompt"]);
+    expect(readFileSync(transcript.input, "utf8")).toContain("Use the repo's style.");
+    // What the agent printed, as the fake received and answered it: the new session's id is in it.
+    expect(readFileSync(transcript.output, "utf8")).toContain("ses_fixture");
+    expect(call.received.map((message) => message.method)).toEqual(sent.map((message) => message.method));
+  });
+});
 
 describe("the OpenCode adapter's conversation", () => {
   it("runs `opencode acp` in the workspace, sends the prompt as a session/prompt and never in the arguments, and declares no client capabilities", async () => {

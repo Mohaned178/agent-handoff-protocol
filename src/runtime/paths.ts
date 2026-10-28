@@ -85,6 +85,16 @@ export function snapshotRef(runId: string, attemptId: string): string {
 }
 
 /**
+ * The files an attempt's raw transcript is kept in (`AttemptInput.transcript`): what its agent process was sent and what it
+ * printed, beside the run's ledger and out of every working tree.
+ */
+export function transcriptPaths(location: RepoLocation, runId: string, attemptId: string): { input: string; output: string } {
+  if (!isRunId(runId) || !isAttemptId(attemptId)) throw new Error(`not a run and attempt ID: ${runId} ${attemptId}`);
+  const dir = join(runsDir(location), runId, "transcripts");
+  return { input: join(dir, `${attemptId}.in.txt`), output: join(dir, `${attemptId}.out.txt`) };
+}
+
+/**
  * The file an attempt's adapter appends its tool-call log to (`AttemptInput.toolCallLog`): beside the run's ledger, out
  * of every working tree, and found again by any process that picks the run up.
  */

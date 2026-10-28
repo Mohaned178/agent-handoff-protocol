@@ -15,7 +15,7 @@ import type {
   TransportKind,
   UsageReport,
 } from "../protocol/index.ts";
-import type { Termination } from "../process/index.ts";
+import type { Termination, TranscriptFiles } from "../process/index.ts";
 
 /**
  * What an adapter says about itself, statically: the same on every run, so the runtime can check a handoff against it
@@ -70,6 +70,14 @@ export interface AttemptInput {
    * attempt, not at its end. Metadata only. An adapter with nothing to log leaves it alone, and one that is not given a path (a caller that keeps no report) logs nothing.
    */
   toolCallLog?: string;
+  /**
+   * Absolute paths the runtime owns, outside the workspace, where the attempt's raw transcript is kept: what the adapter
+   * sent the tool on stdin and what the tool printed on stdout, byte for byte, written by the process layer when the
+   * adapter passes them to `launch` as its `transcript`. Optional like `toolCallLog`: an adapter that is given none, and
+   * a caller that keeps no transcript, keeps none. Stderr is not kept. Whatever the tool printed is in it, secrets the
+   * agent happened to print included.
+   */
+  transcript?: TranscriptFiles;
 }
 
 export interface AttemptExit {

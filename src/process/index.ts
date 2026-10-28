@@ -2,5 +2,5 @@
 // a `.cmd` shim through a shell), passes the prompt on stdin, and stops the agent's whole process tree.
 
 export { ExecutableNotFoundError, resolveExecutable, type Executable, type ResolveOptions } from "./resolve.ts";
-export { launch, type LaunchedProcess, type LaunchOptions, type ProcessExit } from "./launch.ts";
+export { launch, type LaunchedProcess, type LaunchOptions, type ProcessExit, type TranscriptFiles } from "./launch.ts";
 export { DEFAULT_GRACE_MS, OWN_PROCESS_GROUP, terminateTree, type TerminateOptions, type Termination } from "./tree.ts";

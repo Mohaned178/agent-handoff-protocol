@@ -72,7 +72,7 @@ export const claudeCodeAdapter: Adapter = {
   },
 
   // Called as a method, so an adapter built from this one under another declaration is held to its own.
-  async startAttempt({ workspace, requestedModel, capabilities, handoff, options }) {
+  async startAttempt({ workspace, requestedModel, capabilities, handoff, options, transcript }) {
     // The contract: fail rather than apply a capability at a weaker level than the one recorded.
     const { declaration } = this;
     for (const { kind, level } of capabilities.capabilities) {
@@ -112,6 +112,7 @@ export const claudeCodeAdapter: Adapter = {
         cwd: workspace,
         input: promptFor(handoff, reportFields, chosen.extraInstructions),
         env: chosen.configDir ? { CLAUDE_CONFIG_DIR: chosen.configDir } : undefined,
+        transcript,
       });
 
       const stream = new ClaudeStream();

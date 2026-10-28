@@ -91,7 +91,7 @@ export const openCodeAdapter: Adapter = {
   },
 };
 
-async function start({ workspace, requestedModel, capabilities, handoff, options, toolCallLog }: AttemptInput) {
+async function start({ workspace, requestedModel, capabilities, handoff, options, toolCallLog, transcript }: AttemptInput) {
   const chosen = (options ?? {}) as OpenCodeOptions;
   const reportFields = chosen.reportFields ?? [];
   const policy = policyOf(capabilities, workspace);
@@ -104,7 +104,7 @@ async function start({ workspace, requestedModel, capabilities, handoff, options
   };
   const executable = await resolveExecutable("opencode");
   // `--cwd` and the launch's own PWD: OpenCode follows the inherited PWD, not the process's working directory (spike F1).
-  const agent = await launch({ executable, args: ["acp", "--pure", "--cwd", workspace], cwd: workspace, duplex: true, env });
+  const agent = await launch({ executable, args: ["acp", "--pure", "--cwd", workspace], cwd: workspace, duplex: true, env, transcript });
 
   const turn = new AcpTurn();
   const log = toolCallLogger(toolCallLog ?? null, workspace);

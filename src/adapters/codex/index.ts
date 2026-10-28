@@ -72,7 +72,7 @@ export const codexAdapter: Adapter = {
   },
 
   // Called as a method, so an adapter built from this one under another declaration is held to its own.
-  async startAttempt({ workspace, requestedModel, capabilities, handoff, options }) {
+  async startAttempt({ workspace, requestedModel, capabilities, handoff, options, transcript }) {
     // The contract: fail rather than apply a capability at a weaker level than the one recorded.
     const { declaration } = this;
     for (const { kind, level } of capabilities.capabilities) {
@@ -106,7 +106,7 @@ export const codexAdapter: Adapter = {
       const executable = await resolveExecutable("codex");
       // Absolute: the agent runs in the worktree, AHP in its own directory, and both must find the same home.
       const env = chosen.codexHome ? { CODEX_HOME: resolve(chosen.codexHome) } : undefined;
-      const agent = await launch({ executable, args, cwd: workspace, input: promptFor(handoff, reportFields, chosen.extraInstructions), env });
+      const agent = await launch({ executable, args, cwd: workspace, input: promptFor(handoff, reportFields, chosen.extraInstructions), env, transcript });
 
       const stream = new CodexStream();
       const reading = (async () => {

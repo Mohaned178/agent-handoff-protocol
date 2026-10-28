@@ -166,7 +166,7 @@ export const mockAdapter: Adapter = {
   },
 
   // Called as a method, so an adapter built from this one under another declaration is held to its own.
-  async startAttempt({ attemptNumber, workspace, options, capabilities }) {
+  async startAttempt({ attemptNumber, workspace, options, capabilities, transcript }) {
     // The contract: fail rather than apply a capability at a weaker level than the one recorded.
     const { declaration } = this;
     for (const { kind, level } of capabilities.capabilities) {
@@ -189,6 +189,7 @@ export const mockAdapter: Adapter = {
       cwd: workspace,
       // The agent is told what is asked of it, which is all `cooperative` means; it does nothing more about it.
       input: JSON.stringify({ ...script, asked: capabilities }),
+      transcript,
     });
     const report = text(agent.stdout);
     const exited = agent.exited.then(async ({ exitCode, signal }): Promise<AttemptExit> => {

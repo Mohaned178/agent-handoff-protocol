@@ -1,7 +1,32 @@
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { execa } from "execa";
 import { isFile, startsDirectly, type Executable } from "./resolve.ts";
 import { OWN_PROCESS_GROUP, terminateTree, type TerminateOptions, type Termination } from "./tree.ts";
+
+/** The two files a process's raw transcript is kept in, both absolute and both made (empty) when the process is launched. */
+export interface TranscriptFiles {
+  /** Everything written to the process's stdin, byte for byte: the prompt, or an ACP client's messages. */
+  input: string;
+  /** Everything the process printed on stdout, byte for byte. Its stderr is not kept. */
+  output: string;
+}
+
+/**
+ * Makes the transcript's files and their directories; null when that cannot be done, which is no reason to fail the
+ * attempt: a transcript is for a person to audit, and nothing depends on it.
+ */
+function startTranscript(files: TranscriptFiles, input: string): TranscriptFiles | null {
+  try {
+    for (const path of [files.input, files.output]) mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(files.input, input);
+    writeFileSync(files.output, "");
+    return files;
+  } catch {
+    return null;
+  }
+}
 
 export interface LaunchOptions {
   /** What `resolveExecutable` found. */
@@ -19,6 +44,13 @@ export interface LaunchOptions {
   duplex?: boolean;
   /** Variables added to this process's environment. `PWD` is always `cwd`. */
   env?: NodeJS.ProcessEnv;
+  /**
+   * Keeps the process's raw transcript in these files as it goes: what is sent to its stdin (`input`, or each write to
+   * `LaunchedProcess.stdin` when `duplex`) and what it prints on stdout. The output file is complete once `exited` has
+   * settled, and the caller still reads `stdout` as usual. A transcript that cannot be made is left out, and the process
+   * is started all the same.
+   */
+  transcript?: TranscriptFiles;
 }
 
 export interface ProcessExit {
@@ -55,6 +87,7 @@ export async function launch(options: LaunchOptions): Promise<LaunchedProcess> {
   if (process.platform === "win32" && !(startsDirectly(executable.file) && (await isFile(executable.file)))) {
     throw new Error(`could not start ${executable.file}: on Windows only an existing .exe or .com is started, never through cmd.exe`);
   }
+  const transcript = options.transcript ? startTranscript(options.transcript, options.duplex ? "" : (options.input ?? "")) : null;
   const launchedAt = Date.now();
   const subprocess = execa(executable.file, [...executable.prefixArgs, ...(options.args ?? [])], {
     cwd: options.cwd,
@@ -71,7 +104,8 @@ export async function launch(options: LaunchOptions): Promise<LaunchedProcess> {
     windowsHide: true,
     // No input still closes stdin, so a tool that reads it sees its end rather than waiting. A duplex process's stdin is the caller's.
     ...(options.duplex ? { stdin: "pipe" as const } : { input: options.input ?? "" }),
-    stdout: "pipe",
+    // Piped to the caller, and written to the transcript file as well; execa waits for the file before it settles.
+    stdout: transcript ? ["pipe", { file: transcript.output }] : "pipe",
     stderr: "ignore",
   });
   let hasExited = false;
@@ -87,9 +121,23 @@ export async function launch(options: LaunchOptions): Promise<LaunchedProcess> {
     });
   }
   const pid = subprocess.pid;
+  const stdin = options.duplex ? subprocess.stdin : null;
+  if (stdin && transcript) {
+    // Each write is recorded before it is passed on. The caller keeps the process's own stdin, so ending it, its errors
+    // and its backpressure are unchanged.
+    const write = stdin.write.bind(stdin);
+    stdin.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+      try {
+        appendFileSync(transcript.input, chunk);
+      } catch {
+        // see `startTranscript`
+      }
+      return (write as (...args: unknown[]) => boolean)(chunk, ...rest);
+    }) as typeof stdin.write;
+  }
   return {
     pid,
-    stdin: options.duplex ? subprocess.stdin : null,
+    stdin,
     stdout: subprocess.stdout,
     exited: exited.then((result) => {
       if (result.failed && result.exitCode === undefined && result.signal === undefined) {
