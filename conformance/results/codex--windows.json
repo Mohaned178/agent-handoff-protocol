@@ -5,7 +5,7 @@
   "platform": "win32",
   "osLabel": "Windows",
   "toolVersion": "0.146.0",
-  "ranAt": "2026-10-28T17:05:02.657Z",
+  "ranAt": "2026-10-28T17:24:54.401Z",
   "checks": [
     {
       "id": "declaration:complete",
@@ -15,7 +15,7 @@
     {
       "id": "spawn_and_exit",
       "status": "passed",
-      "detail": "started as process 1368, exited 0, reported its summary, and its file is in the workspace"
+      "detail": "started as process 20784, exited 0, reported its summary, and its file is in the workspace"
     },
     {
       "id": "failure:agent_error",
@@ -34,8 +34,8 @@
     },
     {
       "id": "model:reported",
-      "status": "skipped",
-      "detail": "the adapter reported the requested model \"gpt-5.6-luna\", and the subject cannot make the tool say another, so an echo of the request cannot be told from a report"
+      "status": "passed",
+      "detail": "reported \"gpt-5.6-terra\", which is what the tool said (no model was requested)"
     },
     {
       "id": "model:not_reported",
@@ -45,7 +45,7 @@
     {
       "id": "usage:reported",
       "status": "passed",
-      "detail": "reported usage labelled with its source \"codex exec --json turn.completed event (usage); input_tokens includes cached_input_tokens; 87 reasoning_output_tokens were reported, not added; no total or cost is reported\""
+      "detail": "reported usage labelled with its source \"codex exec --json turn.completed event (usage); input_tokens includes cached_input_tokens; 67 reasoning_output_tokens were reported, not added; no total or cost is reported\""
     },
     {
       "id": "usage:not_reported",

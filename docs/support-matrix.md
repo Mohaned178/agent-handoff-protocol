@@ -20,7 +20,7 @@ Each cell is the latest conformance result recorded for that adapter on that sys
 | Adapter | Windows | Linux (WSL2) | Linux | macOS |
 | --- | --- | --- | --- | --- |
 | claude-code | passed (2.1.312, 2026-10-28); the tool cannot be made to do: failure:transient, model:not_reported, usage:not_reported | untested | untested | untested |
-| codex | untested (0.146.0, 2026-10-28): not checked: model:reported | untested | untested | untested |
+| codex | passed (0.146.0, 2026-10-28); the tool cannot be made to do: failure:transient, model:not_reported, usage:not_reported | untested | untested | untested |
 | gemini-cli | untested | untested | untested | untested |
 | opencode | passed (1.18.35, 2026-10-28); the tool cannot be made to do: failure:agent_error, failure:config_auth, failure:transient, model:not_reported, usage:not_reported | untested (1.19.4, 2026-10-28): not checked: failure:agent_error, failure:config_auth, failure:transient, model:reported, model:not_reported, usage:not_reported | untested | untested |
 
