@@ -196,10 +196,18 @@ async function setupOwnTask(options: SetupOptions): Promise<SetupResult> {
 
 const TASK_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
-/** A task name from its first words: lowercase, joined by "-". */
+const SLUG_FILLER = new Set(["a", "an", "the", "to", "of", "for", "and", "in", "on", "with"]);
+const SLUG_MAX_WORDS = 5;
+const SLUG_MAX_LENGTH = 40;
+
+/**
+ * A task name from the goal's first words: lowercase, joined by "-". Filler words are left out, at most five words are kept,
+ * and trailing words are dropped until the name fits in 40 characters (a word is never cut). "task" when no word is left.
+ */
 export function slugOf(goal: string): string {
-  const words = goal.toLowerCase().match(/[a-z0-9]+/g) ?? [];
-  return words.slice(0, 5).join("-") || "task";
+  const words = (goal.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((word) => !SLUG_FILLER.has(word)).slice(0, SLUG_MAX_WORDS);
+  while (words.length > 0 && words.join("-").length > SLUG_MAX_LENGTH) words.pop();
+  return words.join("-") || "task";
 }
 
 /** The paths in a comma-separated answer, written as the workflow wants them: "/" separators, no "./" or trailing "/". */

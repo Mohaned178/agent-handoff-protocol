@@ -179,8 +179,10 @@ describe("ahp setup: a task of your own", () => {
     const { prompter } = scripted(["workflow", "own", "Do it", "npm test", "", "../elsewhere"]);
 
     await expect(runSetup({ prompter, dir, report: everyTool, models })).rejects.toThrow(/paths inside the repository, relative to its root, with no "\.\.": not \.\.\/elsewhere/);
-    expect(slugOf("Add a /health endpoint, quickly!")).toBe("add-a-health-endpoint-quickly");
+    expect(slugOf("Add a /health endpoint, quickly!")).toBe("add-health-endpoint-quickly");
     expect(slugOf("!!!")).toBe("task");
+    expect(slugOf("the a an")).toBe("task");
+    expect(slugOf("Rewrite the cached invoice totals calculation module")).toBe("rewrite-cached-invoice-totals");
     expect(pathsIn(" a/ , ./b\\c,a ")).toEqual(["a", "b/c"]);
   });
 });
