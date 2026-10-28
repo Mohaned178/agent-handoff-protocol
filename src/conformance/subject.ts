@@ -43,7 +43,7 @@ export type Scenario = (typeof SCENARIOS)[number];
 /** Where and what a provoker is to act on, all inside the attempt's own workspace or the suite's local server. */
 export interface ProvokerContext {
   /** The model the attempt requests: what a tool that reports nothing must not be credited with. */
-  requestedModel: string;
+  requestedModel: string | null;
   probeFile: string;
   probeContent: string;
   /** A repository-relative directory a `write_scope` capability allows. */
@@ -77,9 +77,9 @@ export interface ConformanceSubject {
   provokers: Partial<Record<Scenario, Provoker>>;
   /**
    * The model every attempt requests; a real tool needs one it accepts. Default: a made-up name, which only a scripted
-   * tool can be told to run, so a model the adapter reports without being told it equals this is an echo of the request.
+   * tool can be told to run, so a model the adapter reports without being told it equals this is an echo of the request. `null` requests none, so the tool's own default runs and what it reports cannot be an echo (for a tool that cannot be told to run a model other than the one it logs).
    */
-  requestedModel?: string;
+  requestedModel?: string | null;
   /**
    * Scenarios the tool itself cannot be made to do (no way to cause a rate limit, a tool that always reports its model).
    * Their checks are recorded `unprovokable` and named on the matrix cell, not skipped; a scenario that only lacks a

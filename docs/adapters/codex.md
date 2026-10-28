@@ -87,7 +87,7 @@ Recorded per OS in `conformance/results/` and rendered by `npm run conformance -
 env -u OPENAI_API_KEY -u CODEX_API_KEY npm run conformance -- run codex
 ```
 
-The suite requests `gpt-5.6-luna` (set `AHP_CONFORMANCE_CODEX_MODEL` for a login that cannot use it). Checks the tool cannot be made to do are skipped, never passed, so the outcome is `untested` until they can be: `failure:transient` (no way to cause a rate limit), `model:reported` (Codex logs the name it was asked for, so the suite cannot tell a report from an echo of the request), and `model:not_reported` and `usage:not_reported` (the tool states both on every run). Everything else the suite asks of this adapter passed on native Windows (the matrix shows the date and the tool version). The Linux (WSL2) cell is recorded only by running the same command there.
+The suite requests no model, so Codex runs its own default and the name it logs is a report, not an echo (set `AHP_CONFORMANCE_CODEX_MODEL` to request one, for a login that cannot use the default; Codex logs the name it was asked for, so `model:reported` is then skipped as an echo). Three checks are recorded `unprovokable` and named on the cell: `failure:transient` (no way to cause a rate limit), and `model:not_reported` and `usage:not_reported` (the tool states both on every run). Everything else the suite asks of this adapter passed on native Windows (the matrix shows the date and the tool version). The Linux (WSL2) cell is recorded only by running the same command there.
 
 ## Not known
 

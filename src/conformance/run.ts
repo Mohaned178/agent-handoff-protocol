@@ -182,7 +182,7 @@ async function start(
   const workspace = await workspaceOf(run);
   const pidDir = mkdtempSync(join(tmpdir(), "ahp-conformance-pids-"));
   run.cleanups.push(async () => rmSync(pidDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
-  const requestedModel = run.subject.requestedModel ?? DEFAULT_REQUESTED_MODEL;
+  const requestedModel = run.subject.requestedModel === undefined ? DEFAULT_REQUESTED_MODEL : run.subject.requestedModel;
   const context: ProvokerContext = {
     requestedModel,
     probeFile: "probe.txt",
@@ -245,7 +245,7 @@ function isRunning(pid: number): boolean {
 }
 
 /** A revision-1 handoff for the attempt, as the runtime would make it for a step that asks for `applied`. */
-function handoffFor(commit: string, adapter: string, requestedModel: string, applied: AppliedCapabilities): HandoffRevision {
+function handoffFor(commit: string, adapter: string, requestedModel: string | null, applied: AppliedCapabilities): HandoffRevision {
   return {
     schemaVersion: PROTOCOL_VERSION,
     handoffId: "hnd_conformance",
@@ -363,17 +363,17 @@ async function modelReported(run: CheckContext): Promise<Outcome> {
   const told = ran.provoked.told?.model;
   if (typeof exit.reportedModel !== "string" || exit.reportedModel.trim() === "") fail(`the tool named its model and the adapter reported ${JSON.stringify(exit.reportedModel)}`);
   if (told !== undefined && exit.reportedModel !== told) fail(`the tool said "${told}" and the adapter reported "${exit.reportedModel}"`);
-  if (told === undefined && exit.reportedModel === ran.context.requestedModel) {
+  if (told === undefined && ran.context.requestedModel !== null && exit.reportedModel === ran.context.requestedModel) {
     return skipped(`the adapter reported the requested model "${exit.reportedModel}", and the subject cannot make the tool say another, so an echo of the request cannot be told from a report`);
   }
-  return passed(`reported "${exit.reportedModel}", which is what the tool said (the requested model was "${ran.context.requestedModel}")`);
+  return passed(`reported "${exit.reportedModel}", which is what the tool said (${ran.context.requestedModel === null ? "no model was requested" : `the requested model was "${ran.context.requestedModel}"`})`);
 }
 
 async function modelNotReported(run: CheckContext): Promise<Outcome> {
   const result = await ranToEnd(run, "no_model_report");
   if (!result) return cannotProvoke(run, "no_model_report");
   if (result.exit.reportedModel !== null) {
-    fail(`the tool said nothing about its model, and the adapter reported "${result.exit.reportedModel}" (the requested model was "${result.ran.context.requestedModel}"): a reported model is never filled in from the request`);
+    fail(`the tool said nothing about its model, and the adapter reported "${result.exit.reportedModel}" (${result.ran.context.requestedModel === null ? "no model was requested" : `the requested model was "${result.ran.context.requestedModel}"`}): a reported model is never filled in from the request`);
   }
   return passed("reported no model when the tool named none, though one was requested");
 }

@@ -332,4 +332,13 @@ describe("the conformance suite finds an adapter that does not hold to its contr
     expect(check(result, "failure:transient").status).toBe("unprovokable");
     expect(check(result, "usage:not_reported").status).toBe("skipped");
   });
+
+  it("reads a model reported with none requested as a report, since it cannot be an echo", async () => {
+    const { told: _told, ...provoked } = mockSubject().provokers.reports_model!({} as never);
+    const subject: ConformanceSubject = { ...mockSubject(), requestedModel: null, provokers: { ...mockSubject().provokers, reports_model: () => provoked } };
+
+    const result = await runOnly(subject, ["model:reported"]);
+
+    expect(check(result, "model:reported").status).toBe("passed");
+  });
 });

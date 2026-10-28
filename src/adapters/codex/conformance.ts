@@ -1,11 +1,12 @@
 // The Codex adapter as a conformance subject. The real tool is told in words what to do, so a run depends on the model
-// following an instruction: a scenario the tool cannot be made to do reliably is left out, and its check is skipped,
-// never passed. Left out: `rate_limited` (no way to cause one), `no_model_report` and `no_usage_report` (the tool states
+// following an instruction: a scenario the tool cannot be made to do reliably is left out, and its check is recorded
+// `unprovokable` (or skipped, if the subject does not say so), never passed. Left out: `rate_limited` (no way to cause one), `no_model_report` and `no_usage_report` (the tool states
 // both on every run), and the probes of levels the adapter declares `cooperative` (`write_scope`, `no_external_actions`,
 // the network stances and `read_only` off Windows): the suite checks those only as accepted.
 //
-// The model is requested by name (Codex has no aliases), so the model Codex logs equals the request, and the suite skips
-// that check as an echo it cannot tell from a report. Set AHP_CONFORMANCE_CODEX_MODEL for a login that cannot use the default.
+// No model is requested (Codex has no aliases, so a request would come back as the same name and the suite would skip
+// the check as an echo it cannot tell from a report): Codex runs its own default and the model it logs is a report. Set
+// AHP_CONFORMANCE_CODEX_MODEL to request one, which brings the skip back.
 //
 // Run by the maintainer on their machine, under their own login, never in CI: `npm run conformance -- run codex`.
 // Unset OPENAI_API_KEY and CODEX_API_KEY first, or the tool may bill an API key instead of the login.
@@ -52,7 +53,8 @@ setTimeout(() => {}, 600000);
 export function codexSubject(): ConformanceSubject {
   return {
     adapter: codexAdapter,
-    requestedModel: process.env.AHP_CONFORMANCE_CODEX_MODEL || "gpt-5.6-luna",
+    requestedModel: process.env.AHP_CONFORMANCE_CODEX_MODEL || null,
+    unprovokable: ["rate_limited", "no_model_report", "no_usage_report"],
     toolVersion: async () => {
       const result = await probe("codex", ["--version"], { cwd: tmpdir() });
       const version = result.outcome === "exited" && result.exitCode === 0 ? /(\d+\.\d+\.\d+\S*)/.exec(result.stdout)?.[1] : undefined;
