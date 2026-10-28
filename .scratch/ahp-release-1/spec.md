@@ -245,5 +245,4 @@ Run created; step ready; handoff revision issued/accepted/rejected/superseded; a
 - Rollout order for tickets follows design doc §8: (1) protocol, SDK, runtime, ledger, mock adapter; (2) transport spike on native Windows; (3) Claude Code and Codex adapters plus the A2A mapping; (4) Gemini CLI and OpenCode; (5) evaluation pilot; (6) support matrix. Steps 1–4 must not require paid API access; Gemini CLI needs paid access and is built last.
 - Open until rollout step 5: pilot budget and which keys/subscriptions are available.
 - Settled during ticketing (2026-10-24): a single package with internal module boundaries; Vitest as the test runner; PRs opened with the GitHub CLI under the user's own login. Tickets are in `issues/`.
-- The deck-era diagram is superseded and will be redrawn from this spec.
 - Research facts from 2026-10-24 (vendor terms, Gemini CLI paid-only, `node:sqlite` stability) may change; the dated terms-of-service review in `docs/` is the place to re-check them before the pilot.

@@ -116,7 +116,7 @@ Agents are started without a shell: AHP resolves the tool's real executable on P
 - [Glossary](GLOSSARY.md)
 - [Release-1 spec](.scratch/ahp-release-1/spec.md) and [tickets](.scratch/ahp-release-1/issues/)
 
-`AHP-presentation.pdf` and `docs/diagrams/ahp-user-workflow.excalidraw` show the original design and are superseded by the documents above.
+`AHP-presentation.pdf` shows the original design and is superseded by the documents above. `docs/diagrams/ahp-user-workflow.excalidraw` shows the reference scenario as the spec defines it.
 
 ## License
 

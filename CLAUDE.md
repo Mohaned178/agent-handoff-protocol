@@ -53,7 +53,7 @@ Git remote: public repo https://github.com/Mohaned178/agent-handoff-protocol (de
 - `docs/spikes/2026-10-27-transport-spike-windows.md` (ticket 14) is the evidence for each adapter's transport on native Windows, with a per-tool recommendation table; read it before tickets 15, 16, 18 and 19. Its findings F1 (`opencode run` follows the inherited `PWD`, not the process cwd) and F2 (`launch` cannot drive ACP: stdin is closed after `input`, stderr ignored) affect the process layer.
 - `docs/a2a-mapping.md` (ticket 17) maps AHP shapes to A2A v1.0.0 and lists what is AHP extension data. It is a mapping only: no code emits A2A, there is no wire binding, and the protocol stays 0.x. `test/a2a-mapping.test.ts` fails when a closed-list value it names is renamed or removed.
 - `GLOSSARY.md` holds the domain terms and `docs/adr/` the hard-to-reverse decisions; use their vocabulary.
-- `docs/diagrams/ahp-user-workflow.excalidraw` shows the **old deck** design and is superseded; it will be redrawn from the spec.
+- `docs/diagrams/ahp-user-workflow.excalidraw` shows the reference scenario as the spec defines it: the run, one attempt, the failure paths and the ledger. Open it at excalidraw.com. Keep it in step with the glossary when a step kind or failure path changes.
 - `AHP-presentation.pdf` is the original 15-slide design deck. Where it conflicts with the v2 direction, v2 wins. To read it as text: `pdftotext -layout AHP-presentation.pdf -` (the Read tool's PDF rendering needs `pdftoppm`, which is not installed here).
 
 ## Direction in brief

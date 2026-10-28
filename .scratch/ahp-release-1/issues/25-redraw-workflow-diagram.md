@@ -4,11 +4,11 @@
 
 **Blocked by:** 10
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Model:** Sonnet 5.5 · medium
 
-- [ ] Shows the reference scenario: plan (Claude Code) → implement (Codex; hidden tests) → review (OpenCode; send-back) → approval gate → AHP pushes or opens a PR
-- [ ] Shows verification in a verification worktree, the ledger, retry with handoff revisions, and the `unknown` → `needs_recovery` path
-- [ ] Uses glossary terms only; no web platform, inference engines, per-tool-call policy, Tester or sandbox
-- [ ] Superseded banner and CLAUDE.md note removed
+- [x] Shows the reference scenario: plan (Claude Code) → implement (Codex; hidden tests) → review (OpenCode; send-back) → approval gate → AHP pushes or opens a PR
+- [x] Shows verification in a verification worktree, the ledger, retry with handoff revisions, and the `unknown` → `needs_recovery` path
+- [x] Uses glossary terms only; no web platform, inference engines, per-tool-call policy, Tester or sandbox
+- [x] Superseded banner and CLAUDE.md note removed
