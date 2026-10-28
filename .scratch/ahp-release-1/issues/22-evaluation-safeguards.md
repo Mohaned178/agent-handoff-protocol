@@ -4,7 +4,7 @@
 
 **Blocked by:** 11, 20
 
-**Status:** implemented, awaiting review of the decisions below
+**Status:** done
 
 **Model:** Sonnet 5.5 · medium
 
