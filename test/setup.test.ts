@@ -77,8 +77,8 @@ describe("ahp setup: a workflow", () => {
     const dir = tempDir();
     const { prompter, asked, left } = scripted([
       "workflow",
-      "claude-code", "claude-code-model", // plan
-      "codex", null, // implement: the tool's own default
+      "claude-code", "claude-code-model", "high", // plan
+      "codex", null, null, // implement: the tool's own model and effort
       "opencode", "\u0000typed", "opencode/typed-free", // review: a name typed in
       "ahp/reset",
       "flow.mjs",
@@ -92,12 +92,14 @@ describe("ahp setup: a workflow", () => {
     const workflow = (await load(result.path)) as { steps: { id: string; agent?: unknown; action?: { branch: string } }[] };
     expect(validateWorkflow(workflow)).toEqual([]);
     const agent = (id: string) => workflow.steps.find((step) => step.id === id)!.agent;
-    expect(agent("plan")).toEqual({ adapter: "claude-code", model: "claude-code-model" });
+    expect(agent("plan")).toEqual({ adapter: "claude-code", model: "claude-code-model", options: { effort: "high" } });
     expect(agent("implement")).toEqual({ adapter: "codex" });
     expect(agent("review")).toEqual({ adapter: "opencode", model: "opencode/typed-free" });
     expect(workflow.steps.find((step) => step.id === "publish")!.action!.branch).toBe("ahp/reset");
     expect(readFileSync(result.path, "utf8")).toContain("Written by `ahp setup`");
-    expect(readFileSync(result.path, "utf8")).toContain("plan      claude-code, model claude-code-model");
+    expect(readFileSync(result.path, "utf8")).toContain("plan      claude-code, model claude-code-model, effort high");
+    // OpenCode's adapter has no effort option, so none is asked for it.
+    expect(asked.filter((question) => question.message.startsWith("Which effort")).map((question) => question.message.split(" ")[3])).toEqual(["plan?", "implement?"]);
     // A tool that cannot be used is shown with the reason and cannot be picked.
     expect(asked[1]!.choices!.find((choice) => choice.value === "gemini-cli")).toMatchObject({ disabled: "not installed" });
   });
@@ -133,8 +135,8 @@ describe("ahp setup: an evaluation", () => {
       "evaluation",
       (choices: Choice<unknown>[]) => choices.filter((choice) => choice.checked).map((choice) => choice.value), // the default: password-reset
       ["C0", "C3"],
-      "claude-code", null,
-      "claude-code", "claude-code-model",
+      "claude-code", null, "low",
+      "claude-code", "claude-code-model", null,
       "opencode", "opencode-model",
       "2",
       "3",
@@ -152,7 +154,7 @@ describe("ahp setup: an evaluation", () => {
       name: "smoke",
       tasks: ["./pilot/tasks/password-reset"],
       conditions: ["C0", "C3"],
-      agents: { plan: { adapter: "claude-code" }, implement: { adapter: "claude-code", model: "claude-code-model" }, review: { adapter: "opencode", model: "opencode-model" } },
+      agents: { plan: { adapter: "claude-code", options: { effort: "low" } }, implement: { adapter: "claude-code", model: "claude-code-model" }, review: { adapter: "opencode", model: "opencode-model" } },
       repeats: 2,
       spendCap: { amount: 3, currency: "USD" },
     });
@@ -162,12 +164,12 @@ describe("ahp setup: an evaluation", () => {
 
   it("asks only for the implement agent when C0 alone runs, re-asks a baseline without C3, and takes no cap when blank", async () => {
     const dir = withTasks();
-    const { prompter, said } = scripted(["evaluation", ["./pilot/tasks/csv-export"], ["baseline"], ["C0"], "codex", null, "1", "", "ahp.suite.mjs", false]);
+    const { prompter, said } = scripted(["evaluation", ["./pilot/tasks/csv-export"], ["baseline"], ["C0"], "codex", null, "medium", "1", "", "ahp.suite.mjs", false]);
 
     const result = await runSetup({ prompter, dir, report: everyTool, models });
 
     expect(said.some((text) => text.includes("needs C3"))).toBe(true);
-    expect(await load(result.path)).toEqual({ name: "ahp.suite", tasks: ["./pilot/tasks/csv-export"], conditions: ["C0"], agents: { implement: { adapter: "codex" } }, repeats: 1 });
+    expect(await load(result.path)).toEqual({ name: "ahp.suite", tasks: ["./pilot/tasks/csv-export"], conditions: ["C0"], agents: { implement: { adapter: "codex", options: { effort: "medium" } } }, repeats: 1 });
   });
 });
 

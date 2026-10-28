@@ -49,7 +49,7 @@ export default defineWorkflow({
 
 ### Choosing tools and models in menus
 
-`node bin/ahp.mjs setup` (or `node src/cli/bin.ts setup`) asks, in arrow-key menus, whether to set up a workflow on a repository or an evaluation, then which tool and which model runs each step (plan, implement, review), from the tools `ahp doctor` finds. Models come from the tool where it can list them (`opencode models`), else a short list (Claude Code's aliases `sonnet`, `opus`, `haiku`), and you can always keep the tool's own default or type a name. It writes `ahp.workflow.mjs` or `ahp.suite.mjs` (never replacing a file) and offers to start it with `ahp run` or `ahp eval`. It needs an interactive terminal.
+`node bin/ahp.mjs setup` (or `node src/cli/bin.ts setup`) asks, in arrow-key menus, whether to set up a workflow on a repository or an evaluation, then which tool and which model runs each step (plan, implement, review), from the tools `ahp doctor` finds. Models come from the tool where it can list them (`opencode models`), else a short list (Claude Code's aliases `sonnet`, `opus`, `haiku`), and you can always keep the tool's own default or type a name. For Claude Code and Codex it then asks the effort level (`low` to `max` for Claude Code, `minimal` to `xhigh` for Codex); OpenCode's and Gemini CLI's adapters have no effort option, so they are not asked. It writes `ahp.workflow.mjs` or `ahp.suite.mjs` (never replacing a file) and offers to start it with `ahp run` or `ahp eval`. It needs an interactive terminal.
 
 ### Several steps and handoffs
 

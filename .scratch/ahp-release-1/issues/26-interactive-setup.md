@@ -12,6 +12,7 @@ Asked for by the maintainer on 2026-10-28, after the first real end-to-end run (
 
 - [x] `ahp setup` asks: workflow or evaluation; for each role (plan, implement, review; only implement when C0 and the baseline alone run) the tool, from what `ahp doctor` found (a tool that cannot be used is shown with the reason and cannot be picked), then the model
 - [x] Models: the tool's own default first (no model requested), then the tool's list (`opencode models`, free models first) or the names AHP knows (Claude Code's aliases; for Codex and Gemini CLI the names this project's runs used, labelled as such), then a name typed in
+- [x] Effort, asked after the model only for a tool whose adapter has one (`effortsFor`: Claude Code's `CLAUDE_CODE_EFFORTS`, Codex's `CODEX_EFFORTS`; OpenCode and Gemini CLI have none and are not asked), the tool's default first; written as the agent's `options.effort` (added on the maintainer's request, 2026-10-28)
 - [x] Workflow: the reference scenario `ahp init` writes, with the chosen models (`RoleAssignment.model`), validated before it is written; the mock is offered there only
 - [x] Evaluation: tasks found under `pilot/tasks` (or typed), conditions (a baseline without C3 is refused), repeats, an optional spend cap in USD; validated with `validateSuite` before it is written
 - [x] Never replaces a file: an existing name is asked for again, and the write is exclusive

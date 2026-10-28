@@ -5,6 +5,16 @@
 import { tmpdir } from "node:os";
 import { probe } from "../doctor/probe.ts";
 import type { ToolId } from "../doctor/tools.ts";
+import { CLAUDE_CODE_EFFORTS } from "../adapters/claude-code/index.ts";
+import { CODEX_EFFORTS } from "../adapters/codex/index.ts";
+
+/**
+ * The effort levels a tool's adapter passes on (Claude Code's `--effort`, Codex's `model_reasoning_effort`); none for a
+ * tool whose adapter has no such option. Whether a model accepts a level is the tool's answer, at run time.
+ */
+export function effortsFor(tool: ToolId): readonly string[] {
+  return tool === "claude-code" ? CLAUDE_CODE_EFFORTS : tool === "codex" ? CODEX_EFFORTS : [];
+}
 
 export interface ModelChoice {
   /** The model a step requests, or null for the tool's own default. */

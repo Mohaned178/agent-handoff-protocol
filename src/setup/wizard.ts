@@ -12,7 +12,7 @@ import type { DoctorReport } from "../doctor/doctor.ts";
 import { TOOLS, type ToolId } from "../doctor/tools.ts";
 import { CONDITIONS, type ConditionId } from "../evaluation/events.ts";
 import { validateSuite, type EvaluationRole } from "../evaluation/suite.ts";
-import type { ModelList } from "./models.ts";
+import { effortsFor, type ModelList } from "./models.ts";
 
 export interface Choice<T> {
   name: string;
@@ -90,7 +90,15 @@ async function castRole(options: SetupOptions, role: Role, allowMock: boolean): 
     default: null,
   });
   const model = picked === typed ? (await prompter.input({ message: "Model name:", validate: (value) => (value.trim() ? true : "a name, or go back and pick the default") })).trim() : picked;
-  return { role, adapter: tool, tool, reason: "chosen in ahp setup", ...(model ? { model } : {}) };
+  const efforts = effortsFor(tool);
+  const effort = efforts.length === 0
+    ? null
+    : await prompter.select<string | null>({
+        message: `Which effort for ${role}? (the model may refuse a level; the tool says so when it runs)`,
+        choices: [{ name: "the tool's own default", value: null }, ...efforts.map((level) => ({ name: level, value: level }))],
+        default: null,
+      });
+  return { role, adapter: tool, tool, reason: "chosen in ahp setup", ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
 }
 
 /** A file name in `dir` that does not exist yet: asked for again while the one given does. */
@@ -163,10 +171,10 @@ async function setupEvaluation(options: SetupOptions): Promise<SetupResult> {
   }
   // C0, and so the baseline, is the implement agent alone; the pipeline conditions need all three.
   const roles: EvaluationRole[] = conditions.some((id) => id === "C1" || id === "C2" || id === "C3") ? ["plan", "implement", "review"] : ["implement"];
-  const agents: Partial<Record<EvaluationRole, { adapter: string; model?: string }>> = {};
+  const agents: Partial<Record<EvaluationRole, { adapter: string; model?: string; options?: { effort: string } }>> = {};
   for (const role of roles) {
     const cast = await castRole(options, role, false);
-    agents[role] = cast.model ? { adapter: cast.adapter, model: cast.model } : { adapter: cast.adapter };
+    agents[role] = { adapter: cast.adapter, ...(cast.model ? { model: cast.model } : {}), ...(cast.effort ? { options: { effort: cast.effort } } : {}) };
   }
   const repeats = Number(await prompter.input({ message: "Trials per task and condition:", default: "1", validate: positiveInteger }));
   const cap = (await prompter.input({ message: "Stop once the tools report this much spent, in USD (blank: no cap):", default: "5", validate: amountOrBlank })).trim();

@@ -26,6 +26,8 @@ export interface RoleAssignment {
   reason: string;
   /** The model the step requests; absent for the tool's own default. */
   model?: string;
+  /** The adapter's `effort` option; absent for the tool's own default. */
+  effort?: string;
 }
 
 /**
@@ -128,9 +130,9 @@ const MOCK_SCRIPTS: Record<Role, MockAttemptScript[]> = {
   ],
 };
 
-function agentOf({ role, adapter, model }: RoleAssignment) {
+function agentOf({ role, adapter, model, effort }: RoleAssignment) {
   if (adapter === "mock") return { adapter, options: { attempts: MOCK_SCRIPTS[role] } };
-  return model === undefined ? { adapter } : { adapter, model };
+  return { adapter, ...(model === undefined ? {} : { model }), ...(effort === undefined ? {} : { options: { effort } }) };
 }
 
 /** The reference scenario as a workflow definition: plan, implement, review (with send-back), approval gate, push. */
@@ -176,7 +178,7 @@ export function renderWorkflow(assignments: readonly RoleAssignment[], branch = 
   const workflow = buildWorkflow(assignments, branch);
   const problems = validateWorkflow(workflow);
   if (problems.length > 0) throw new Error(`the generated workflow is invalid:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
-  const cast = assignments.map(({ role, adapter, tool, model }) => `//   ${role.padEnd(9)} ${adapter}${model ? `, model ${model}` : ""}${tool === null ? "  (scripted mock: not a real coding agent, and its output is no evidence)" : ""}`);
+  const cast = assignments.map(({ role, adapter, tool, model, effort }) => `//   ${role.padEnd(9)} ${adapter}${model ? `, model ${model}` : ""}${effort ? `, effort ${effort}` : ""}${tool === null ? "  (scripted mock: not a real coding agent, and its output is no evidence)" : ""}`);
   return [
     "// The password-reset reference scenario: plan, implement (verified by a hidden test), review (a request for",
     "// changes sends implement back), an approval gate, then AHP itself pushes the approved commit.",
