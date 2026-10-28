@@ -127,6 +127,15 @@ describe("ahp run and ahp inspect", () => {
     expect(inspect.stderr).toContain("no run run_doesnotexist");
   });
 
+  it("says how to get started, and exits 0, when given no command", () => {
+    const result = ahp([], process.cwd());
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("1. ahp doctor");
+    expect(result.stdout).toContain("2. ahp setup");
+    expect(result.stdout).toContain("Every command and option: ahp --help");
+  });
+
   it("prints usage and exits 2 for an unknown command", () => {
     const result = ahp(["launch"], process.cwd());
 

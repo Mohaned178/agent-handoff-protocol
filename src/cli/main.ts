@@ -72,6 +72,18 @@ Exit codes: 0 the run succeeded (eval: the evaluation completed, whatever its tr
 3 the run stopped for a recovery decision, 4 the run stopped at an approval gate,
 130 the run was cancelled`;
 
+/** What `ahp` alone prints: the three commands a new user needs, not the whole reference. */
+const GETTING_STARTED = `AHP runs AI coding agents one after another (plan, implement, review), checks each step's
+work with your tests, and pushes only what you approve.
+
+Get started, in your project's folder (a git repository with a remote named origin):
+  1. ahp doctor   which coding agent tools are installed and logged in
+  2. ahp setup    say what to build and which agent does each step; it writes the workflow
+  3. ahp run ahp.workflow.mjs
+                  run it; it stops for your approval, showing the code, before anything is pushed
+
+Every command and option: ahp --help`;
+
 export interface Io {
   stdout: (text: string) => void;
   stderr: (text: string) => void;
@@ -123,6 +135,10 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
       io.stdout(version());
       return 0;
     }
+    if (command === undefined) {
+      io.stdout(GETTING_STARTED);
+      return 0;
+    }
     const deciding = command === "approve" || command === "reject";
     // Only a decision takes a second argument, the gate's step ID.
     if (extra.length > 0 || (step !== undefined && !deciding)) throw new UsageError(`unexpected argument: ${extra[0] ?? step}`);
@@ -151,7 +167,7 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
       case "reject":
         return await decideCommand(command, target, step, values.reason, repo, io, values.diff ?? false);
       default:
-        throw new UsageError(command ? `unknown command: ${command}` : "no command given", { showUsage: true });
+        throw new UsageError(`unknown command: ${command}`, { showUsage: true });
     }
   } catch (error) {
     if (error instanceof UsageError || (error as { code?: string }).code?.startsWith("ERR_PARSE_ARGS")) {

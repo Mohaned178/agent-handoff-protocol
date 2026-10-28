@@ -11,7 +11,7 @@ Tickets 01 (tracer bullet), 02 (multi-step linear workflows with handoffs), 03 (
 - `npm run typecheck`: `tsc` over `src/` and `test/`, no emit
 - `npm test`: the whole Vitest suite; `npx vitest run test/<file>.test.ts` for one file
 - `npm run conformance -- run <adapter>` / `-- matrix`: run the conformance suite on this machine and record the result, or render the support matrix from the recorded results (see below)
-- `npm run build`: compile `src/` to `dist/` (needed only for `bin/ahp.mjs`)
+- `npm run build`: compile `src/` to `dist/` (needed only for `bin/ahp.mjs`; also the `prepare` script, so `npm install -g github:Mohaned178/agent-handoff-protocol` builds on install, and `ahp` with no command prints a getting-started guide)
 - `npm run schemas`: regenerate `schemas/*.json` (the published JSON Schemas) from the Zod schemas in `src/protocol/`; a test fails if they are stale
 - `node src/cli/bin.ts <command>`: run the CLI from source without building
 

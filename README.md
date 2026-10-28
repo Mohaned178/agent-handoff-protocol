@@ -6,6 +6,25 @@ Release 1 targets four coding-agent CLIs (Claude Code, Codex CLI, Gemini CLI, Op
 
 **Status: early development.** Linear multi-step workflows run end to end with the mock adapter, each step receiving a validated, versioned handoff, a run whose process stopped is recovered with `ahp recover`, and Ctrl+C cancels a run. Adapters exist for Claude Code, Codex CLI and OpenCode; the Gemini CLI adapter has never run a turn. See the [support matrix](docs/support-matrix.md).
 
+## Quick start
+
+You need [Node.js](https://nodejs.org/) 24 or newer, git, and at least one coding agent tool installed and logged in with its own login (Claude Code, Codex CLI or OpenCode). AHP stores no keys.
+
+```sh
+npm install -g github:Mohaned178/agent-handoff-protocol   # installs the `ahp` command (builds on install, about 30 s)
+```
+
+Then, in your project's folder (a git repository with a commit and a remote named `origin`):
+
+```sh
+ahp doctor                 # which tools AHP found, and whether they are logged in
+ahp setup                  # say what to build, the command that checks it, and which agent does each step
+ahp run ahp.workflow.mjs   # plan -> implement -> review; stops and shows you the code before anything is pushed
+ahp approve <run-id> approve   # AHP pushes the branch ahp/<task>; or: ahp reject <run-id> approve --reason "..."
+```
+
+`ahp` alone prints these steps; `ahp --help` lists everything. If npm warns that the package has install scripts, that is the build step (`prepare: npm run build`). To update, run the install command again; to remove, `npm uninstall -g agent-handoff-protocol`.
+
 ## Development
 
 Requires Node.js 24 or newer and git. Developed on Windows; CI runs on Windows, macOS and Linux.
