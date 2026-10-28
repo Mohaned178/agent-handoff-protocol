@@ -4,7 +4,7 @@
 
 **Blocked by:** 12, 14
 
-**Status:** implemented, committed and pushed; both conformance cells recorded; decisions 1 to 13 confirmed, decision 14 below is new
+**Status:** done
 
 **Model:** Sonnet 5.5 · high
 
@@ -85,3 +85,7 @@ Then commit `conformance/results/opencode--linux-wsl2.json`. The default model i
 **The Linux cell is recorded: `conformance/results/opencode--linux-wsl2.json`** (OpenCode 1.19.4): 9 passed, 2 not applicable, 6 skipped, so `untested`, the same as Windows. One earlier Linux run failed `cancel:forced_tree` with "the agent did not list the processes it started within 30 s": the free model had not run the script in time. That is the check depending on the model, not a cancel result, and the check passed on the next three runs and in the recorded one.
 
 14. **The process layer's Linux and macOS termination now finds descendants by parent PID, for all adapters.** *Recommended: adopt.* Without it a cancel on Linux can report a tree gone that is running. Cost: one more `ps` per poll (every 100 ms) while a cancel waits. Shared with Claude Code and Codex, which gain the same protection; their recorded cells were made before it and are not re-run.
+
+**Confirmed by the maintainer on 2026-10-28 ("do recommendation"): decision 14 stands as recommended.**
+
+2026-10-28, done. First green CI run after the push: run 40612711817 on `516a4e9` (the first, 40608504463 on `88422b8`, failed on Ubuntu and macOS because the test fixtures had Windows path separators; fixed in `d8d99d2`, and 40609639197 was green). Ubuntu, Windows and macOS all succeeded. Both conformance cells are recorded and `untested` by decision 10; the checks the tool cannot be made to do stay skipped.
