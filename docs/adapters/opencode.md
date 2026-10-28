@@ -40,7 +40,7 @@ From the `session/prompt` result: `inputTokens`, `outputTokens`, `totalTokens` a
 
 ### Errors
 
-OpenCode's errors are JSON-RPC errors with a code and the provider's text, and no HTTP status. A turn that fails this way leaves the process exiting **0**, so the adapter records the error itself. The class comes from what the message says: `model not found` for a model it does not list (code -32602, seen) and a rejected key (seen) are `config_auth`; a rate limit, an overload or a 5xx are `transient` (by what those messages mean; not seen from OpenCode); a quota or payment problem and everything else are `agent_error`. Keys (`sk-...`, masked or not) and bearer tokens are removed from the message, which is cut at 500 characters, because the ledger is a public record.
+OpenCode's errors are JSON-RPC errors with a code and the provider's text, and no HTTP status. A turn that fails this way leaves the process exiting **0**, so the adapter records the error itself. The class comes from what the message says: `model not found` for a model it does not list (code -32602, seen) and a rejected key (seen) are `config_auth`; a rate limit, an overload or a 5xx are `transient` (by what those messages mean; not seen from OpenCode); a quota, usage limit or payment problem is `config_auth` (retrying it only spends attempts; not seen from OpenCode), and everything else is `agent_error`. Keys (`sk-...`, masked or not) and bearer tokens are removed from the message, which is cut at 500 characters, because the ledger is a public record.
 
 ## Options (`opencode({ model, ... })`)
 

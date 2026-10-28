@@ -22,14 +22,14 @@ const MODE_UPDATE = "[MODE_UPDATE]";
  * rate limit, the API's own status for others), and uses -32000 for a session it could not start (seen, for a missing
  * key). A session that could not start is `config_auth`: no model ran. A 500 is what the tool reports for any error it
  * cannot name, so it is not taken for an outage that waiting clears; 502 to 504, 408 and 429 are `transient`. A 404 is a
- * model this login cannot use. Otherwise the message decides.
+ * model this login cannot use. Otherwise the message decides: a quota, usage limit or payment problem is `config_auth`, since retrying only spends attempts.
  */
 export function classify(message: string, code: number | null = null, phase: "session" | "prompt" = "prompt"): AdapterErrorKind {
   if (phase === "session") return "config_auth";
   if (code === 401 || code === 403 || code === 404) return "config_auth";
   if (code === 408 || code === 429 || code === 502 || code === 503 || code === 504) return "transient";
   if (/\b(401|403)\b|api key|unauthori[sz]ed|forbidden|not logged in|log in|login|credential|authenticat|permission denied|PERMISSION_DENIED/i.test(message)) return "config_auth";
-  if (/\b402\b|insufficient|billing|payment|funds|usage limit/i.test(message)) return "agent_error";
+  if (/\b402\b|insufficient|billing|payment|funds|usage limit/i.test(message)) return "config_auth";
   if (/rate.?limit|too many requests|overloaded|unavailable|timed? ?out|temporar|ECONNRESET|ETIMEDOUT/i.test(message)) return "transient";
   return "agent_error";
 }

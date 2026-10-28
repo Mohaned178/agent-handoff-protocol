@@ -30,14 +30,15 @@ function causeOf(message: string): { status: number | null; code: string | null 
 
 /**
  * The class of a failed turn. A 401 (a missing login: seen) and `model_not_found` (a model the login cannot use: seen)
- * are `config_auth`; a timeout, a 429 and a 5xx are `transient` by what those statuses mean (not seen from Codex);
- * anything else is the agent's own error.
+ * are `config_auth`, and so is a quota or usage limit (a 429 that waiting does not clear; seen as plain text, "You've
+ * hit your usage limit. ... try again at <date>"): retrying it only spends attempts, and the person must change their
+ * plan or wait. A timeout, a 429 and a 5xx are `transient` by what those statuses mean (not seen from Codex); anything
+ * else is the agent's own error.
  */
 function kindOf(message: string): AdapterErrorKind {
   const { status, code } = causeOf(message);
   if (status === 401 || code === "model_not_found") return "config_auth";
-  // A quota or usage limit is a 429 that waiting does not clear.
-  if (code === "insufficient_quota" || code === "usage_limit_reached") return "agent_error";
+  if (code === "insufficient_quota" || code === "usage_limit_reached" || /usage limit|insufficient.quota/i.test(message)) return "config_auth";
   if (status !== null && (status === 408 || status === 429 || status >= 500)) return "transient";
   return "agent_error";
 }

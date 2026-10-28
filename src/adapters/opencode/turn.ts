@@ -16,13 +16,14 @@ const text = (value: unknown): string | null => (typeof value === "string" ? val
 /**
  * The class of a failure by what the tool said, since OpenCode's errors carry a JSON-RPC code (-32602 for a bad
  * parameter such as a model it does not list: seen; -32603 for anything inside it: seen) and the provider's own text, and no
- * HTTP status. A rejected key is `config_auth` (seen); a rate limit or an overload is `transient` and a quota or a
- * payment problem is not, since waiting does not clear it (by what those messages mean, not seen from OpenCode).
+ * HTTP status. A rejected key is `config_auth` (seen); a rate limit or an overload is `transient`, and a quota, a usage
+ * limit or a payment problem is `config_auth`, since retrying only spends attempts (by what those messages mean, not seen
+ * from OpenCode).
  */
 export function classify(message: string, code: number | null = null): AdapterErrorKind {
   if (code === -32602 && /model not found/i.test(message)) return "config_auth";
   if (/\b(401|403)\b|api key|unauthori[sz]ed|forbidden|not logged in|log in|login|credential|authenticat/i.test(message)) return "config_auth";
-  if (/\b402\b|quota|insufficient|billing|payment|funds|usage limit/i.test(message)) return "agent_error";
+  if (/\b402\b|quota|insufficient|billing|payment|funds|usage limit/i.test(message)) return "config_auth";
   if (/\b(408|429|50[0-9])\b|rate.?limit|too many requests|overloaded|unavailable|timed? ?out|temporar|ECONNRESET|ETIMEDOUT/i.test(message)) return "transient";
   return "agent_error";
 }

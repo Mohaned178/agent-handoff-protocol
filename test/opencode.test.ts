@@ -446,7 +446,7 @@ describe("error classes and redaction", () => {
     expect(classify("Incorrect API key provided")).toBe("config_auth");
     expect(classify("Rate limit reached for requests")).toBe("transient");
     expect(classify("503 Service Unavailable")).toBe("transient");
-    expect(classify("402 Insufficient account funds")).toBe("agent_error");
+    expect(classify("402 Insufficient account funds")).toBe("config_auth");
     expect(classify("something else broke")).toBe("agent_error");
   });
 

@@ -434,7 +434,7 @@ describe("error classes and redaction", () => {
     expect(classify("x", 403)).toBe("config_auth");
     expect(classify("x", 500)).toBe("agent_error");
     expect(classify("The caller does not have permission: PERMISSION_DENIED", 400)).toBe("config_auth");
-    expect(classify("402 Insufficient funds", 400)).toBe("agent_error");
+    expect(classify("402 Insufficient funds", 400)).toBe("config_auth");
     expect(classify("socket hang up ECONNRESET", 400)).toBe("transient");
     expect(classify("something else broke")).toBe("agent_error");
   });
