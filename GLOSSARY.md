@@ -252,5 +252,43 @@ _Avoid_: Integration test, adapter test
 The published table of adapter × OS cells, each marked passed (with tool version and date) or untested.
 
 **Harness incident**:
-An evaluation trial ended by an `unknown` attempt; excluded from condition success and failure counts and reported separately per condition.
+An evaluation trial ended by an `unknown` attempt; excluded from condition success and failure counts and reported separately per condition. Only that: a trial that could not be scored for another reason is unscored.
 _Avoid_: Failure, error
+
+## Evaluation
+
+**Evaluation task**:
+A directory holding one task of an evaluation suite: `task.json` (id, prompt, planted constraints, seeded defects, how the result is verified, network stance), the fixture repository under `repo/` and the hidden tests under `hidden/`. Not the A2A task shape.
+_Avoid_: Step, benchmark
+
+**Suite**:
+The module `ahp eval` runs: the evaluation tasks, the conditions, the coding agent for each role (`plan`, `implement`, `review`) and the retry budget of C3's steps.
+
+**Frozen task**:
+An evaluation task whose directory was hashed and recorded in the evaluation's ledger before any trial started. The hash is the SHA-256 of the sorted (relative path, content hash) pairs of every file; it is taken again before each trial, and a task that no longer hashes as frozen stops the evaluation (`task_changed`), never to be frozen again.
+_Avoid_: Locked, pinned
+
+**Condition**:
+How the same task is worked: C0, one coding agent doing the whole task in one attempt with no retry; C3, full AHP (plan, implement, review; handoffs, hidden tests as the implement step's verification, bounded retry and send-back). C1, C2 and the matched-budget baseline are to come. A condition builds an ordinary workflow, which the run API runs; it has agent steps only, so no approval gate and no external action, and recovers every `unknown` attempt by abort.
+
+**Trial**:
+One condition's workflow run once on one task, in a fresh repository made from the task's fixture, then scored. Ends `scored`, as a harness incident, `unscored` or `cancelled`.
+
+**Validators**:
+What scores a trial, after its run has ended, in a verification worktree of its own built from the last snapshot the run made: the hidden tests (a pass is those passing with no protected path changed) and the planted constraints' checks. They share no verdict with the run's verification, and the agent's own report is not read.
+_Avoid_: Tester, judge
+
+**Planted constraint**:
+A constraint a task states to the first agent only (in the prompt of C0's one step, and of C3's plan step), with a deterministic check, a forbidden pattern or a required invariant, never a judgement. A later step of C3 knows it only through its handoff's context, so a constraint violated in the result is context lost. Scored apart from success.
+
+**Seeded defect**:
+A defect a task's fixture is known to contain, for review evaluation. Frozen with the task; not scored yet.
+
+**Unscored trial**:
+A trial with nothing to score and not a harness incident, with its reason: `validator_inconclusive` (a validator could not run to a result, twice), `setup_failed` (the run ended `config_auth` or `rejected`, so no agent did the work) or `harness_error` (AHP threw). Excluded from the rates and reported apart, never read as a pass or a fail.
+
+**Evaluation ledger**:
+The hash-chained ledger of one `ahp eval` invocation, written by the same writer as a run's: the tasks frozen, and each trial's start, incident and end. Everything about how a trial's run went is in that run's own ledger, which the trial keeps a copy of.
+
+**Raw transcript**:
+What an attempt's agent process was sent on stdin and what it printed on stdout, byte for byte, kept by the process layer in files beside the run's ledger. Stderr is not kept. It holds whatever the tool printed, so a secret an agent printed is in it.

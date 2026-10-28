@@ -37,6 +37,14 @@ function ahpHome(): string {
   }
 }
 
+/**
+ * Where `ahp eval` keeps its evaluations unless told otherwise: a directory of evaluations beside the worktrees, in AHP's
+ * per-user directory, outside every repository.
+ */
+export function evaluationsRoot(): string {
+  return join(ahpHome(), "evaluations");
+}
+
 /** Creates the directory that holds every AHP worktree and returns its canonical path. */
 export async function prepareWorktreeRoot(): Promise<string> {
   const root = join(ahpHome(), "worktrees");

@@ -78,7 +78,8 @@ function enforcing(input: AttemptInput): AttemptInput {
 }
 
 describe("the conformance suite against the mock adapter", () => {
-  it("passes every check it can make and labels the result as the mock's", async () => {
+  // A full run starts dozens of processes (about 11 s alone on Windows), so under the whole suite's parallel load it can pass 60 s.
+  it("passes every check it can make and labels the result as the mock's", { timeout: 180_000 }, async () => {
     const result = await runConformance(mockSubject(), { clock: { now: () => new Date("2026-10-27T12:00:00Z") } });
 
     expect(statuses(result)).toEqual({

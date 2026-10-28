@@ -1,7 +1,16 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import type { LedgerEvent } from "../protocol/index.ts";
+import type { LedgerEventBody } from "../protocol/index.ts";
 import { whileBusy } from "./busy.ts";
+
+/** What any ledger's body must have: a `type`. The run ledger's bodies are `LedgerEventBody`; the evaluation ledger has its own. */
+export type EventBody = { type: string };
+
+/**
+ * An event as a hash-chained ledger holds it: the body plus its sequence number (from 1), the previous event's hash (null
+ * for the first), its ISO timestamp, and its own hash. `ChainedEvent<LedgerEventBody>` is `LedgerEvent`.
+ */
+export type ChainedEvent<B extends EventBody = LedgerEventBody> = { seq: number; prevHash: string | null; time: string; hash: string } & B;
 
 /**
  * The canonical JSON of a JSON value: object keys sorted (by UTF-16 code unit, as `Array.prototype.sort` does),
@@ -36,9 +45,9 @@ export interface LedgerCorruption {
 }
 
 /** A ledger file as read and checked. */
-export interface LedgerRead {
+export interface LedgerRead<B extends EventBody = LedgerEventBody> {
   /** The events whose sequence and hash chain check out, in append order: all of them, or those before the corruption. */
-  events: LedgerEvent[];
+  events: ChainedEvent<B>[];
   /** How many bytes of the file those events take up, newlines included. */
   validBytes: number;
   /**
@@ -63,11 +72,11 @@ export class LedgerCorruptError extends Error {
  * Reads a ledger file and checks every event against the one before it: its sequence number, its link to the
  * previous event's hash, and its own hash. Reading stops at the first event that does not check out.
  */
-export async function readLedger(path: string): Promise<LedgerRead> {
+export async function readLedger<B extends EventBody = LedgerEventBody>(path: string): Promise<LedgerRead<B>> {
   const bytes = await whileBusy(() => readFile(path));
-  const events: LedgerEvent[] = [];
+  const events: ChainedEvent<B>[] = [];
   let offset = 0;
-  const result = (found: Partial<LedgerRead>): LedgerRead => ({
+  const result = (found: Partial<LedgerRead<B>>): LedgerRead<B> => ({
     events,
     validBytes: offset,
     tornTail: null,
@@ -88,20 +97,20 @@ export async function readLedger(path: string): Promise<LedgerRead> {
     }
     const corruption = checkEvent(parsed, line, events.at(-1));
     if (corruption) return result({ corruption });
-    events.push(parsed as LedgerEvent);
+    events.push(parsed as ChainedEvent<B>);
     offset = newline + 1;
   }
   return result({});
 }
 
 /** Reads a ledger file as `readLedger` does, and throws `LedgerCorruptError` if its chain is broken. */
-export async function readCheckedLedger(path: string): Promise<LedgerRead> {
-  const read = await readLedger(path);
+export async function readCheckedLedger<B extends EventBody = LedgerEventBody>(path: string): Promise<LedgerRead<B>> {
+  const read = await readLedger<B>(path);
   if (read.corruption) throw new LedgerCorruptError(path, read.corruption);
   return read;
 }
 
-function isEvent(value: unknown): value is LedgerEvent {
+function isEvent(value: unknown): value is ChainedEvent<EventBody> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const { seq, prevHash, time, type, hash } = value as Record<string, unknown>;
   return (
@@ -114,7 +123,7 @@ function isEvent(value: unknown): value is LedgerEvent {
 }
 
 /** Whether `value` is the event that may follow `previous` (none for the first line), and if not, what is wrong. */
-function checkEvent(value: unknown, line: number, previous: LedgerEvent | undefined): LedgerCorruption | null {
+function checkEvent(value: unknown, line: number, previous: ChainedEvent<EventBody> | undefined): LedgerCorruption | null {
   if (!isEvent(value)) return { line, kind: "unreadable", message: `line ${line} is not a ledger event` };
   const at = `line ${line} (event ${value.seq})`;
   const expected = (previous?.seq ?? 0) + 1;

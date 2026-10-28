@@ -1,6 +1,8 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { writeTree } from "./helpers/evaluation.ts";
 import { inspectRun, LedgerCorruptError, readRun, readRunEvents, runWorkflow } from "../src/index.ts";
 import { LedgerLockedError, LedgerWriter } from "../src/ledger/index.ts";
 import { eventHash, finishedRun, GONE_PID, ledgerFile, ledgerLines, lockFile, rewriteLedger } from "./helpers/ledger.ts";
@@ -22,6 +24,21 @@ describe("the ledger's hash chain", () => {
       expect(event.hash).toMatch(/^[0-9a-f]{64}$/);
       expect(event.hash).toBe(eventHash(event));
     });
+  });
+
+  it("refuses to record an event whose body uses a name the ledger keeps for itself, rather than overwrite it", async () => {
+    const dir = writeTree({});
+    const writer = await LedgerWriter.create<{ type: string; [field: string]: unknown }>(join(dir, "ledger.jsonl"));
+    try {
+      for (const reserved of ["seq", "prevHash", "time", "hash"]) {
+        await expect(writer.append({ type: "something_happened", [reserved]: "mine" })).rejects.toThrow(`\`${reserved}\``);
+      }
+      // Nothing was written by the refusals, and an ordinary event still is.
+      const event = await writer.append({ type: "something_happened", detail: "fine" });
+      expect(event.seq).toBe(1);
+    } finally {
+      await writer.close();
+    }
   });
 
   it("refuses to derive state from a ledger whose event was changed after it was written", async () => {

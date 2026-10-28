@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { RECOVERY_ACTIONS, type LedgerEvent, type RecoveryAction, type RunView } from "../protocol/index.ts";
@@ -16,8 +16,11 @@ import {
   validateWorkflow,
 } from "../sdk/index.ts";
 import { diagnose, initWorkflow } from "../doctor/index.ts";
+import { formatReport, runEvaluation, SuiteInvalidError, TaskInvalidError, type EvaluationEvent, type EvaluationSuite, type EvaluationView } from "../evaluation/index.ts";
+import { evaluationsRoot } from "../runtime/index.ts";
 import { formatEvent, formatRun, formatUnresumed, MOCK_NOTE } from "./format.ts";
 import { formatDoctor, formatInit } from "./format-doctor.ts";
+import { formatEvaluationEvent } from "./format-evaluation.ts";
 
 const USAGE = `Usage: ahp <command> [options]
 
@@ -26,6 +29,8 @@ Commands:
   init [file]           Write the password-reset example workflow (default ahp.workflow.mjs), cast from
                         the tools doctor found, the mock adapter standing in for any it did not
   run <workflow-file>   Run the workflow exported by default from <workflow-file>
+  eval <suite-file>     Run the evaluation suite exported by default from <suite-file>: its tasks are frozen,
+                        then each runs under conditions C0 and C3 and is scored by independent validators
   inspect <run-id>      Show a run's state, derived from its ledger, and who is writing it
   recover <run-id>      Resume a run whose process stopped; an attempt it left with no
                         record of how it ended becomes unknown and gets a recovery report
@@ -39,17 +44,20 @@ Commands:
 
 Options:
   --repo <dir>          The git repository to use (default: the current directory)
+  --out <dir>           eval: where the evaluation is kept (default: AHP's per-user directory)
   --json                inspect: print the derived state, the ledger check and the run's lock as JSON;
-                        doctor: print the report as JSON
+                        doctor: print the report as JSON; eval: print only the report, as JSON
   --policy <decision>   recover: adopt or abort
   --reason <text>       reject: why the work is rejected (required)
   -h, --help            Show this help
   -v, --version         Show the version
 
 Ctrl+C during run, recover, approve or reject cancels the run: the running agent and every
-process it started are stopped, and the run ends cancelled.
+process it started are stopped, and the run ends cancelled. Ctrl+C during eval cancels the
+trial in hand and starts no other.
 
-Exit codes: 0 the run succeeded, 1 it failed or ahp failed, 2 usage error,
+Exit codes: 0 the run succeeded (eval: the evaluation completed, whatever its trials found),
+1 it failed or ahp failed (eval: it stopped because a frozen task changed), 2 usage error,
 3 the run stopped for a recovery decision, 4 the run stopped at an approval gate,
 130 the run was cancelled`;
 
@@ -74,6 +82,7 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
       allowPositionals: true,
       options: {
         repo: { type: "string" },
+        out: { type: "string" },
         json: { type: "boolean" },
         policy: { type: "string" },
         reason: { type: "string" },
@@ -104,6 +113,9 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
       case "run":
         if (!target) throw new UsageError("run needs a workflow file");
         return await runCommand(target, repo, io);
+      case "eval":
+        if (!target) throw new UsageError("eval needs a suite file");
+        return await evalCommand(target, values.out, values.json ?? false, io);
       case "inspect":
         if (!target) throw new UsageError("inspect needs a run ID");
         return await inspectCommand(target, repo, values.json ?? false, io);
@@ -211,6 +223,51 @@ async function runCommand(file: string, repo: string, io: Io): Promise<number> {
   }
   const { state } = await followRun(io, (following) => runWorkflow(workflow as Parameters<typeof runWorkflow>[0], { repo, ...following }));
   return exitCodeOf(state);
+}
+
+/**
+ * `ahp eval <suite-file>`: loads the suite, runs it and prints the report. Ctrl+C cancels the trial in hand, as for a run. The
+ * evaluation's own exit code is 0 when it completed, whatever its trials found: a harness incident or a failed condition is a
+ * finding, not a failure of the command.
+ */
+async function evalCommand(file: string, out: string | undefined, json: boolean, io: Io): Promise<number> {
+  const path = resolve(file);
+  let suite: unknown;
+  try {
+    suite = ((await import(pathToFileURL(path).href)) as { default?: unknown }).default;
+  } catch (error) {
+    throw new UsageError(`cannot load suite file ${path}: ${(error as Error).message}`);
+  }
+  const controller = new AbortController();
+  const cancel = () => {
+    if (controller.signal.aborted) {
+      io.stderr("ahp: still cancelling the evaluation");
+      return;
+    }
+    io.stderr("ahp: cancelling the evaluation (Ctrl+C)");
+    controller.abort();
+  };
+  process.on("SIGINT", cancel);
+  process.on("SIGTERM", cancel);
+  try {
+    const result = await runEvaluation(suite as EvaluationSuite, {
+      out: out === undefined ? evaluationsRoot() : resolve(out),
+      baseDir: dirname(path),
+      signal: controller.signal,
+      onEvent: (event: EvaluationEvent, state: Readonly<EvaluationView>) => {
+        if (!json) io.stdout(formatEvaluationEvent(event, state));
+      },
+    });
+    io.stdout(json ? JSON.stringify(result.report, null, 2) : `\n${formatReport(result.report)}\nkept in ${result.dir}`);
+    return result.state.state === "completed" ? 0 : result.state.state === "cancelled" ? 130 : 1;
+  } catch (error) {
+    // A suite or task that is invalid is a mistake in how ahp was used, as an invalid workflow is.
+    if (error instanceof SuiteInvalidError || error instanceof TaskInvalidError) throw new UsageError(`${error.message} (suite file ${path})`);
+    throw error;
+  } finally {
+    process.off("SIGINT", cancel);
+    process.off("SIGTERM", cancel);
+  }
 }
 
 async function inspectCommand(runId: string, repo: string, json: boolean, io: Io): Promise<number> {

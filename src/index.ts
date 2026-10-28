@@ -19,3 +19,4 @@ export {
 } from "./runtime/index.ts";
 export * from "./conformance/index.ts";
 export * from "./doctor/index.ts";
+export * from "./evaluation/index.ts";

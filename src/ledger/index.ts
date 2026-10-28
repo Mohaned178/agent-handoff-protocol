@@ -1,4 +1,4 @@
-export { LedgerCorruptError, readCheckedLedger, readLedger, type LedgerCorruption, type LedgerRead } from "./chain.ts";
+export { LedgerCorruptError, readCheckedLedger, readLedger, type ChainedEvent, type EventBody, type LedgerCorruption, type LedgerRead } from "./chain.ts";
 export {
   clearStaleLock,
   LedgerLockedError,

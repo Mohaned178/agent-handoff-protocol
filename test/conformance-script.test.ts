@@ -32,7 +32,8 @@ async function conformance(...args: string[]) {
 }
 
 describe("npm run conformance", () => {
-  it("runs the mock's suite and records a result labelled as the mock's, which the matrix does not count", async () => {
+  // Runs the whole mock suite in a child process: slow under the whole suite's parallel load, like its sibling in conformance.test.ts.
+  it("runs the mock's suite and records a result labelled as the mock's, which the matrix does not count", { timeout: 180_000 }, async () => {
     const dir = tempDir();
 
     const ran = await conformance("run", "mock", "--out", dir);
