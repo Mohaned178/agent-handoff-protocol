@@ -81,6 +81,12 @@ export interface ConformanceSubject {
    */
   requestedModel?: string;
   /**
+   * Scenarios the tool itself cannot be made to do (no way to cause a rate limit, a tool that always reports its model).
+   * Their checks are recorded `unprovokable` and named on the matrix cell, not skipped; a scenario that only lacks a
+   * provoker stays skipped.
+   */
+  unprovokable?: readonly Scenario[];
+  /**
    * The version of the coding-agent tool under test, as the tool reports it. A subject that cannot say leaves it out
    * and the runner must be given one: a version is never made up.
    */

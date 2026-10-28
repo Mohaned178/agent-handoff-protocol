@@ -1,6 +1,6 @@
 // The Claude Code adapter as a conformance subject. The real tool is told in words what to do, so a run depends on the
 // model following an instruction: a scenario the tool cannot be made to do reliably is left out, and its check is
-// skipped, never passed. Left out: `rate_limited` (no way to cause one), `no_model_report` and `no_usage_report` (the
+// recorded `unprovokable`, never passed. Left out: `rate_limited` (no way to cause one), `no_model_report` and `no_usage_report` (the
 // tool states both on every run), and the probes of `enforced_by_tool` levels (the adapter declares none).
 //
 // Run by the maintainer on their machine, under their own login, never in CI: `npm run conformance -- run claude-code`.
@@ -45,6 +45,7 @@ export function claudeCodeSubject(): ConformanceSubject {
     adapter: claudeCodeAdapter,
     // An alias, so a full model name in the tool's report cannot be read as an echo of the request.
     requestedModel: "sonnet",
+    unprovokable: ["rate_limited", "no_model_report", "no_usage_report"],
     toolVersion: async () => {
       const result = await probe("claude", ["--version"], { cwd: tmpdir() });
       const version = result.outcome === "exited" && result.exitCode === 0 ? /^\s*(\d+\.\d+\.\d+\S*)/.exec(result.stdout)?.[1] : undefined;

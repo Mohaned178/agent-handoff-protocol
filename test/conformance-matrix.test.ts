@@ -77,6 +77,15 @@ describe("the support matrix", () => {
     expect(outcomeOf(resultOf({ checks: [] }))).toBe("untested");
   });
 
+  it("passes a result whose only unchecked checks the tool cannot be made to do, and says so on the cell", () => {
+    const unprovokable = resultOf({ checks: without("usage:not_reported", { id: "usage:not_reported", status: "unprovokable", detail: "cannot" }) });
+
+    expect(outcomeOf(unprovokable)).toBe("passed");
+    expect(matrixOf([unprovokable], ["claude-code"])[0]).toMatchObject({ status: "passed", note: "the tool cannot be made to do: usage:not_reported" });
+    expect(renderMatrix(matrixOf([unprovokable], ["claude-code"]))).toContain("passed (2.1.0, 2026-10-27); the tool cannot be made to do: usage:not_reported");
+    expect(outcomeOf(resultOf({ checks: [{ id: "x", status: "unprovokable", detail: "" }] }))).toBe("untested");
+  });
+
   it("takes the latest result of a cell, and reads a pass of an older suite as untested", () => {
     const older = resultOf({ ranAt: "2026-09-01T00:00:00.000Z", toolVersion: "2.0.0", checks: without("spawn_and_exit", { id: "spawn_and_exit", status: "failed", detail: "" }) });
     const stale = resultOf({ ranAt: "2026-10-01T00:00:00.000Z", suiteVersion: SUITE_VERSION + 1 });

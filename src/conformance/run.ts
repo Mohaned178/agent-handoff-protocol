@@ -287,7 +287,11 @@ async function ranToEnd(run: CheckContext, scenario: Scenario, options?: Paramet
   return ran && { ran, exit: await exitOf(run, ran) };
 }
 
-const cannotProvoke = (scenario: Scenario): Outcome => skipped(`the subject cannot make its agent do "${scenario}"`);
+/** A scenario the subject declares its tool cannot be made to do is `unprovokable`; one it merely has no provoker for is skipped. */
+const cannotProvoke = (run: CheckContext, scenario: Scenario): Outcome => {
+  const detail = `the subject cannot make its agent do "${scenario}"`;
+  return run.subject.unprovokable?.includes(scenario) ? { status: "unprovokable", detail } : skipped(detail);
+};
 
 // ---------------------------------------------------------------------------
 // The checks
@@ -317,7 +321,7 @@ async function declarationComplete({ subject }: CheckContext): Promise<Outcome> 
 
 async function spawnAndExit(run: CheckContext): Promise<Outcome> {
   const result = await ranToEnd(run, "completes");
-  if (!result) return cannotProvoke("completes");
+  if (!result) return cannotProvoke(run, "completes");
   const { ran, exit } = result;
   if (!Number.isInteger(ran.started.pid) || ran.started.pid <= 0) fail(`the attempt's pid is ${ran.started.pid}, not a process ID`);
   if (exit.exitCode !== 0 || exit.signal !== null) fail(`the agent that completed its work exited with code ${exit.exitCode} and signal ${exit.signal}`);
@@ -343,7 +347,7 @@ const failureCheck =
   (scenario: Scenario, expected: FailureClass): Check =>
   async (run) => {
     const result = await ranToEnd(run, scenario);
-    if (!result) return cannotProvoke(scenario);
+    if (!result) return cannotProvoke(run, scenario);
     const { exit } = result;
     const got = classifyAttempt({ ...exit, verdict: null });
     if (got !== expected) {
@@ -354,7 +358,7 @@ const failureCheck =
 
 async function modelReported(run: CheckContext): Promise<Outcome> {
   const result = await ranToEnd(run, "reports_model");
-  if (!result) return cannotProvoke("reports_model");
+  if (!result) return cannotProvoke(run, "reports_model");
   const { exit, ran } = result;
   const told = ran.provoked.told?.model;
   if (typeof exit.reportedModel !== "string" || exit.reportedModel.trim() === "") fail(`the tool named its model and the adapter reported ${JSON.stringify(exit.reportedModel)}`);
@@ -367,7 +371,7 @@ async function modelReported(run: CheckContext): Promise<Outcome> {
 
 async function modelNotReported(run: CheckContext): Promise<Outcome> {
   const result = await ranToEnd(run, "no_model_report");
-  if (!result) return cannotProvoke("no_model_report");
+  if (!result) return cannotProvoke(run, "no_model_report");
   if (result.exit.reportedModel !== null) {
     fail(`the tool said nothing about its model, and the adapter reported "${result.exit.reportedModel}" (the requested model was "${result.ran.context.requestedModel}"): a reported model is never filled in from the request`);
   }
@@ -378,7 +382,7 @@ const USAGE_NUMBERS = ["inputTokens", "outputTokens", "totalTokens", "cachedInpu
 
 async function usageReported(run: CheckContext): Promise<Outcome> {
   const result = await ranToEnd(run, "reports_usage");
-  if (!result) return cannotProvoke("reports_usage");
+  if (!result) return cannotProvoke(run, "reports_usage");
   const { usage } = result.exit;
   if (usage === null) fail("the tool reported usage and the adapter reported none");
   if (!isUsageReport(usage)) fail(`the adapter's usage is not a report a tool could have made (a source is required and no number may be negative or missing): ${JSON.stringify(usage)}`);
@@ -395,7 +399,7 @@ async function usageReported(run: CheckContext): Promise<Outcome> {
 
 async function usageNotReported(run: CheckContext): Promise<Outcome> {
   const result = await ranToEnd(run, "no_usage_report");
-  if (!result) return cannotProvoke("no_usage_report");
+  if (!result) return cannotProvoke(run, "no_usage_report");
   if (result.exit.usage !== null) fail(`the tool reported no usage, and the adapter reported ${JSON.stringify(result.exit.usage)}: usage is never estimated or filled in`);
   return passed("reported no usage when the tool gave none");
 }
@@ -410,7 +414,7 @@ const expectedCancel = (gracefulCancel: boolean) =>
 
 async function cancelStopsAgent(run: CheckContext): Promise<Outcome> {
   const ran = await start(run, "hangs");
-  if (!ran) return cannotProvoke("hangs");
+  if (!ran) return cannotProvoke(run, "hangs");
   const termination = await ran.started.cancel({ graceMs: 5_000 });
   const expected = expectedCancel(run.subject.adapter.declaration.gracefulCancel);
   if (termination.outcome === "already_gone") fail("the agent that was to hang was already gone when it was cancelled");
@@ -425,7 +429,7 @@ async function cancelStopsAgent(run: CheckContext): Promise<Outcome> {
 
 async function cancelForcedTree(run: CheckContext): Promise<Outcome> {
   const ran = await start(run, "resists_cancel");
-  if (!ran) return cannotProvoke("resists_cancel");
+  if (!ran) return cannotProvoke(run, "resists_cancel");
   const deadline = Date.now() + 30_000;
   while (pidsListed(ran.context.pidFile).length === 0) {
     if (Date.now() > deadline) fail(`the agent did not list the processes it started in ${ran.context.pidFile} within 30 s`);
@@ -532,7 +536,7 @@ const unenforced = (applied: AppliedCapabilities): AppliedCapabilities => ({
 /** A declared `cooperative` level: the attempt runs to completion with it applied, which is all the suite can see. */
 async function acceptedAtCooperative(run: CheckContext, what: string, applied: AppliedCapabilities): Promise<Outcome> {
   const result = await ranToEnd(run, "completes", { applied });
-  if (!result) return cannotProvoke("completes");
+  if (!result) return cannotProvoke(run, "completes");
   if (result.exit.exitCode !== 0) fail(`the attempt did not run to completion with ${what} applied at "cooperative" (exit code ${result.exit.exitCode})`);
   return passed(`accepted at "cooperative" on ${run.platform}. ${LEVEL_NOTE}`);
 }
@@ -562,7 +566,7 @@ async function tryBreak(run: CheckContext, probe: Probe, applied: AppliedCapabil
  */
 async function enforcedProbe(run: CheckContext, probe: Probe, what: string, applied: AppliedCapabilities): Promise<Outcome> {
   const control = await tryBreak(run, probe, unenforced(applied));
-  if (control === undefined) return cannotProvoke(probe.scenario);
+  if (control === undefined) return cannotProvoke(run, probe.scenario);
   if (control === null) {
     return skipped(`the "${probe.scenario}" probe broke nothing even with the level recorded as "none", so it cannot show that anything is enforced`);
   }
@@ -607,7 +611,7 @@ async function refusesAboveDeclared(run: CheckContext): Promise<Outcome> {
   } catch (error) {
     return passed(`declares ${weak} "${declared}" on ${run.platform} and refused to apply it at "enforced_by_tool": ${(error as Error).message}`);
   }
-  if (!ran) return cannotProvoke("completes");
+  if (!ran) return cannotProvoke(run, "completes");
   return fail(`declares ${weak} "${declared}" on ${run.platform}, and started an attempt recorded as applying it at "enforced_by_tool"`);
 }
 

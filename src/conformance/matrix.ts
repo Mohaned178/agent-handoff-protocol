@@ -81,7 +81,8 @@ export function matrixOf(results: readonly ConformanceResult[], adapters: readon
       const outcome = outcomeOf(latest);
       const failing = latest.checks.filter((check) => check.status === "failed").map((check) => check.id);
       const skippedChecks = latest.checks.filter((check) => check.status === "skipped").map((check) => check.id);
-      const note = outcome === "failed" ? `failed: ${failing.join(", ")}` : outcome === "untested" ? `not checked: ${skippedChecks.join(", ") || "no checks ran"}` : null;
+      const unprovokable = latest.checks.filter((check) => check.status === "unprovokable").map((check) => check.id);
+      const note = outcome === "passed" && unprovokable.length > 0 ? `the tool cannot be made to do: ${unprovokable.join(", ")}` : outcome === "failed" ? `failed: ${failing.join(", ")}` : outcome === "untested" ? `not checked: ${skippedChecks.join(", ") || "no checks ran"}` : null;
       cells.push({ ...base, status: outcome, note });
     }
   }
@@ -94,7 +95,7 @@ export function renderMatrix(cells: readonly MatrixCell[]): string {
   const text = (cell: MatrixCell | undefined): string => {
     if (!cell || cell.date === null) return "untested";
     const stamp = `${cell.toolVersion}, ${cell.date}`;
-    return cell.status === "passed" ? `passed (${stamp})` : `${cell.status} (${stamp}): ${cell.note}`;
+    return cell.status === "passed" ? `passed (${stamp})${cell.note ? `; ${cell.note}` : ""}` : `${cell.status} (${stamp}): ${cell.note}`;
   };
   const lines = [`| Adapter | ${OS_LABELS.join(" | ")} |`, `| --- | ${OS_LABELS.map(() => "---").join(" | ")} |`];
   for (const adapter of adapters) {

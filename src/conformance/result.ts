@@ -16,9 +16,10 @@ export const SUITE_VERSION = 1;
  * - `passed`: the behaviour was provoked and observed as the adapter declares it.
  * - `failed`: it was provoked and was not (or the adapter threw, or did not end).
  * - `skipped`: it could not be provoked (the subject has no provoker for it), so nothing is known.
+ * - `unprovokable`: the subject declares its tool cannot be made to do it (a rate limit, say), so it is known to be unchecked and is shown on the cell, but does not hold the adapter back from `passed`.
  * - `not_applicable`: the declaration says there is nothing to check (a capability declared `none` on this OS).
  */
-export const CHECK_STATUSES = ["passed", "failed", "skipped", "not_applicable"] as const;
+export const CHECK_STATUSES = ["passed", "failed", "skipped", "unprovokable", "not_applicable"] as const;
 export type CheckStatus = (typeof CHECK_STATUSES)[number];
 
 export interface CheckResult {
@@ -58,12 +59,12 @@ export const ConformanceResultSchema = z.strictObject({
 export type ConformanceResult = z.infer<typeof ConformanceResultSchema>;
 
 /**
- * `passed` when every check passed or does not apply, `failed` when any failed, and `untested` otherwise: a check that
+ * `passed` when some check passed and the rest passed, do not apply or are unprovokable, `failed` when any failed, and `untested` otherwise: a check that
  * was skipped leaves something unknown, and so does a run with no checks.
  */
 export function outcomeOf(result: Pick<ConformanceResult, "checks">): "passed" | "failed" | "untested" {
   if (result.checks.some((check) => check.status === "failed")) return "failed";
-  if (result.checks.length === 0 || result.checks.some((check) => check.status === "skipped")) return "untested";
+  if (!result.checks.some((check) => check.status === "passed") || result.checks.some((check) => check.status === "skipped")) return "untested";
   return "passed";
 }
 

@@ -324,4 +324,12 @@ describe("the conformance suite finds an adapter that does not hold to its contr
     expect(check(elsewhere, "capability:write_scope").status).toBe("not_applicable");
     expect(check(onMac, "capability:read_only").status).toBe("failed");
   });
+
+  it("records a scenario the subject declares its tool cannot do as unprovokable, and one it merely lacks a provoker for as skipped", async () => {
+    const { rate_limited, no_usage_report, ...rest } = mockSubject().provokers;
+    const result = await runOnly({ ...mockSubject(), provokers: rest, unprovokable: ["rate_limited"] }, ["failure:transient", "usage:not_reported"]);
+
+    expect(check(result, "failure:transient").status).toBe("unprovokable");
+    expect(check(result, "usage:not_reported").status).toBe("skipped");
+  });
 });
