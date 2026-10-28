@@ -168,7 +168,31 @@ OpenCode is a client; the account it uses belongs to whichever provider is conne
 <!-- check: opencode-providers -->
 > We recommend signing up for ChatGPT Plus or Pro.
 
-So the terms that matter for a pilot run through OpenCode are the connected provider's, quoted for Anthropic above and **not retrieved for OpenAI**. OpenCode's own terms: `https://opencode.ai/terms` returned HTTP 404 and no other page of OpenCode's was searched for them, so they are **not retrieved**, which is not a finding that none exist.
+So the terms of the connected provider matter for a pilot run through OpenCode, quoted for Anthropic above and **not retrieved for OpenAI**.
+
+**OpenCode's own terms**, <https://opencode.ai/legal/terms-of-service> (linked as "Terms" from the footer of <https://opencode.ai>; `https://opencode.ai/terms` returns 404), "Effective date: Aug 15, 2026", read 2026-10-28. They cover OpenCode's website, its "inference product" (Zen) and its hosted software:
+
+<!-- check: opencode-terms -->
+> Certain of these large language models are provided by third parties ("Third Party Models") and certain of these models are provided directly by us if you use the OpenCode Zen paid offering ("Zen").
+
+<!-- check: opencode-terms -->
+> You will only use the Services for your own internal use, and not on behalf of or for the benefit of any third party, and only in a manner that complies with all laws that apply to you.
+
+Among the uses the Services may not be put to, after "You represent, warrant, and agree that you will not provide or contribute anything, including any Content (as that term is defined below), to the Services, or otherwise use or interact with the Services, in a manner that:":
+
+<!-- check: opencode-terms -->
+> automatically or programmatically extracts data or Output (defined below);
+
+<!-- check: opencode-terms -->
+> creates, maintains, or uses accounts in bulk, or creates, maintains, or uses multiple accounts to circumvent usage limits, access restrictions, billing obligations, promotions, suspensions, or any other restriction or policy applicable to the Services;
+
+<!-- check: opencode-terms -->
+> In addition, if you are using the Services through an unpaid account, we may use Content to further develop and improve our Services.
+
+<!-- check: opencode-terms -->
+> Your ability to access Third Party Models is contingent on you having API keys or otherwise having the right to access such Third Party Models.
+
+**Observation about AHP, not a quotation.** AHP drives `opencode acp` and reads the agent's final message and usage from it in code, and the pilot would do so for hundreds of attempts. Whether that is what the terms mean by "automatically or programmatically extracts data or Output" is not decided here; it is the sentence to weigh before running the pilot on Zen models. The free-tier model the conformance suite uses runs through an unpaid account, so the "unpaid account" sentence applies to what the suite sends.
 
 ## What changed since the 2026-10-24 research notes
 
@@ -189,7 +213,7 @@ The notes themselves are not in the repository. What it records from them (the s
 | OpenAI Service Terms | `https://openai.com/policies/service-terms/` | HTTP 403 |
 | OpenAI Business Terms | `https://openai.com/policies/business-terms/` | HTTP 403 |
 | The same Terms of Use via the Internet Archive | `https://web.archive.org/web/2026/https://openai.com/policies/row-terms-of-use/` | HTTP 429 (blocked as bot traffic) |
-| OpenCode's terms | `https://opencode.ai/terms` | HTTP 404 |
+| OpenCode's terms at the first URL tried | `https://opencode.ai/terms` | HTTP 404; found at `https://opencode.ai/legal/terms-of-service` and quoted above (2026-10-28) |
 | Google Terms of Service, Gemini Code Assist notices, Gemini API Additional Terms | linked from the Gemini pages above | not fetched |
 | Anthropic Usage Policy | linked from the Claude Code legal page | not fetched |
 
