@@ -1,8 +1,15 @@
 // The report: what an evaluation's ledger says, per condition, with the raw counts beside every rate. It compares
 // nothing between conditions: that is for a later ticket's paired statistics, and a number here is never read as "better".
 
+import type { FailureClass, PathChange } from "../protocol/index.ts";
 import type { ConditionId, UnscoredReason } from "./events.ts";
 import type { EvaluationState, EvaluationView } from "./replay.ts";
+
+/**
+ * How the run of a scored trial that failed ended: the failure class of its failed step, or, when no step failed,
+ * `run_succeeded` (the run passed its own checks and the validators did not) or `run_failed` (it failed with no class).
+ */
+export type FailureOutcome = FailureClass | "run_succeeded" | "run_failed";
 
 export interface ConditionReport {
   condition: ConditionId;
@@ -13,13 +20,19 @@ export interface ConditionReport {
   passes: number;
   /** `passes` over `scored`; null when nothing was scored. */
   successRate: number | null;
-  /** The scored trials of tasks that plant at least one constraint: the denominator of the violation rate. */
+  /**
+   * The scored trials of tasks that plant at least one constraint, whose result changed something: the denominator of the
+   * violation rate. A result that changed nothing holds every constraint vacuously (nothing was written to break one), so
+   * counting it would lower the rate by failing to produce anything.
+   */
   constraintTrials: number;
   /** Of those, the trials in which any planted constraint was violated. */
   constraintViolations: number;
   constraintViolationRate: number | null;
-  /** The scored trials that failed, by how their run ended: a failure class, or `run_succeeded` when the run passed and the validators did not. */
-  failures: Record<string, number>;
+  /** The scored trials of tasks that plant a constraint whose result changed nothing, which `constraintTrials` leaves out. */
+  unchangedResults: number;
+  /** The scored trials that failed, by how their run ended. */
+  failures: Partial<Record<FailureOutcome, number>>;
   /** Trials ended by an `unknown` attempt: excluded from every count above and reported apart (glossary: harness incident). */
   harnessIncidents: { count: number; trials: { trialId: string; taskId: string; attemptId: string; reason: string; detail: string }[] };
   /** Trials with nothing to score, by reason: excluded as well, and never counted as a pass or a fail. */
@@ -35,7 +48,7 @@ export interface EvaluationReport {
   /** True when any trial ran on the mock adapter: nothing in the report is evidence. */
   mock: boolean;
   conditions: ConditionReport[];
-  taskChanges: { taskId: string; frozenHash: string; foundHash: string | null; changed: { path: string; change: string }[] }[];
+  taskChanges: { taskId: string; frozenHash: string; foundHash: string | null; changed: { path: string; change: PathChange }[] }[];
 }
 
 const rateOf = (part: number, whole: number) => (whole === 0 ? null : part / whole);
@@ -46,12 +59,13 @@ export function reportOf(view: EvaluationView): EvaluationReport {
     const ended = view.trials.filter((trial) => trial.condition === condition && trial.ended);
     const scored = ended.filter((trial) => trial.ended!.outcome === "scored");
     const passes = scored.filter((trial) => trial.ended!.score!.verdict === "pass");
-    const constrainedTrials = scored.filter((trial) => constrained.has(trial.taskId));
+    const withConstraints = scored.filter((trial) => constrained.has(trial.taskId));
+    const constrainedTrials = withConstraints.filter((trial) => trial.ended!.result!.changed);
     const violating = constrainedTrials.filter((trial) => trial.ended!.score!.constraints.some((constraint) => constraint.outcome === "violated"));
-    const failures: Record<string, number> = {};
+    const failures: Partial<Record<FailureOutcome, number>> = {};
     for (const trial of scored) {
       if (trial.ended!.score!.verdict !== "fail") continue;
-      const how = trial.ended!.failureClass ?? (trial.ended!.runState === "succeeded" ? "run_succeeded" : "run_failed");
+      const how: FailureOutcome = trial.ended!.failureClass ?? (trial.ended!.runState === "succeeded" ? "run_succeeded" : "run_failed");
       failures[how] = (failures[how] ?? 0) + 1;
     }
     const incidents = ended.filter((trial) => trial.ended!.outcome === "harness_incident");
@@ -67,6 +81,7 @@ export function reportOf(view: EvaluationView): EvaluationReport {
       constraintTrials: constrainedTrials.length,
       constraintViolations: violating.length,
       constraintViolationRate: rateOf(violating.length, constrainedTrials.length),
+      unchangedResults: withConstraints.length - constrainedTrials.length,
       failures,
       harnessIncidents: {
         count: incidents.length,
@@ -112,6 +127,7 @@ export function formatReport(report: EvaluationReport): string {
     lines.push("", `${condition.condition} (${CONDITION_NAMES[condition.condition]}): ${condition.trials} trial${condition.trials === 1 ? "" : "s"}`);
     lines.push(`  verified success: ${ratio(condition.passes, condition.scored, "scored trials")}`);
     lines.push(`  constraint violations: ${ratio(condition.constraintViolations, condition.constraintTrials, "scored trials of tasks with planted constraints")}`);
+    if (condition.unchangedResults > 0) lines.push(`  scored trials whose result changed nothing, left out of the violation rate: ${condition.unchangedResults}`);
     const failed = Object.entries(condition.failures);
     if (failed.length > 0) lines.push(`  failed trials by how their run ended: ${failed.map(([how, count]) => `${how} ${count}`).join(", ")}`);
     lines.push(`  harness incidents (excluded, not failures): ${condition.harnessIncidents.count}`);

@@ -1,7 +1,7 @@
 // Evaluation engine: tasks and their freezing, conditions C0 and C3, independent validators and reports.
 // See .scratch/ahp-release-1/issues/20-evaluation-core.md and docs/evaluation.md.
 
-export { forbiddenPatternViolations, type ConstraintCheck } from "./checks.ts";
+export { CONSTRAINT_CHECK_KINDS, forbiddenPatternViolations, type ConstraintCheck, type ConstraintCheckKind } from "./checks.ts";
 export { changesBetween, fileListOf, hashOfFiles, sha256Of } from "./freeze.ts";
 export {
   loadTask,
@@ -27,5 +27,5 @@ export {
   type TrialEnded,
   type TrialView,
 } from "./replay.ts";
-export { formatReport, MOCK_REPORT_NOTE, reportOf, type ConditionReport, type EvaluationReport } from "./report.ts";
+export { formatReport, MOCK_REPORT_NOTE, reportOf, type ConditionReport, type EvaluationReport, type FailureOutcome } from "./report.ts";
 export { readEvaluation, runEvaluation, SuiteInvalidError, type EvaluationResult, type RunEvaluationOptions } from "./run.ts";

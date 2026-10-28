@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { LedgerWriter, readCheckedLedger, type ChainedEvent } from "../ledger/index.ts";
 import { PROTOCOL_VERSION } from "../protocol/index.ts";
-import { systemClock, type Clock } from "../runtime/index.ts";
+import { newId, systemClock, type Clock } from "../runtime/index.ts";
 import { validateWorkflow } from "../sdk/index.ts";
 import { workflowFor } from "./conditions.ts";
 import type { EvaluationEvent, EvaluationEventBody } from "./events.ts";
@@ -11,7 +11,7 @@ import { applyEvaluationEvent, replayEvaluation, type EvaluationView } from "./r
 import { formatReport, reportOf, type EvaluationReport } from "./report.ts";
 import { conditionsOf, DEFAULT_RETRY_BUDGET, validateSuite, type EvaluationSuite } from "./suite.ts";
 import { loadTask, parseTask, readTaskFiles, type LoadedTask } from "./task.ts";
-import { newId, runTrial } from "./trial.ts";
+import { runTrial } from "./trial.ts";
 
 /** A suite that cannot be run: its own shape, or a workflow a condition would build from it, is invalid. Nothing was written. */
 export class SuiteInvalidError extends Error {
@@ -50,8 +50,8 @@ export interface EvaluationResult {
  * suite or a task is invalid.
  */
 export async function runEvaluation(suite: EvaluationSuite, options: RunEvaluationOptions): Promise<EvaluationResult> {
-  const shape = validateSuite(suite);
-  if (shape.length > 0) throw new SuiteInvalidError(shape);
+  const shapeProblems = validateSuite(suite);
+  if (shapeProblems.length > 0) throw new SuiteInvalidError(shapeProblems);
   const baseDir = resolve(options.baseDir ?? process.cwd());
   const tasks: LoadedTask[] = [];
   for (const dir of suite.tasks) tasks.push(await loadTask(resolve(baseDir, dir)));

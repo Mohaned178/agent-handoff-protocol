@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { DOES_NOTHING, evaluate, GREETS, GREETS_AND_SAYS_GOODBYE, greetingTaskDir, repoOf, runOf, scripted, suiteOf } from "./helpers/evaluation.ts";
+import { formatReport } from "../src/evaluation/index.ts";
+import { APPROVES, DOES_NOTHING, evaluate, GREETS, GREETS_AND_SAYS_GOODBYE, greetingTaskDir, repoOf, runOf, scripted, suiteOf, writeTree } from "./helpers/evaluation.ts";
 import { git, removeTempRepos } from "./helpers/repo.ts";
 
 afterEach(removeTempRepos);
@@ -40,6 +41,17 @@ describe("scoring is the validators' alone", () => {
 
     expect(state.trials[0]!.ended!.score).toMatchObject({ verdict: "pass", constraints: [{ id: "no-goodbye", outcome: "violated" }] });
     expect(report.conditions[0]).toMatchObject({ passes: 1, successRate: 1, constraintTrials: 1, constraintViolations: 1, constraintViolationRate: 1 });
+  });
+
+  it("leaves a trial that changed nothing out of the constraint-violation rate: its result holds every constraint vacuously", async () => {
+    const implement = (task: { id: string }) => scripted(task.id === "idle" ? DOES_NOTHING : GREETS_AND_SAYS_GOODBYE)();
+
+    const { report, state } = await evaluate(suiteOf([greetingTaskDir({ id: "idle" }), greetingTaskDir({ id: "bad" })], { implement }, { conditions: ["C0"] }));
+
+    expect(state.trials.map((trial) => trial.ended!.result!.changed)).toEqual([false, true]);
+    // Both are scored, but only the trial that produced something can say whether the constraint survived.
+    expect(report.conditions[0]).toMatchObject({ scored: 2, constraintTrials: 1, constraintViolations: 1, constraintViolationRate: 1, unchangedResults: 1 });
+    expect(formatReport(report)).toContain("scored trials whose result changed nothing, left out of the violation rate: 1");
   });
 
   it("checks a required invariant by its command in the result, and finds it violated when it exits non-zero", async () => {
@@ -104,8 +116,7 @@ describe("harness incidents", () => {
   });
 
   it("counts an incident against the condition it happened in, in C3 too", async () => {
-    const approves = { outputFields: { verdict: "approved", findings: ["fine"] } };
-    const { report } = await evaluate(suiteOf([greetingTaskDir()], { plan: scripted(LOSES_CONTACT), implement: scripted(GREETS), review: scripted(approves) }, { conditions: ["C0", "C3"] }));
+    const { report } = await evaluate(suiteOf([greetingTaskDir()], { plan: scripted(LOSES_CONTACT), implement: scripted(GREETS), review: scripted(APPROVES) }, { conditions: ["C0", "C3"] }));
 
     const [first, second] = report.conditions;
     expect(first).toMatchObject({ condition: "C0", scored: 1, harnessIncidents: { count: 0 } });
@@ -133,13 +144,14 @@ describe("trials with nothing to score", () => {
   it("ends a trial that AHP itself threw in as a harness_error, and goes on to the next", async () => {
     // A fixture of nothing but ignored files has nothing to commit, so making the trial's repository fails.
     const files = { "task.json": JSON.stringify({ id: "empty", prompt: "x", verification: { command: "node check-greeting.mjs" } }), "repo/.gitignore": "*\n", "hidden/check-greeting.mjs": "process.exit(0);\n" };
-    const { writeTree } = await import("./helpers/evaluation.ts");
     const broken = writeTree(files);
 
     const { state, report } = await evaluate(suiteOf([broken, greetingTaskDir()], { implement: scripted(GREETS) }, { conditions: ["C0"] }));
 
     expect(state.trials.map((trial) => trial.ended!.outcome)).toEqual(["unscored", "scored"]);
     expect(state.trials[0]!.ended).toMatchObject({ runId: null, runState: null, score: null, unscored: { reason: "harness_error", detail: expect.stringContaining("git commit") } });
+    // What it has is kept: its configuration, though no run was made.
+    expect(state.trials[0]!.ended!.artifacts).toMatchObject({ config: { path: expect.stringContaining("config.json") }, prompts: [], transcripts: [], runLedger: null });
     expect(report.conditions[0]).toMatchObject({ scored: 1, passes: 1, unscored: { byReason: { harness_error: 1 } } });
   });
 });

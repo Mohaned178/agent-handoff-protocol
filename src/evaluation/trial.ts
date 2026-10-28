@@ -3,16 +3,15 @@
 // with what an auditor needs beside it: the configuration, what each agent was sent and printed, the diff of the result and
 // the validators' evidence. Everything a trial keeps is named by path and SHA-256 in its `trial_ended` event.
 
-import { randomBytes } from "node:crypto";
 import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
-import { PROTOCOL_VERSION, type AttemptView, type RunView } from "../protocol/index.ts";
-import { discardWorktree, git, locateRepo, locateRun, messageOf, prepareWorktreeRoot, transcriptPaths, type Clock, type PullRequestProvider } from "../runtime/index.ts";
+import { PROTOCOL_VERSION, type AttemptView, type RunView, type WorkflowDefinition } from "../protocol/index.ts";
+import { discardWorktree, git, locateRepo, locateRun, messageOf, newId, prepareWorktreeRoot, transcriptPaths, type Clock, type PullRequestProvider } from "../runtime/index.ts";
 import { readRunEvents, runWorkflow } from "../sdk/index.ts";
 import { workflowFor } from "./conditions.ts";
 import type { ConditionId, EvaluationEventBody, StoredFile, TrialArtifacts } from "./events.ts";
 import { sha256Of } from "./freeze.ts";
-import type { EvaluationSuite } from "./suite.ts";
+import { DEFAULT_RETRY_BUDGET, type EvaluationSuite } from "./suite.ts";
 import type { LoadedTask } from "./task.ts";
 import { validateResult, type Validation } from "./validators.ts";
 
@@ -27,8 +26,6 @@ export interface TrialContext {
   signal?: AbortSignal;
   clock?: Clock;
 }
-
-export const newId = (prefix: string) => `${prefix}_${Date.now().toString(36)}${randomBytes(4).toString("hex")}`;
 
 /** A path relative to the evaluation's directory, with `/` separators, as the ledger names files. */
 const relativeTo = (dir: string, path: string) => relative(dir, path).split("\\").join("/");
@@ -77,8 +74,22 @@ const noExternalActions: PullRequestProvider = {
   merge: () => Promise.reject(new Error("an evaluation performs no external action")),
 };
 
+/**
+ * The workflow as a trial's configuration records it: the hidden tests by path and hash, not their text. The frozen task
+ * holds them, and the configuration sits beside the trial's repository, which an agent has no business reading.
+ */
+const withoutHiddenTests = (workflow: WorkflowDefinition) => ({
+  ...workflow,
+  steps: workflow.steps.map((step) =>
+    "verification" in step && step.verification.hiddenTests
+      ? { ...step, verification: { ...step.verification, hiddenTests: step.verification.hiddenTests.map(({ path, content }) => ({ path, sha256: sha256Of(content) })) } }
+      : step,
+  ),
+});
+
 /** What a trial has to show for itself so far, kept as it goes so an error partway still says how far it got. */
 interface Progress {
+  base: string | null;
   runId: string | null;
   state: RunView | null;
 }
@@ -97,21 +108,26 @@ export async function runTrial(ctx: TrialContext, loaded: LoadedTask, condition:
   const config = await store(
     ctx.dir,
     join(trialDir, "config.json"),
-    `${JSON.stringify({ trialId, condition, task: { id: task.id, dir: loaded.dir, hash: loaded.hash }, retryBudget: ctx.suite.retryBudget ?? null, platform: process.platform, node: process.version, protocolVersion: PROTOCOL_VERSION, workflow }, null, 2)}\n`,
+    `${JSON.stringify({ trialId, condition, task: { id: task.id, dir: loaded.dir, hash: loaded.hash }, retryBudget: ctx.suite.retryBudget ?? DEFAULT_RETRY_BUDGET, platform: process.platform, node: process.version, protocolVersion: PROTOCOL_VERSION, workflow: withoutHiddenTests(workflow) }, null, 2)}\n`,
   );
   await ctx.record({ type: "trial_started", trialId, taskId: task.id, condition, repo: relativeTo(ctx.dir, repo), config });
 
-  const progress: Progress = { runId: null, state: null };
+  const place: TrialPlace = { trialId, trialDir, repo, config };
+  const progress: Progress = { base: null, runId: null, state: null };
   let ended: TrialEndedBody;
   try {
-    ended = await execute(ctx, loaded, workflow, { trialId, trialDir, repo, config }, progress);
+    ended = await execute(ctx, loaded, workflow, place, progress);
   } catch (error) {
-    ended = endOf(trialId, progress, { outcome: "unscored", unscored: { reason: "harness_error", detail: messageOf(error).slice(0, MAX_DETAIL_CHARS) } });
+    // What the trial had made when AHP threw is kept as far as it goes: a run, if there was one, and the configuration anyway.
+    const artifacts = await keepArtifacts({ ctx, place, runId: progress.runId, attempts: attemptsOf(progress.state), base: progress.base, commit: null, validation: null });
+    ended = endOf(trialId, progress, { outcome: "unscored", unscored: { reason: "harness_error", detail: messageOf(error).slice(0, MAX_DETAIL_CHARS) }, artifacts });
   }
   await removeWorkspaces(repo, progress.state);
   await ctx.record(ended);
   return ended;
 }
+
+const attemptsOf = (state: RunView | null): AttemptView[] => state?.steps.flatMap((step) => step.attempts) ?? [];
 
 /**
  * Removes the attempts' worktrees, which can hold whatever an agent installed (`node_modules`) and, over an evaluation's many
@@ -120,7 +136,7 @@ export async function runTrial(ctx: TrialContext, loaded: LoadedTask, condition:
  * Best effort: a worktree that cannot be removed (a handle still open on Windows) is no reason to fail the trial.
  */
 async function removeWorkspaces(repo: string, state: RunView | null): Promise<void> {
-  for (const attempt of state?.steps.flatMap((step) => step.attempts) ?? []) {
+  for (const attempt of attemptsOf(state)) {
     if (attempt.state !== "unknown") await discardWorktree(repo, attempt.workspace).catch(() => undefined);
   }
 }
@@ -133,16 +149,30 @@ interface TrialPlace {
 }
 
 /** Makes the trial's repository, runs the workflow in it, and works out how the trial ended. */
-async function execute(ctx: TrialContext, loaded: LoadedTask, workflow: Parameters<typeof runWorkflow>[0], place: TrialPlace, progress: Progress): Promise<TrialEndedBody> {
+async function execute(ctx: TrialContext, loaded: LoadedTask, workflow: WorkflowDefinition, place: TrialPlace, progress: Progress): Promise<TrialEndedBody> {
   const { trialId, repo } = place;
   const base = await createFixtureRepo(repo, loaded);
-  const { runId, state } = await runWorkflow(workflow, { repo, signal: ctx.signal, clock: ctx.clock, pullRequests: noExternalActions });
+  progress.base = base;
+  const { runId, state } = await runWorkflow(workflow, {
+    repo,
+    signal: ctx.signal,
+    clock: ctx.clock,
+    pullRequests: noExternalActions,
+    // As the run goes, so an error partway still leaves the run's id and how far it had got.
+    onEvent: (_event, current) => {
+      progress.runId = current.runId;
+      progress.state = current;
+    },
+  });
   progress.runId = runId;
   progress.state = state;
-  const attempts = state.steps.flatMap((step) => step.attempts);
-  const kept = (candidate: { commit: string } | null, validation: Validation | null) => keepArtifacts(ctx, place, runId, attempts, base, candidate?.commit ?? null, validation);
+  const attempts = attemptsOf(state);
+  const kept = (candidate: { commit: string } | null, validation: Validation | null) =>
+    keepArtifacts({ ctx, place, runId, attempts, base, commit: candidate?.commit ?? null, validation });
 
   // A cancel first: Ctrl+C can leave an attempt unknown (a kill that could not be confirmed), which is the cancel's doing.
+  // While cancelling, the runtime waits for a person to decide such an attempt instead of applying the step's `abort`, so the
+  // run is left in `needs_recovery`: `ahp recover <attempt> --policy abort --repo <the trial's repository>` ends it.
   if (state.state === "cancelled" || (ctx.signal?.aborted && state.state !== "succeeded" && state.state !== "failed")) {
     return endOf(trialId, progress, { outcome: "cancelled", artifacts: await kept(null, null) });
   }
@@ -150,28 +180,31 @@ async function execute(ctx: TrialContext, loaded: LoadedTask, workflow: Paramete
   const unknown = attempts.find((attempt) => attempt.state === "unknown");
   if (unknown) {
     const recovery = unknown.recovery!;
+    const artifacts = await kept(null, null);
     await ctx.record({ type: "harness_incident", trialId, attemptId: unknown.id, unknownReason: recovery.reason, detail: recovery.detail.slice(0, MAX_DETAIL_CHARS) });
-    return endOf(trialId, progress, { outcome: "harness_incident", artifacts: await kept(null, null) });
+    return endOf(trialId, progress, { outcome: "harness_incident", artifacts });
   }
   if (state.state !== "succeeded" && state.state !== "failed") {
     return endOf(trialId, progress, { outcome: "unscored", unscored: { reason: "harness_error", detail: `the run stopped in state ${state.state}, which an evaluation's run never does` }, artifacts: await kept(null, null) });
   }
   const failed = state.steps.find((step) => step.state === "failed");
   if (failed && (failed.failureClass === "config_auth" || failed.failureClass === "rejected")) {
-    const said = (failed.attempts.at(-1) as AttemptView | undefined)?.error?.message;
-    const detail = `step "${failed.id}" ended ${failed.failureClass}${said ? `: ${said}` : ""}: no coding agent did the work`.slice(0, MAX_DETAIL_CHARS);
+    // Whichever step it was: a login or configuration problem means the condition did not run as configured.
+    const said = failed.attempts.at(-1)?.error?.message;
+    const detail = `step "${failed.id}" ended ${failed.failureClass}${said ? `: ${said}` : ""}: the condition could not run as configured`.slice(0, MAX_DETAIL_CHARS);
     return endOf(trialId, progress, { outcome: "unscored", unscored: { reason: "setup_failed", detail }, artifacts: await kept(null, null) });
   }
 
   const candidate = await resultOf(repo, runId, base);
   const validation = await validateResult({ repo, runId, worktreeRoot: await prepareWorktreeRoot(), task: loaded.task, base, commit: candidate.commit, signal: ctx.signal });
   const artifacts = await kept(candidate, validation);
+  const result = { ...candidate, changed: validation.evidence.changed.length > 0 };
   if (validation.state === "inconclusive") {
     // A validator cut short by the cancel says nothing about the trial, and the evaluation is stopping anyway.
-    if (ctx.signal?.aborted) return endOf(trialId, progress, { outcome: "cancelled", result: candidate, artifacts });
-    return endOf(trialId, progress, { outcome: "unscored", unscored: { reason: "validator_inconclusive", detail: validation.detail }, result: candidate, artifacts });
+    if (ctx.signal?.aborted) return endOf(trialId, progress, { outcome: "cancelled", result, artifacts });
+    return endOf(trialId, progress, { outcome: "unscored", unscored: { reason: "validator_inconclusive", detail: validation.detail }, result, artifacts });
   }
-  return endOf(trialId, progress, { outcome: "scored", score: validation.score, result: candidate, artifacts });
+  return endOf(trialId, progress, { outcome: "scored", score: validation.score, result, artifacts });
 }
 
 /** The commit to score: the last snapshot the run made, which is the work as it stands; the fixture if it made none. */
@@ -200,38 +233,57 @@ function endOf(trialId: string, progress: Progress, how: Pick<TrialEndedBody, "o
   };
 }
 
+interface KeepInput {
+  ctx: TrialContext;
+  place: TrialPlace;
+  /** Null when no run was made, so there is nothing of one to keep. */
+  runId: string | null;
+  attempts: readonly AttemptView[];
+  base: string | null;
+  /** The commit scored, and the validators' evidence, when the trial was validated. */
+  commit: string | null;
+  validation: Validation | null;
+}
+
 /**
  * Copies what an auditor needs into the trial's directory, and names each file by path and hash: the configuration, what each
  * attempt's agent was sent and printed, the run's ledger, and, when the trial was validated, the result's diff and the
- * validators' evidence.
+ * validators' evidence. Each is kept on its own: one that cannot be (a disk problem) is left out and named in `problem`, and
+ * never changes how the trial is classified.
  */
-async function keepArtifacts(
-  ctx: TrialContext,
-  place: TrialPlace,
-  runId: string,
-  attempts: readonly AttemptView[],
-  base: string,
-  commit: string | null,
-  validation: Validation | null,
-): Promise<TrialArtifacts> {
+async function keepArtifacts({ ctx, place, runId, attempts, base, commit, validation }: KeepInput): Promise<TrialArtifacts> {
   const { trialDir, repo, config } = place;
-  const location = await locateRepo(repo);
+  const problems: string[] = [];
+  const tried = async <T>(what: string, keeping: () => Promise<T>): Promise<T | null> => {
+    try {
+      return await keeping();
+    } catch (error) {
+      problems.push(`${what}: ${messageOf(error)}`);
+      return null;
+    }
+  };
   const prompts: TrialArtifacts["prompts"] = [];
   const transcripts: TrialArtifacts["transcripts"] = [];
-  for (const attempt of attempts) {
-    const files = transcriptPaths(location, runId, attempt.id);
-    const prompt = await keep(ctx.dir, files.input, join(trialDir, "prompts", `${attempt.id}.txt`));
-    const transcript = await keep(ctx.dir, files.output, join(trialDir, "transcripts", `${attempt.id}.txt`));
-    if (prompt) prompts.push({ attemptId: attempt.id, file: prompt });
-    if (transcript) transcripts.push({ attemptId: attempt.id, file: transcript });
-  }
-  const runLedger = await keep(ctx.dir, (await locateRun(repo, runId)).path, join(trialDir, "run-ledger.jsonl"));
+  let runLedger: StoredFile | null = null;
   let patch: StoredFile | null = null;
   let validationFile: StoredFile | null = null;
-  if (commit !== null && validation !== null) {
-    const diff = commit === base ? "" : `${await git(repo, ["diff", "--binary", "--no-renames", base, commit])}\n`;
-    patch = await store(ctx.dir, join(trialDir, "result.patch"), diff);
-    validationFile = await store(ctx.dir, join(trialDir, "validation.json"), `${JSON.stringify(validation.evidence, null, 2)}\n`);
+  if (runId !== null) {
+    const location = await tried("locating the run", () => locateRepo(repo));
+    for (const attempt of location ? attempts : []) {
+      const files = transcriptPaths(location!, runId, attempt.id);
+      const prompt = await tried(`prompts/${attempt.id}.txt`, () => keep(ctx.dir, files.input, join(trialDir, "prompts", `${attempt.id}.txt`)));
+      const transcript = await tried(`transcripts/${attempt.id}.txt`, () => keep(ctx.dir, files.output, join(trialDir, "transcripts", `${attempt.id}.txt`)));
+      if (prompt) prompts.push({ attemptId: attempt.id, file: prompt });
+      if (transcript) transcripts.push({ attemptId: attempt.id, file: transcript });
+    }
+    runLedger = await tried("run-ledger.jsonl", async () => keep(ctx.dir, (await locateRun(repo, runId)).path, join(trialDir, "run-ledger.jsonl")));
+    if (commit !== null && validation !== null && base !== null) {
+      patch = await tried("result.patch", async () => {
+        const diff = commit === base ? "" : `${await git(repo, ["diff", "--binary", "--no-renames", base, commit])}\n`;
+        return store(ctx.dir, join(trialDir, "result.patch"), diff);
+      });
+      validationFile = await tried("validation.json", () => store(ctx.dir, join(trialDir, "validation.json"), `${JSON.stringify(validation.evidence, null, 2)}\n`));
+    }
   }
-  return { config, prompts, transcripts, runLedger, patch, validation: validationFile };
+  return { config, prompts, transcripts, problem: problems.length > 0 ? problems.join("; ").slice(0, MAX_DETAIL_CHARS) : null, runLedger, patch, validation: validationFile };
 }

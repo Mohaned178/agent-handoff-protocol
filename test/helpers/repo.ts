@@ -5,6 +5,18 @@ import { dirname, join } from "node:path";
 
 const created: string[] = [];
 
+/** Writes `files` (path → content, `/` separators) into a fresh temporary directory, removed by `removeTempRepos`. */
+export function writeTree(files: Record<string, string>): string {
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "ahp-tree-")));
+  created.push(dir);
+  for (const [path, content] of Object.entries(files)) {
+    const target = join(dir, ...path.split("/"));
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, content);
+  }
+  return dir;
+}
+
 /** Runs git in `cwd` and returns trimmed stdout. */
 export function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true }).trim();

@@ -3,12 +3,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { formatReport, loadTask, readEvaluation, runEvaluation, SuiteInvalidError, TaskInvalidError } from "../src/evaluation/index.ts";
 import { LedgerCorruptError, readLedger } from "../src/ledger/index.ts";
-import { APPROVES, DOES_NOTHING, evaluate, GREETS, greetingFiles, greetingTaskDir, PLANS, repoOf, runOf, scripted, sha256Of, suiteOf, writeTree } from "./helpers/evaluation.ts";
-import { git, removeTempRepos } from "./helpers/repo.ts";
+import { replayEvaluation, EvaluationLedgerInconsistentError, type EvaluationEvent } from "../src/evaluation/index.ts";
+import { APPROVES, DOES_NOTHING, evaluate, GREETS, greetingFiles, greetingTaskDir, HIDDEN_GREETING_TEST, IMPLEMENTS, PLANS, repoOf, runOf, scripted, sha256Of, suiteOf } from "./helpers/evaluation.ts";
+import { git, removeTempRepos, writeTree } from "./helpers/repo.ts";
 
 afterEach(removeTempRepos);
 
-const IMPLEMENTS = { ...GREETS, outputFields: { ...PLANS.outputFields, summary: "wrote the greeting" } };
 // IMPLEMENTS restates what the plan handed on, which C3's implement step must report and C0's single step may.
 const both = (task: string) => suiteOf([task], { plan: scripted(PLANS), implement: scripted(IMPLEMENTS), review: scripted(APPROVES) }, { conditions: ["C0", "C3"] });
 
@@ -110,6 +110,35 @@ describe("what a trial keeps", () => {
     expect(JSON.parse(read(artifacts.validation!).toString("utf8"))).toMatchObject({ validatorRuns: 1, tests: { exitCode: 0 } });
   });
 
+  it("does not write the hidden tests into the trial's configuration, only their paths and hashes", async () => {
+    const { dir, state } = await evaluate(both(greetingTaskDir()));
+
+    const c3 = state.trials[1]!;
+    const text = readFileSync(join(dir, ...c3.ended!.artifacts!.config.path.split("/")), "utf8");
+    expect(text).not.toContain("greeting missing or wrong");
+    const implement = JSON.parse(text).workflow.steps[1];
+    expect(implement.verification.hiddenTests).toEqual([{ path: "check-greeting.mjs", sha256: sha256Of(HIDDEN_GREETING_TEST) }]);
+  });
+
+  it("goes on to say how a trial ended when what it kept cannot all be kept, and says what could not be", async () => {
+    const lost = { ...GREETS, loseContact: true };
+    const implement = (task: { id: string }) => scripted(task.id === "lost" ? lost : GREETS)();
+    // A file where the trial's prompts directory has to be made: the copy of the attempts' prompts fails.
+    const sabotage = (out: string) => (event: { type: string; trialId?: string }, state: { evaluationId: string }) => {
+      if (event.type === "trial_started") writeFileSync(join(out, state.evaluationId, "trials", event.trialId!, "prompts"), "in the way");
+    };
+    const out = writeTree({});
+
+    const { state } = await evaluate(suiteOf([greetingTaskDir({ id: "lost" }), greetingTaskDir({ id: "fine" })], { implement }, { conditions: ["C0"] }), { out, onEvent: sabotage(out) as never });
+
+    // The incident stays an incident, and the scored trial stays scored: a disk problem is not what either found.
+    expect(state.trials.map((trial) => trial.ended!.outcome)).toEqual(["harness_incident", "scored"]);
+    // What could be kept is kept: the prompts could not, and the transcript and the run's ledger were.
+    for (const trial of state.trials) {
+      expect(trial.ended!.artifacts).toMatchObject({ problem: expect.stringContaining("prompts"), prompts: [], transcripts: [expect.anything()], runLedger: expect.objectContaining({ path: expect.stringContaining("run-ledger.jsonl") }) });
+    }
+  });
+
   it("keeps the trial's repository and the result's snapshot, so its run can be inspected afterwards, but not the attempts' worktrees", async () => {
     const { dir, state } = await evaluate(suiteOf([greetingTaskDir()], { implement: scripted(GREETS) }, { conditions: ["C0"] }));
 
@@ -199,7 +228,9 @@ describe("the report", () => {
     const text = formatReport(report);
     expect(text).toContain("[mock] These results come from the mock adapter. They are labelled [mock] and are not evidence.");
     expect(text).toContain("verified success: 1 of 2 scored trials (50%)");
-    expect(text).toContain("constraint violations: 0 of 2 scored trials of tasks with planted constraints (0%)");
+    // Of the two scored trials only the one that wrote something can say whether a constraint survived.
+    expect(text).toContain("constraint violations: 0 of 1 scored trials of tasks with planted constraints (0%)");
+    expect(text).toContain("scored trials whose result changed nothing, left out of the violation rate: 1");
     expect(text).toContain("harness incidents (excluded, not failures): 1");
     expect(text).toContain("lost: attempt ");
     expect(text).toContain("This report draws no comparison between conditions.");
@@ -215,5 +246,36 @@ describe("the report", () => {
     const text = formatReport(report);
     expect(text).toContain("verified success: n/a: no scored trials");
     expect(text).toContain("constraint violations: n/a: no scored trials of tasks with planted constraints");
+  });
+});
+
+describe("replaying an evaluation's ledger", () => {
+  // Hand-made events: replay takes the events as they are; whoever reads the file checks the hash chain.
+  let seq = 0;
+  const at = (body: Record<string, unknown>) => ({ seq: ++seq, prevHash: null, time: "2026-10-28T00:00:00.000Z", hash: "0".repeat(64), ...body }) as unknown as EvaluationEvent;
+  const header = () => {
+    seq = 0;
+    return [
+      at({ type: "evaluation_created", evaluationId: "eval_x", protocolVersion: "0.0.0", suite: "s", conditions: ["C0"], retryBudget: 2 }),
+      at({ type: "task_frozen", taskId: "t", dir: "t", taskHash: "a".repeat(64), hiddenTestsHash: "b".repeat(64), files: [], hiddenTests: [], constraints: [], seededDefects: [] }),
+      at({ type: "trial_started", trialId: "trial_1", taskId: "t", condition: "C0", repo: "trials/trial_1/repo", config: { path: "c", sha256: "c".repeat(64), bytes: 1 } }),
+    ];
+  };
+  const ended = (outcome: string, more: Record<string, unknown> = {}) =>
+    at({ type: "trial_ended", trialId: "trial_1", outcome, runId: null, runState: null, failureClass: null, mock: false, attempts: 0, unscored: null, result: null, score: null, artifacts: null, ...more });
+
+  it("refuses a trial that ends as anything but a harness incident once an incident was recorded for it", () => {
+    const events = [...header(), at({ type: "harness_incident", trialId: "trial_1", attemptId: "att_1", unknownReason: "lost_contact", detail: "gone" }), ended("unscored", { unscored: { reason: "harness_error", detail: "x" } })];
+
+    expect(() => replayEvaluation(events)).toThrow(EvaluationLedgerInconsistentError);
+    expect(() => replayEvaluation(events)).toThrow(/an incident was recorded for it, so it ends as one/);
+  });
+
+  it("refuses a trial that starts after a task changed, and one that ends scored without a score", () => {
+    const afterChange = [...header().slice(0, 2), at({ type: "task_changed", taskId: "t", frozenHash: "a".repeat(64), foundHash: null, changed: [] }), at({ type: "trial_started", trialId: "trial_2", taskId: "t", condition: "C0", repo: "r", config: { path: "c", sha256: "c".repeat(64), bytes: 1 } })];
+    expect(() => replayEvaluation(afterChange)).toThrow(/after a task changed/);
+    expect(() => replayEvaluation([...header(), ended("scored")])).toThrow(/a scored trial has a score/);
+    // And the happy path replays.
+    expect(replayEvaluation([...header(), ended("cancelled")]).trials[0]!.ended).toMatchObject({ outcome: "cancelled" });
   });
 });

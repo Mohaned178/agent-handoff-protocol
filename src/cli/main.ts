@@ -171,30 +171,44 @@ interface Following {
  */
 async function followRun<R>(io: Io, execute: (following: Following) => Promise<R>): Promise<R> {
   let usedMock = false;
-  const controller = new AbortController();
-  const cancel = () => {
-    if (controller.signal.aborted) {
-      io.stderr("ahp: still cancelling: waiting until the agent and every process it started are seen gone");
-      return;
-    }
-    io.stderr("ahp: cancelling the run (Ctrl+C)");
-    controller.abort();
-  };
-  process.on("SIGINT", cancel);
-  process.on("SIGTERM", cancel);
+  const interrupt = cancelOnInterrupt(io, "the run", "waiting until the agent and every process it started are seen gone");
   try {
     return await execute({
-      signal: controller.signal,
+      signal: interrupt.signal,
       onEvent: (event, current) => {
         usedMock = current.mock;
         io.stdout(formatEvent(event, current));
       },
     });
   } finally {
-    process.off("SIGINT", cancel);
-    process.off("SIGTERM", cancel);
+    interrupt.release();
     if (usedMock) io.stdout(MOCK_NOTE);
   }
+}
+
+/**
+ * Makes Ctrl+C (SIGINT) and SIGTERM abort the returned signal instead of killing ahp, so what is running can be stopped and the
+ * cancel recorded; the first says so on stderr, a later one only that it is under way. `release` gives the signals back.
+ */
+function cancelOnInterrupt(io: Io, what: string, whileWaiting: string): { signal: AbortSignal; release: () => void } {
+  const controller = new AbortController();
+  const cancel = () => {
+    if (controller.signal.aborted) {
+      io.stderr(`ahp: still cancelling: ${whileWaiting}`);
+      return;
+    }
+    io.stderr(`ahp: cancelling ${what} (Ctrl+C)`);
+    controller.abort();
+  };
+  process.on("SIGINT", cancel);
+  process.on("SIGTERM", cancel);
+  return {
+    signal: controller.signal,
+    release: () => {
+      process.off("SIGINT", cancel);
+      process.off("SIGTERM", cancel);
+    },
+  };
 }
 
 /** Exit 0 unless Node or git does not meet its requirement; a tool that is missing is reported, not a failure. */
@@ -238,22 +252,12 @@ async function evalCommand(file: string, out: string | undefined, json: boolean,
   } catch (error) {
     throw new UsageError(`cannot load suite file ${path}: ${(error as Error).message}`);
   }
-  const controller = new AbortController();
-  const cancel = () => {
-    if (controller.signal.aborted) {
-      io.stderr("ahp: still cancelling the evaluation");
-      return;
-    }
-    io.stderr("ahp: cancelling the evaluation (Ctrl+C)");
-    controller.abort();
-  };
-  process.on("SIGINT", cancel);
-  process.on("SIGTERM", cancel);
+  const interrupt = cancelOnInterrupt(io, "the evaluation", "waiting until the trial in hand and every process it started are seen gone");
   try {
     const result = await runEvaluation(suite as EvaluationSuite, {
       out: out === undefined ? evaluationsRoot() : resolve(out),
       baseDir: dirname(path),
-      signal: controller.signal,
+      signal: interrupt.signal,
       onEvent: (event: EvaluationEvent, state: Readonly<EvaluationView>) => {
         if (!json) io.stdout(formatEvaluationEvent(event, state));
       },
@@ -265,8 +269,7 @@ async function evalCommand(file: string, out: string | undefined, json: boolean,
     if (error instanceof SuiteInvalidError || error instanceof TaskInvalidError) throw new UsageError(`${error.message} (suite file ${path})`);
     throw error;
   } finally {
-    process.off("SIGINT", cancel);
-    process.off("SIGTERM", cancel);
+    interrupt.release();
   }
 }
 

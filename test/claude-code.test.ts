@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import type { TranscriptFiles } from "../src/process/index.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -63,7 +64,7 @@ const appliedFor = (capabilities: CapabilityRequest[] = [], platform = process.p
 async function attempt(
   stream: string,
   parts: Parameters<typeof handoffOf>[1] = {},
-  run: { capabilities?: CapabilityRequest[]; requestedModel?: string | null; options?: unknown; exitCode?: number; tornTail?: string; transcript?: { input: string; output: string } } = {},
+  run: { capabilities?: CapabilityRequest[]; requestedModel?: string | null; options?: unknown; exitCode?: number; tornTail?: string; transcript?: TranscriptFiles } = {},
 ) {
   const claude = fake({ stream, exitCode: run.exitCode, tornTail: run.tornTail });
   const workspace = join(createTempRepo({ "README.md": "x\n" }), "work space");

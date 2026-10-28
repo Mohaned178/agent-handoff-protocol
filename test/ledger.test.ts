@@ -2,11 +2,10 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { writeTree } from "./helpers/evaluation.ts";
 import { inspectRun, LedgerCorruptError, readRun, readRunEvents, runWorkflow } from "../src/index.ts";
 import { LedgerLockedError, LedgerWriter } from "../src/ledger/index.ts";
 import { eventHash, finishedRun, GONE_PID, ledgerFile, ledgerLines, lockFile, rewriteLedger } from "./helpers/ledger.ts";
-import { createTempRepo, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
+import { createTempRepo, removeTempRepos, VERIFY_GREETING, writeTree } from "./helpers/repo.ts";
 import { hello, retryWorkflow } from "./helpers/retry.ts";
 
 afterEach(removeTempRepos);

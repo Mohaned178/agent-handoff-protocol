@@ -1,13 +1,13 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { greetingFiles, writeTree } from "./helpers/evaluation.ts";
+import { GREETS, greetingFiles, writeTree } from "./helpers/evaluation.ts";
 import { ahp } from "./helpers/cli.ts";
 import { removeTempRepos } from "./helpers/repo.ts";
 
 afterEach(removeTempRepos);
 
-const SCRIPT = { edits: [{ path: "greeting.txt", content: "hello\n" }], outputFields: { summary: "wrote the greeting" } };
+const SCRIPT = GREETS;
 
 /** A suite file beside its task, as a person would lay them out: the task is named relative to the file. */
 function suiteDir(suite: Record<string, unknown> = {}, task = greetingFiles()) {

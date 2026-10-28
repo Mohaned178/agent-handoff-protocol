@@ -23,7 +23,7 @@ export function taskText(task: EvaluationTask): string {
   return constraints.length === 0 ? task.prompt : `${task.prompt}\n\nThese constraints must hold in the final result:\n${constraints.join("\n")}`;
 }
 
-const agentOf = (suite: EvaluationSuite, role: "plan" | "implement" | "review", task: EvaluationTask): AgentRef => {
+const castAgent = (suite: EvaluationSuite, role: "plan" | "implement" | "review", task: EvaluationTask): AgentRef => {
   const source = suite.agents[role];
   if (source === undefined) throw new Error(`the suite names no agent for the role "${role}"`);
   return agentFor(source, task);
@@ -42,7 +42,7 @@ export function workflowFor(condition: ConditionId, task: EvaluationTask, suite:
         steps: [
           {
             id: "solve",
-            agent: agentOf(suite, "implement", task),
+            agent: castAgent(suite, "implement", task),
             instructions: `${taskText(task)}\n\nDo the whole task in this workspace.`,
             verification: { requiredOutputFields: ["summary"] },
             retry: { budget: 0 },
@@ -60,7 +60,7 @@ export function workflowFor(condition: ConditionId, task: EvaluationTask, suite:
         steps: [
           {
             id: "plan",
-            agent: agentOf(suite, "plan", task),
+            agent: castAgent(suite, "plan", task),
             instructions: `${taskText(task)}\n\nPlan the work; do not change any file. Report your summary, the decisions you made, and every constraint the work must respect: restate each one you were given.`,
             capabilities: [{ kind: "read_only" }],
             verification: { requiredOutputFields: handedOn },
@@ -69,7 +69,7 @@ export function workflowFor(condition: ConditionId, task: EvaluationTask, suite:
           },
           {
             id: "implement",
-            agent: agentOf(suite, "implement", task),
+            agent: castAgent(suite, "implement", task),
             instructions:
               "Implement the plan you were handed. Follow its decisions and respect every one of its constraints. Report your summary, your decisions, and every constraint you kept: restate each one.",
             // The hidden tests are this step's acceptance, which its agent never sees; a failure sends it back with the evidence.
@@ -79,7 +79,7 @@ export function workflowFor(condition: ConditionId, task: EvaluationTask, suite:
           },
           {
             id: "review",
-            agent: agentOf(suite, "review", task),
+            agent: castAgent(suite, "review", task),
             instructions:
               "Review the implementation in this workspace against the decisions and constraints you were handed. Do not change any file. Report your verdict and your findings.",
             review: { sendBackTo: "implement" },

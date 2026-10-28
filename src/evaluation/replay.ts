@@ -116,6 +116,8 @@ export function applyEvaluationEvent(state: EvaluationView | undefined, event: E
       });
       return state;
     case "trial_started":
+      // A changed task ends the evaluation: nothing starts after it.
+      if (state.taskChanges.length > 0) throw new EvaluationLedgerInconsistentError(event, "a trial started after a task changed");
       if (!state.tasks.some((task) => task.id === event.taskId)) throw new EvaluationLedgerInconsistentError(event, `task "${event.taskId}" was never frozen`);
       if (!CONDITIONS.includes(event.condition) || !state.conditions.includes(event.condition)) throw new EvaluationLedgerInconsistentError(event, `condition ${event.condition} is not one of this evaluation's`);
       if (state.trials.some((candidate) => candidate.id === event.trialId)) throw new EvaluationLedgerInconsistentError(event, `trial "${event.trialId}" started twice`);
@@ -133,6 +135,7 @@ export function applyEvaluationEvent(state: EvaluationView | undefined, event: E
       if (event.outcome === "scored" && !event.score) throw new EvaluationLedgerInconsistentError(event, "a scored trial has a score");
       if (event.outcome !== "scored" && event.score) throw new EvaluationLedgerInconsistentError(event, `a trial that is ${event.outcome} has no score`);
       if (event.outcome === "harness_incident" && !found.incident) throw new EvaluationLedgerInconsistentError(event, "a harness incident is recorded before its trial ends");
+      if (event.outcome !== "harness_incident" && found.incident) throw new EvaluationLedgerInconsistentError(event, "an incident was recorded for it, so it ends as one");
       if (event.outcome === "unscored" && !event.unscored) throw new EvaluationLedgerInconsistentError(event, "an unscored trial says why");
       found.ended = event;
       found.endedAt = event.time;

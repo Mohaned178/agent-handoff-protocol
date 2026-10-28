@@ -10,12 +10,12 @@ A **task** is a directory (below). A **suite** names tasks and the coding agent 
 
 | Condition | What runs |
 |---|---|
-| **C0** | One step, `solve`, by the suite's `implement` agent: the task and all its constraints in one prompt, **one attempt, no retry**, and no acceptance check beyond reporting a `summary`. |
+| **C0** | One step, `solve`, by the suite's `implement` agent: the task and all its constraints in one prompt, **no retry budget** (one attempt at the task; only a `transient` failure such as a rate limit is retried, with backoff, as in C3), and no acceptance check beyond reporting a `summary`. |
 | **C3** | `plan` → `implement` → `review`, full AHP: handoffs between steps, the task's hidden tests as the implement step's verification, a retry budget (default 2) shared by agent errors, failed verification and review send-backs, and a review that sends `implement` back on `changes_requested`. |
 
 What is told to whom is part of the design. The task's prompt **and its planted constraints** go to the first step only: C0's single agent, C3's `plan`. C3's `implement` and `review` are told what to do in fixed words and learn the constraints only through their handoff's context, which is the previous step's required output fields (`summary`, `decisions`, `constraints`). That is what makes the constraints a test of context loss.
 
-In every workflow the steps are agent steps only: **no approval gate and no external action**, so a trial never waits for a person and nothing is published (a trial's repository has no remote, and its pull-request provider refuses every call). Every step recovers an `unknown` attempt by `abort`, never `manual`. The task's network stance is on every step of both conditions, so it is the same for a task everywhere. `transient` failures (a rate limit) are retried alike in both conditions.
+In every workflow the steps are agent steps only: **no approval gate and no external action**, so a trial never waits for a person and nothing is published (a trial's repository has no remote, and its pull-request provider refuses every call). Every step recovers an `unknown` attempt by `abort`, never `manual`. The task's network stance is on every step of both conditions, so it is the same for a task everywhere. `transient` failures (a rate limit) are retried alike in both conditions, so C0's "no retry" is about the agent's work, not about the provider's limits.
 
 ## A task
 
@@ -86,7 +86,7 @@ Before **each trial** the task directory is read again and hashed. The bytes tha
 Every trial is scored **after its run has ended, by validators that share nothing with the run's verification**. They build a fresh worktree from the commit the run left (the last snapshot any attempt made, or the fixture if it made none), install, write the hidden tests in, and run the task's command. The in-run verdict never decides the score (C0 has none to speak of), and the agent's own report is not read. A run that failed can be scored a pass, and a run that succeeded can be scored a fail.
 
 - **Verified success** is the hidden tests passing with no protected path changed. A trial that changed a protected path fails without the tests being run.
-- **A constraint violation** is scored apart: a trial can pass and still violate a planted constraint, which is the context-loss signature. The rate is over the scored trials of tasks that plant at least one constraint.
+- **A constraint violation** is scored apart: a trial can pass and still violate a planted constraint, which is the context-loss signature. The rate is over the scored trials of tasks that plant at least one constraint **and whose result changed something**: a result identical to the fixture holds every constraint vacuously, and counting it would lower the rate for producing nothing. The report says how many were left out.
 - A validator that cannot run to a result (an install that fails, a command killed by a signal) is run once more, then the trial is **unscored**, never a pass or a fail.
 
 ## How a trial ends
@@ -95,8 +95,8 @@ Every trial is scored **after its run has ended, by validators that share nothin
 |---|---|---|
 | `scored` | The validators ran to a result: `pass` or `fail`. | Yes, the only ones. |
 | `harness_incident` | An attempt of the trial's run is `unknown`: it may have done anything and may still be running. Recorded as a `harness_incident` event (the glossary's meaning, and only that), with the attempt and why. | No. Reported apart, per condition. |
-| `unscored` | Nothing to score: `validator_inconclusive`, `setup_failed` (the run ended `config_auth` or `rejected`, so no agent did the work: a login or configuration problem, not a condition's result), or `harness_error` (AHP itself threw during the trial). | No. Reported apart, per condition, with the reason. |
-| `cancelled` | Ctrl+C. The trial in hand is cancelled, nothing further starts, and the exit code is 130. | No. |
+| `unscored` | Nothing to score: `validator_inconclusive`, `setup_failed` (a step of the run ended `config_auth` or `rejected`, whichever step: a login or configuration problem, so the condition did not run as configured), or `harness_error` (AHP itself threw during the trial). | No. Reported apart, per condition, with the reason. |
+| `cancelled` | Ctrl+C. The trial in hand is cancelled, nothing further starts, and the exit code is 130. While cancelling, the runtime leaves an `unknown` attempt for a person instead of applying the step's `abort`, so a cancel that could not confirm a kill leaves the trial's run in `needs_recovery`: `ahp recover <attempt> --policy abort --repo <the trial's repository>` ends it. | No. |
 
 An `unknown` attempt is never retried: the steps' `abort` policy ends the step, so the trial's run ends and the trial is recorded. Failed trials are also broken down by how their run ended (`agent_error`, `verification_failed`, `run_succeeded`, ...), so a condition that fails for a reason of its own shows.
 
@@ -110,7 +110,7 @@ An `unknown` attempt is never retried: the steps' `abort` policy ends the step, 
   report.json  report.txt
   trials/<trial id>/
     repo/               the trial's repository: `ahp inspect <run> --repo <this>` reads its run
-    config.json         condition, task and its hash, the workflow, platform, Node and protocol versions
+    config.json         condition, task and its hash, the workflow (hidden tests by path and hash, not text), retry budget, platform, Node and protocol versions
     prompts/<attempt>.txt       what the attempt's agent process was sent on stdin
     transcripts/<attempt>.txt   what it printed on stdout, raw
     run-ledger.jsonl    the trial's run ledger as it ended
@@ -118,11 +118,15 @@ An `unknown` attempt is never retried: the steps' `abort` policy ends the step, 
     validation.json     the validators' evidence: each command's output, each constraint's finding
 ```
 
-Each file is named in the trial's `trial_ended` event by path, SHA-256 and size. **Raw transcripts hold whatever the tool printed**: if an agent printed a secret, it is in the file, and AHP cannot redact what it keeps raw. Stderr is not kept. For the OpenCode adapter the "prompt" file is the ACP messages AHP sent, the prompt among them. The same transcript files are kept for every attempt of every run, in `<git dir>/ahp/runs/<run>/transcripts/`, not only in evaluations.
+Each file is named in the trial's `trial_ended` event by path, SHA-256 and size. Each is kept on its own: one that cannot be kept (a disk problem) is left out and named in the event's `artifacts.problem`, and never changes how the trial is classified. **Raw transcripts hold whatever the tool printed**: if an agent printed a secret, it is in the file, and AHP cannot redact what it keeps raw. Stderr is not kept. For the OpenCode adapter the "prompt" file is the ACP messages AHP sent, the prompt among them. The same transcript files are kept for every attempt of every run, in `<git dir>/ahp/runs/<run>/transcripts/`, not only in evaluations.
 
 ## The report
 
 Per condition: trials, scored trials, **verified success** and **constraint violations** as `n of d (p%)` (a rate is never shown without its counts, and with nothing scored it says so instead of showing 0), failures by how their run ended, harness incidents, unscored trials with their reasons, and cancelled trials. It draws **no comparison between conditions**, and says so; the paired comparison with confidence intervals is ticket 21's. Whatever the numbers, they are not evidence while they are `[mock]`.
+
+## What an evaluation does not hide from an agent
+
+The hidden tests are never in an agent's workspace, its snapshot or its handoff. They are in the run's ledger, though, because the workflow definition is (C3's, not C0's), and that ledger is in the trial repository's `.git/ahp`, which every attempt's worktree shares. An agent that goes looking there can read them. Capabilities are `cooperative` at most for most adapters, and a worktree is isolation, not a security boundary: this is the limit of what the design (ADR 0002) gives, and a pilot should treat a task whose hidden tests an agent could have read as a reason to read its transcript. The trial's `config.json`, beside the repository, does not hold them.
 
 ## Before a real evaluation
 

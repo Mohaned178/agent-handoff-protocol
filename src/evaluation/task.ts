@@ -11,9 +11,9 @@
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isRepoPath, isStepId, NETWORK_STANCES, type HiddenTest, type NetworkStance } from "../protocol/index.ts";
-import { compilePattern, forbiddenPatternViolations, type ConstraintCheck } from "./checks.ts";
+import { compilePattern, CONSTRAINT_CHECK_KINDS, forbiddenPatternViolations, type ConstraintCheck, type ConstraintCheckKind } from "./checks.ts";
 import type { FrozenFile } from "./events.ts";
-import { fileListOf, hashOfFiles } from "./freeze.ts";
+import { byPath, fileListOf, hashOfFiles } from "./freeze.ts";
 
 export interface TaskConstraint {
   id: string;
@@ -76,12 +76,11 @@ export class TaskInvalidError extends Error {
 const TASK_KEYS = ["id", "prompt", "constraints", "seededDefects", "verification", "network"];
 const VERIFICATION_KEYS = ["command", "install", "protectedPaths"];
 const CONSTRAINT_KEYS = ["id", "statement", "check"];
-const CHECK_KEYS = { forbidden_pattern: ["kind", "pattern", "flags", "paths"], required_invariant: ["kind", "command"] } as const;
+const CHECK_KEYS: Record<ConstraintCheckKind, readonly string[]> = { forbidden_pattern: ["kind", "pattern", "flags", "paths"], required_invariant: ["kind", "command"] };
 const DEFECT_KEYS = ["id", "description", "path"];
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-const isText = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
-const byPath = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+const isNonBlank = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
 
 /**
  * Every file under `dir`, by path relative to it with `/` separators. A symbolic link, anything that is neither a file nor a
@@ -157,7 +156,7 @@ export function parseTask(dir: string, files: ReadonlyMap<string, Buffer>): Load
 function taskOf(spec: Record<string, unknown>, fixture: ReadonlyMap<string, Buffer>, hiddenTests: HiddenTest[], problem: (message: string) => void): EvaluationTask | undefined {
   for (const key of Object.keys(spec)) if (!TASK_KEYS.includes(key)) problem(`unknown property \`${key}\` in task.json`);
   if (!isStepId(spec.id)) problem('task.json: `id` must be lowercase letters, digits, "-" or "_", starting with a letter or digit');
-  if (!isText(spec.prompt)) problem("task.json: needs a non-empty `prompt`");
+  if (!isNonBlank(spec.prompt)) problem("task.json: needs a non-empty `prompt`");
 
   const verification = spec.verification;
   let command = "";
@@ -166,9 +165,9 @@ function taskOf(spec: Record<string, unknown>, fixture: ReadonlyMap<string, Buff
   if (!isRecord(verification)) problem("task.json: needs a `verification` object with a `command`");
   else {
     for (const key of Object.keys(verification)) if (!VERIFICATION_KEYS.includes(key)) problem(`unknown property \`verification.${key}\``);
-    if (!isText(verification.command)) problem("task.json: needs a non-empty `verification.command`");
+    if (!isNonBlank(verification.command)) problem("task.json: needs a non-empty `verification.command`");
     else command = verification.command;
-    if (verification.install !== undefined && !isText(verification.install)) problem("`verification.install` must be a non-empty string");
+    if (verification.install !== undefined && !isNonBlank(verification.install)) problem("`verification.install` must be a non-empty string");
     else install = verification.install as string | undefined;
     const paths = verification.protectedPaths;
     if (paths !== undefined && !(Array.isArray(paths) && paths.every(isRepoPath))) problem("`verification.protectedPaths` must be an array of repository-relative paths");
@@ -219,15 +218,16 @@ function constraintOf(item: unknown, index: number, fixture: ReadonlyMap<string,
   }
   for (const key of Object.keys(item)) if (!CONSTRAINT_KEYS.includes(key)) problem(`unknown property \`${where}.${key}\``);
   if (!isStepId(item.id)) problem(`\`${where}.id\` must be lowercase letters, digits, "-" or "_", starting with a letter or digit`);
-  if (!isText(item.statement)) problem(`\`${where}\` needs a non-empty \`statement\`: what the first agent is told`);
+  if (!isNonBlank(item.statement)) problem(`\`${where}\` needs a non-empty \`statement\`: what the first agent is told`);
   const check = item.check;
-  if (!isRecord(check) || !(check.kind === "forbidden_pattern" || check.kind === "required_invariant")) {
-    problem(`\`${where}.check.kind\` must be forbidden_pattern or required_invariant: a planted constraint is checked deterministically, never judged`);
+  if (!isRecord(check) || !CONSTRAINT_CHECK_KINDS.includes(check.kind as ConstraintCheckKind)) {
+    problem(`\`${where}.check.kind\` must be one of ${CONSTRAINT_CHECK_KINDS.join(", ")}: a planted constraint is checked deterministically, never judged`);
     return [];
   }
-  for (const key of Object.keys(check)) if (!(CHECK_KEYS[check.kind] as readonly string[]).includes(key)) problem(`unknown property \`${where}.check.${key}\` for ${check.kind}`);
-  if (check.kind === "required_invariant") {
-    if (!isText(check.command)) problem(`\`${where}.check\` needs a non-empty \`command\``);
+  const kind = check.kind as ConstraintCheckKind;
+  for (const key of Object.keys(check)) if (!CHECK_KEYS[kind].includes(key)) problem(`unknown property \`${where}.check.${key}\` for ${kind}`);
+  if (kind === "required_invariant") {
+    if (!isNonBlank(check.command)) problem(`\`${where}.check\` needs a non-empty \`command\``);
   } else {
     if (typeof check.pattern !== "string" || check.pattern === "") problem(`\`${where}.check\` needs a non-empty \`pattern\``);
     else {
@@ -253,7 +253,7 @@ function defectOf(item: unknown, index: number, fixture: ReadonlyMap<string, Buf
   }
   for (const key of Object.keys(item)) if (!DEFECT_KEYS.includes(key)) problem(`unknown property \`${where}.${key}\``);
   if (!isStepId(item.id)) problem(`\`${where}.id\` must be lowercase letters, digits, "-" or "_", starting with a letter or digit`);
-  if (!isText(item.description)) problem(`\`${where}\` needs a non-empty \`description\``);
+  if (!isNonBlank(item.description)) problem(`\`${where}\` needs a non-empty \`description\``);
   if (typeof item.path !== "string" || !fixture.has(item.path)) problem(`\`${where}.path\` must name a file of the fixture (\`repo/\`)`);
   return typeof item.id === "string" && typeof item.description === "string" && typeof item.path === "string" ? [{ id: item.id, description: item.description, path: item.path }] : [];
 }

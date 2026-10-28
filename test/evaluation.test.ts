@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadTask } from "../src/evaluation/index.ts";
-import { APPROVES, DOES_NOTHING, evaluate, GREETS, greetingTaskDir, PLANS, runEventsOf, runOf, scripted, suiteOf } from "./helpers/evaluation.ts";
+import { APPROVES, DOES_NOTHING, evaluate, GREETS, greetingTaskDir, IMPLEMENTS, PLANS, REQUESTS_CHANGES, runEventsOf, runOf, scripted, suiteOf } from "./helpers/evaluation.ts";
 import { removeTempRepos } from "./helpers/repo.ts";
 
 // After the whole file: a describe's trials are run once, in `beforeAll`, and read by several tests.
@@ -39,12 +39,8 @@ describe("an evaluation of C0", () => {
   });
 });
 
-/** What the implement step of C3 reports: the plan's fields, restated. */
-const IMPLEMENTS = { ...GREETS, outputFields: { ...PLANS.outputFields, summary: "wrote the greeting" } };
-
 describe("an evaluation of C3", () => {
   const c3 = (agents: Parameters<typeof suiteOf>[1], more = {}) => suiteOf([greetingTaskDir()], agents, { conditions: ["C3"], ...more });
-  const REQUESTS_CHANGES = { outputFields: { verdict: "changes_requested", findings: ["the greeting is not what was asked for"] } };
 
   describe("on a task with the package-registries stance, run under C0 and C3 together", () => {
     // One evaluation, read by several tests: what a trial does is observed, not re-run for each thing said about it.

@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import type { TranscriptFiles } from "../src/process/index.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -85,7 +86,7 @@ async function attempt(
     tornTail?: string;
     platform?: NodeJS.Platform;
     session?: string;
-    transcript?: { input: string; output: string };
+    transcript?: TranscriptFiles;
   } = {},
 ) {
   const home = codexHome();

@@ -3,7 +3,8 @@
 // and each trial's start and end; everything about how a trial's run went is in that run's own ledger, which the
 // trial's record points at. The closed lists below are like the run protocol's: a new value is a protocol change.
 
-import type { FailureClass, RunState, UnknownReason } from "../protocol/index.ts";
+import type { ChainedEvent } from "../ledger/index.ts";
+import type { FailureClass, PathChange, RunState, UnknownReason } from "../protocol/index.ts";
 
 /**
  * The conditions an evaluation runs, named as the design does (`docs/design`, §7). C0 is one coding agent doing the whole
@@ -69,6 +70,8 @@ export interface TrialArtifacts {
   prompts: { attemptId: string; file: StoredFile }[];
   /** What each attempt's agent process printed on stdout, raw. */
   transcripts: { attemptId: string; file: StoredFile }[];
+  /** Why something above could not be kept (a disk problem); null when everything that exists was kept. */
+  problem: string | null;
   /** The trial run's own ledger, as it ended. */
   runLedger: StoredFile | null;
   /** The diff from the fixture to the result the validators scored. */
@@ -85,8 +88,8 @@ export type EvaluationEventBody =
       suite: string;
       conditions: ConditionId[];
       /**
-       * The retry budget C3's steps run with (C0 has none). Evaluation suites set budgets explicitly. The agents of each
-       * trial, as requested, are in its configuration (`trial_started.config`).
+       * The retry budget C3's steps run with, as resolved (the suite's own, else the default of 2); C0 has no retry budget. The
+       * agents of each trial, as requested, are in its configuration (`trial_started.config`).
        */
       retryBudget: number;
     }
@@ -123,8 +126,11 @@ export type EvaluationEventBody =
       mock: boolean;
       attempts: number;
       unscored: { reason: UnscoredReason; detail: string } | null;
-      /** The commit the validators scored: the last snapshot the run made, or the fixture if it made none. */
-      result: { commit: string; snapshot: boolean } | null;
+      /**
+       * The commit the validators scored: the last snapshot the run made, or the fixture if it made none. `changed` is whether
+       * it differs from the fixture at all: a result that changed nothing holds every planted constraint vacuously.
+       */
+      result: { commit: string; snapshot: boolean; changed: boolean } | null;
       score: TrialScore | null;
       artifacts: TrialArtifacts | null;
     }
@@ -132,10 +138,10 @@ export type EvaluationEventBody =
    * A frozen task's directory no longer hashes as it did, or can no longer be read (`foundHash` null): no further trial is
    * started, and the task is never frozen again.
    */
-  | { type: "task_changed"; taskId: string; frozenHash: string; foundHash: string | null; changed: { path: string; change: "added" | "deleted" | "modified" }[] }
+  | { type: "task_changed"; taskId: string; frozenHash: string; foundHash: string | null; changed: { path: string; change: PathChange }[] }
   | { type: "evaluation_ended"; state: "completed" | "stopped" | "cancelled"; reason: string | null }
   /** The process that opened the ledger to write it found a torn tail and truncated it. */
   | { type: "ledger_truncated"; droppedBytes: number };
 
 export type EvaluationEventType = EvaluationEventBody["type"];
-export type EvaluationEvent = { seq: number; prevHash: string | null; time: string; hash: string } & EvaluationEventBody;
+export type EvaluationEvent = ChainedEvent<EvaluationEventBody>;

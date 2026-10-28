@@ -1,5 +1,7 @@
 import type { EvaluationEvent, EvaluationView } from "../evaluation/index.ts";
 
+const mockTag = (isMock: boolean) => (isMock ? " [mock]" : "");
+
 /** One progress line for an event `ahp eval` has just recorded, with the state derived so far to name the trial it belongs to. */
 export function formatEvaluationEvent(event: EvaluationEvent, state: Readonly<EvaluationView>): string {
   const trial = (id: string) => state.trials.find((candidate) => candidate.id === id);
@@ -19,19 +21,19 @@ export function formatEvaluationEvent(event: EvaluationEvent, state: Readonly<Ev
     case "trial_ended": {
       switch (event.outcome) {
         case "scored":
-          return `${label(event.trialId)}: scored, ${event.score!.verdict}`;
+          return `${label(event.trialId)}: scored, ${event.score!.verdict}${mockTag(event.mock)}`;
         case "harness_incident":
-          return `${label(event.trialId)}: harness incident, not scored`;
+          return `${label(event.trialId)}: harness incident, not scored${mockTag(event.mock)}`;
         case "unscored":
-          return `${label(event.trialId)}: not scored (${event.unscored!.reason}): ${event.unscored!.detail}`;
+          return `${label(event.trialId)}: not scored${mockTag(event.mock)} (${event.unscored!.reason}): ${event.unscored!.detail}`;
         case "cancelled":
-          return `${label(event.trialId)}: cancelled`;
+          return `${label(event.trialId)}: cancelled${mockTag(event.mock)}`;
       }
     }
     case "task_changed":
       return `task ${event.taskId} CHANGED since it was frozen: no further trial will start`;
     case "evaluation_ended":
-      return `evaluation ${event.state}${event.reason ? `: ${event.reason}` : ""}`;
+      return `evaluation ${event.state}${mockTag(state.mock)}${event.reason ? `: ${event.reason}` : ""}`;
     case "ledger_truncated":
       return `the evaluation's ledger ended in a torn tail of ${event.droppedBytes} bytes, which was truncated`;
   }

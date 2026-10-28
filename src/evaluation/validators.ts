@@ -137,12 +137,12 @@ async function validateOnce(input: ValidationInput, validatorRun: number): Promi
       if (constraint.check.kind !== "required_invariant") continue;
       const output = await runVerificationCommand(constraint.check.command, worktree, cancel);
       const verdict = evidenceVerdict(output);
-      const ended = output.exitCode === null ? `ended on signal ${output.signal ?? "unknown"}` : `exited ${output.exitCode}`;
+      const how = output.exitCode === null ? `ended on signal ${output.signal ?? "unknown"}` : `exited ${output.exitCode}`;
       evidence.constraints.push({
         id: constraint.id,
         kind: "required_invariant",
         outcome: verdict === "pass" ? "held" : verdict === "fail" ? "violated" : "inconclusive",
-        detail: `${ended}: ${output.output.slice(-MAX_FINDING_CHARS)}`,
+        detail: `${how}: ${output.output.slice(-MAX_FINDING_CHARS)}`,
       });
     }
     const unclear = evidence.constraints.find((finding) => finding.outcome === "inconclusive");

@@ -96,7 +96,7 @@ export interface RunResult {
 }
 
 /** Short, sortable, lowercase IDs that are safe in paths and git ref names. */
-function newId(prefix: string): string {
+export function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}${randomBytes(4).toString("hex")}`;
 }
 

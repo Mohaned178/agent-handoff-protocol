@@ -103,7 +103,8 @@ export class LedgerWriter<B extends EventBody = LedgerEventBody> {
   /** Records `body` durably, chained to the event before it, and returns the event exactly as a reader parses it. */
   async append(body: B): Promise<ChainedEvent<B>> {
     if (this.#failed) throw new Error("an earlier append to this ledger failed, so nothing more is appended", { cause: this.#failed });
-    // The ledger writes these itself, after the body: a body field of the same name would be silently overwritten.
+    // The ledger sets these itself. A body field of the same name would corrupt the event, not be ignored: `seq`, `prevHash` and
+    // `time` would override the ledger's, and `hash` would be overwritten by the chain hash, silently.
     for (const reserved of RESERVED_FIELDS) {
       if (reserved in body) throw new Error(`an event body may not have a \`${reserved}\` field: the ledger keeps that name for itself`);
     }

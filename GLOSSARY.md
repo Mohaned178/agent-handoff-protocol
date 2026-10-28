@@ -269,7 +269,7 @@ An evaluation task whose directory was hashed and recorded in the evaluation's l
 _Avoid_: Locked, pinned
 
 **Condition**:
-How the same task is worked: C0, one coding agent doing the whole task in one attempt with no retry; C3, full AHP (plan, implement, review; handoffs, hidden tests as the implement step's verification, bounded retry and send-back). C1, C2 and the matched-budget baseline are to come. A condition builds an ordinary workflow, which the run API runs; it has agent steps only, so no approval gate and no external action, and recovers every `unknown` attempt by abort.
+How the same task is worked: C0, one coding agent doing the whole task in one step with no retry budget (only a `transient` failure is retried, as in every condition); C3, full AHP (plan, implement, review; handoffs, hidden tests as the implement step's verification, bounded retry and send-back). C1, C2 and the matched-budget baseline are to come. A condition builds an ordinary workflow, which the run API runs; it has agent steps only, so no approval gate and no external action, and recovers every `unknown` attempt by abort.
 
 **Trial**:
 One condition's workflow run once on one task, in a fresh repository made from the task's fixture, then scored. Ends `scored`, as a harness incident, `unscored` or `cancelled`.
@@ -279,13 +279,13 @@ What scores a trial, after its run has ended, in a verification worktree of its 
 _Avoid_: Tester, judge
 
 **Planted constraint**:
-A constraint a task states to the first agent only (in the prompt of C0's one step, and of C3's plan step), with a deterministic check, a forbidden pattern or a required invariant, never a judgement. A later step of C3 knows it only through its handoff's context, so a constraint violated in the result is context lost. Scored apart from success.
+A constraint a task states to the first agent only (in the prompt of C0's one step, and of C3's plan step), with a deterministic check, a forbidden pattern or a required invariant, never a judgement. A later step of C3 knows it only through its handoff's context, so a constraint violated in the result is context lost. Scored apart from success; a result that changed nothing holds it vacuously and is left out of the violation rate.
 
 **Seeded defect**:
 A defect a task's fixture is known to contain, for review evaluation. Frozen with the task; not scored yet.
 
 **Unscored trial**:
-A trial with nothing to score and not a harness incident, with its reason: `validator_inconclusive` (a validator could not run to a result, twice), `setup_failed` (the run ended `config_auth` or `rejected`, so no agent did the work) or `harness_error` (AHP threw). Excluded from the rates and reported apart, never read as a pass or a fail.
+A trial with nothing to score and not a harness incident, with its reason: `validator_inconclusive` (a validator could not run to a result, twice), `setup_failed` (a step of the run ended `config_auth` or `rejected`, so the condition did not run as configured) or `harness_error` (AHP threw). Excluded from the rates and reported apart, never read as a pass or a fail.
 
 **Evaluation ledger**:
 The hash-chained ledger of one `ahp eval` invocation, written by the same writer as a run's: the tasks frozen, and each trial's start, incident and end. Everything about how a trial's run went is in that run's own ledger, which the trial keeps a copy of.

@@ -1,5 +1,9 @@
 // The deterministic part of a planted constraint's check: a forbidden pattern over files. No judgement, no model.
 
+/** The kinds of planted-constraint check, a closed list: a check is deterministic, never a judgement. */
+export const CONSTRAINT_CHECK_KINDS = ["forbidden_pattern", "required_invariant"] as const;
+export type ConstraintCheckKind = (typeof CONSTRAINT_CHECK_KINDS)[number];
+
 /** A planted constraint's check: a pattern the result must not contain, or a command that must exit 0 in the result. */
 export type ConstraintCheck =
   | {
@@ -23,7 +27,7 @@ export const PATTERN_FLAGS = ["i", "m", "s", "u"];
 const MAX_SEARCHED_BYTES = 1024 * 1024;
 
 /** Whether the bytes are text: a NUL byte near the start means a binary file, which no pattern is searched in. */
-const isText = (bytes: Uint8Array) => !bytes.subarray(0, 8000).includes(0);
+const looksLikeText = (bytes: Uint8Array) => !bytes.subarray(0, 8000).includes(0);
 
 const underPath = (path: string, scope: string) => path === scope || path.startsWith(`${scope}/`);
 
@@ -50,7 +54,7 @@ export function forbiddenPatternViolations(
   const found: string[] = [];
   for (const [path, bytes] of files) {
     if (check.paths && !check.paths.some((scope) => underPath(path, scope))) continue;
-    if (!isText(bytes)) continue;
+    if (!looksLikeText(bytes)) continue;
     if (pattern.test(Buffer.from(bytes.subarray(0, MAX_SEARCHED_BYTES)).toString("utf8"))) found.push(path);
   }
   return found.sort();

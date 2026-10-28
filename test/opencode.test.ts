@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import type { TranscriptFiles } from "../src/process/index.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -48,7 +49,7 @@ interface Run {
   options?: unknown;
   requiredOutputFields?: string[];
   adapter?: typeof openCodeAdapter;
-  transcript?: { input: string; output: string };
+  transcript?: TranscriptFiles;
 }
 
 /** Starts one attempt of the adapter against the fake `opencode` in a repository whose path has a space. */
@@ -71,7 +72,7 @@ async function start(scenario: FakeOpencodeScenario, run: Run = {}) {
     toolCallLog,
     transcript: run.transcript,
   });
-  const log =(): ToolCallLogEntry[] => (existsSync(toolCallLog) ? readFileSync(toolCallLog, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as ToolCallLogEntry) : []);
+  const log = (): ToolCallLogEntry[] => (existsSync(toolCallLog) ? readFileSync(toolCallLog, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as ToolCallLogEntry) : []);
   return { started, fake, workspace, log, applied, toolCallLog };
 }
 

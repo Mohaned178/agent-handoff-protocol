@@ -1,9 +1,10 @@
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { createHash } from "node:crypto";
+import { join } from "node:path";
 import { mock, readRun, readRunEvents, type MockAttemptScript } from "../../src/index.ts";
 import { runEvaluation, type EvaluationEvent, type EvaluationSuite, type RunEvaluationOptions, type TrialView } from "../../src/evaluation/index.ts";
-import { trackForRemoval } from "./repo.ts";
+import { writeTree } from "./repo.ts";
+
+export { writeTree };
 
 /** Runs an evaluation into a fresh directory and collects the events it records, in order. */
 export async function evaluate(suite: EvaluationSuite, options: Partial<RunEvaluationOptions> = {}) {
@@ -19,7 +20,8 @@ export async function evaluate(suite: EvaluationSuite, options: Partial<RunEvalu
   return { ...result, events, types: events.map((event) => event.type) };
 }
 
-export { sha256Of } from "../../src/evaluation/index.ts";
+/** SHA-256 by plain `crypto`, so a test checking a hash the code produced does not use the code to say what it should be. */
+export const sha256Of = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 
 /** A trial's own repository, inside the evaluation's directory. */
 export const repoOf = (dir: string, trial: Pick<TrialView, "repo">) => join(dir, ...trial.repo.split("/"));
@@ -58,6 +60,9 @@ export const PLANS: MockAttemptScript = {
 export const APPROVES: MockAttemptScript = { outputFields: { verdict: "approved", findings: ["nothing to change"] } };
 export const REQUESTS_CHANGES: MockAttemptScript = { outputFields: { verdict: "changes_requested", findings: ["the greeting is not what was asked for"] } };
 
+/** What C3's implement step reports: the plan's fields, restated, which C0's single step may report too. */
+export const IMPLEMENTS: MockAttemptScript = { ...GREETS, outputFields: { ...PLANS.outputFields, summary: "wrote the greeting" } };
+
 /** A mock agent that does nothing useful but says so as a summary. */
 export const DOES_NOTHING: MockAttemptScript = { outputFields: { summary: "nothing to do" } };
 
@@ -68,18 +73,6 @@ export const suiteOf = (tasks: string[], agents: EvaluationSuite["agents"], more
   agents,
   ...more,
 });
-
-/** Writes `files` (path → content, `/` separators) into a fresh temporary directory, removed by `removeTempRepos`. */
-export function writeTree(files: Record<string, string>): string {
-  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "ahp-eval-test-")));
-  trackForRemoval(dir);
-  for (const [path, content] of Object.entries(files)) {
-    const target = join(dir, ...path.split("/"));
-    mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, content);
-  }
-  return dir;
-}
 
 /** The hidden test of the greeting task: passes when `greeting.txt` holds `hello`. */
 export const HIDDEN_GREETING_TEST = `
