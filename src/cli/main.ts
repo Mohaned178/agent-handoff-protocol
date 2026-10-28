@@ -22,7 +22,8 @@ import { API_KEY_NOTICE, formatReport, isSeed, runEvaluation, SuiteInvalidError,
 import { evaluationsRoot, locateRepo, toolCallLogPath, transcriptPaths } from "../runtime/index.ts";
 import { changesBetween, describeChanges, diffBetween, formatDiff } from "./diff.ts";
 import { watchProgress } from "./progress.ts";
-import { formatEvent, formatRun, formatUnresumed, MOCK_NOTE } from "./format.ts";
+import { describeApprovalChoices, formatEvent, formatRun, formatUnresumed, MOCK_NOTE } from "./format.ts";
+import { LiveView, type Terminal } from "./live.ts";
 import { formatDoctor, formatInit } from "./format-doctor.ts";
 import { formatEvaluationEvent } from "./format-evaluation.ts";
 import { modelsFor, runSetup, terminalPrompter } from "../setup/index.ts";
@@ -60,6 +61,8 @@ Options:
   --reason <text>       reject: why the work is rejected (required)
   --diff                run, recover, approve, reject: print the whole diff of every attempt (each attempt
                         always shows which files it changed; an approval gate always shows its diff)
+  --verbose             run, recover, approve, reject: print every event of the run, as when the output is
+                        not a terminal, instead of one line per step
   -h, --help            Show this help
   -v, --version         Show the version
 
@@ -87,11 +90,25 @@ Every command and option: ahp --help`;
 export interface Io {
   stdout: (text: string) => void;
   stderr: (text: string) => void;
+  /** Set when stdout is a terminal (and not CI): runs get the compact view, and a gate is decided in place. */
+  terminal?: Terminal;
 }
 
+const stdout = (text: string) => void process.stdout.write(`${text}\n`);
 const defaultIo: Io = {
-  stdout: (text) => process.stdout.write(`${text}\n`),
+  stdout,
   stderr: (text) => process.stderr.write(`${text}\n`),
+  ...(process.stdout.isTTY === true && !process.env.CI
+    ? {
+        terminal: {
+          write: (text: string) => void process.stdout.write(text),
+          columns: () => process.stdout.columns ?? 80,
+          color: !process.env.NO_COLOR,
+          compact: true,
+          prompter: process.stdin.isTTY === true ? terminalPrompter(stdout) : null,
+        },
+      }
+    : {}),
 };
 
 /**
@@ -107,7 +124,8 @@ class UsageError extends Error {
 }
 
 /** Runs the `ahp` CLI and returns its exit code: see `USAGE`. */
-export async function main(argv: string[], io: Io = defaultIo): Promise<number> {
+export async function main(argv: string[], given: Io = defaultIo): Promise<number> {
+  let io = given;
   try {
     const { values, positionals } = parseArgs({
       args: argv,
@@ -120,10 +138,12 @@ export async function main(argv: string[], io: Io = defaultIo): Promise<number> 
         policy: { type: "string" },
         reason: { type: "string" },
         diff: { type: "boolean" },
+        verbose: { type: "boolean" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean", short: "v" },
       },
     });
+    if (values.verbose && io.terminal) io = { ...io, terminal: { ...io.terminal, compact: false } };
     const repo = resolve(values.repo ?? process.cwd());
     const [command, target, step, ...extra] = positionals;
 
@@ -211,8 +231,9 @@ interface Following {
  * adapter, also when `execute` throws partway. Ctrl+C meanwhile cancels the run instead of killing ahp, so the agent's
  * processes are stopped and the cancel is recorded; a second Ctrl+C only says that it is under way.
  */
-async function followRun<R>(io: Io, repo: string, execute: (following: Following) => Promise<R>, options: { diff?: boolean } = {}): Promise<R> {
+async function followRun<R>(io: Io, repo: string, execute: (following: Following) => Promise<R>, options: { diff?: boolean; continued?: boolean } = {}): Promise<R> {
   let usedMock = false;
+  let waitsHere = false;
   const interrupt = cancelOnInterrupt(io, "the run", "waiting until the agent and every process it started are seen gone");
   // While an agent runs, what it does and that it is alive (`progress.ts`), until its attempt has an end.
   let watching: { attemptId: string; stop: () => void } | null = null;
@@ -223,18 +244,62 @@ async function followRun<R>(io: Io, repo: string, execute: (following: Following
   };
   // Lines that need git (what a snapshot changed, the diff at a gate) are read as their event arrives; every event's
   // lines go through one queue so they still print in order.
+  const color = io.terminal?.color ?? false;
+  // In a terminal, one line per step (`live.ts`); else every event's line, as before.
+  const live = io.terminal?.compact
+    ? new LiveView(io.terminal, {
+        repo,
+        heading: !options.continued,
+        changesOf: async (commit) => {
+          const found = await location;
+          return found ? describeChanges(await changesBetween(found.repo, `${commit}^`, commit)) : null;
+        },
+      })
+    : null;
+  const emit = live ? (text: string) => live.say(text, io.stdout) : io.stdout;
   let printing = Promise.resolve();
-  const print = (lines: () => Promise<string> | string) => {
-    printing = printing.then(async () => io.stdout(await lines())).catch(() => undefined);
+  const print = (lines: () => Promise<string | null> | string | null) => {
+    printing = printing
+      .then(async () => {
+        const text = await lines();
+        if (text !== null) emit(text);
+      })
+      .catch(() => undefined);
   };
-  const color = process.stdout.isTTY === true && !process.env.NO_COLOR;
   try {
     return await execute({
       signal: interrupt.signal,
       onEvent: (event, current) => {
         usedMock = current.mock;
+        // A person will be asked at the gate here, and the run goes on: the mock note waits for its end.
+        waitsHere = current.state === "waiting_approval" && live !== null && io.terminal?.prompter != null;
         const text = formatEvent(event, current);
-        if (event.type === "workspace_snapshot_committed") {
+        if (live && event.type === "approval_requested") {
+          print(async () => {
+            const found = await location;
+            const lines = [live.approvalHeading()];
+            if (found) {
+              try {
+                lines.push(`  what you are approving: ${describeChanges(await changesBetween(found.repo, current.baseCommit, event.commit))}`);
+                const diff = await diffBetween(found.repo, current.baseCommit, event.commit);
+                if (diff) lines.push(formatDiff(diff, { color, more: `ahp inspect ${current.runId}` }));
+              } catch {
+                // The diff is shown where it can be read; the decision does not depend on it.
+              }
+            }
+            if (!io.terminal?.prompter) lines.push(`  ${describeApprovalChoices(current.runId, event.stepId)}`);
+            return lines.join("\n");
+          });
+        } else if (live) {
+          for (const output of live.onEvent(event, current)) print(typeof output === "function" ? output : () => output);
+          if (options.diff && event.type === "workspace_snapshot_committed") {
+            print(async () => {
+              const found = await location;
+              const diff = found ? await diffBetween(found.repo, `${event.commit}^`, event.commit) : "";
+              return diff ? formatDiff(diff, { color, more: `git diff ${short(event.commit)}^ ${short(event.commit)}` }) : null;
+            });
+          }
+        } else if (event.type === "workspace_snapshot_committed") {
           print(async () => {
             const found = await location;
             if (!found) return text;
@@ -274,7 +339,10 @@ async function followRun<R>(io: Io, repo: string, execute: (following: Following
           void location.then((found) => {
             if (!found || watching !== watch) return;
             const files = { output: transcriptPaths(found, current.runId, attemptId).output, toolCalls: toolCallLogPath(found, current.runId, attemptId) };
-            watch.stop = watchProgress(files, `step ${stepId}: attempt ${attemptId}`, io.stdout).stop;
+            // The compact view shows the tool's last call on the step's own line, and its spinner says it is alive.
+            watch.stop = live
+              ? watchProgress(files, "", (line) => live.activity(stepId, line.replace(/^: /, "")), { heartbeatMs: Number.MAX_SAFE_INTEGER }).stop
+              : watchProgress(files, `step ${stepId}: attempt ${attemptId}`, io.stdout).stop;
           });
         } else if ("attemptId" in event && event.attemptId === watching?.attemptId && event.type !== "ref_snapshot_taken") {
           stopWatching();
@@ -284,9 +352,60 @@ async function followRun<R>(io: Io, repo: string, execute: (following: Following
   } finally {
     stopWatching();
     await printing;
+    live?.stop();
     interrupt.release();
-    if (usedMock) io.stdout(MOCK_NOTE);
+    if (usedMock && !waitsHere) io.stdout(MOCK_NOTE);
   }
+}
+
+/**
+ * A run that stopped at an approval gate, with a person at the terminal: they decide it here (approve, reject with a
+ * reason, read the whole diff, or leave it for later), and the run goes on as `ahp approve`/`ahp reject` would take it,
+ * gate after gate. Without a person, or once they leave it, the exit code says the run waits.
+ */
+async function decideHere(io: Io, repo: string, state: Readonly<RunView>, diff: boolean): Promise<number> {
+  const prompter = io.terminal?.prompter;
+  let current = state;
+  while (prompter && current.state === "waiting_approval") {
+    const gate = current.steps.find((step) => step.kind === "approval_gate" && step.approvals.at(-1)?.decision === null);
+    const request = gate?.approvals.at(-1);
+    if (!gate || !request) break;
+    const { runId } = current;
+    const ask = async <T>(question: () => Promise<T>): Promise<T | null> => {
+      try {
+        return await question();
+      } catch (error) {
+        if ((error as Error).name === "ExitPromptError") return null;
+        throw error;
+      }
+    };
+    const choice = await ask(() =>
+      prompter.select({
+        message: "Approve this change?",
+        choices: [
+          { name: "Approve", value: "approve" as const, description: "the run goes on: the steps after the gate run" },
+          { name: "Reject", value: "reject" as const, description: "the step before the gate is sent back with your reason" },
+          { name: "Show the whole diff", value: "diff" as const },
+          { name: "Decide later", value: "later" as const, description: "the run waits; ahp approve or ahp reject decides it" },
+        ],
+      }),
+    );
+    if (choice === "diff") {
+      const found = await locateRepo(repo);
+      const text = await diffBetween(found.repo, request.base, request.commit);
+      io.stdout(text ? formatDiff(text, { color: io.terminal?.color ?? false, maxLines: Number.MAX_SAFE_INTEGER, more: "" }) : "  (no changes)");
+      continue;
+    }
+    const reason = choice === "reject" ? await ask(() => prompter.input({ message: "Why? (the agent is given this)", validate: (value) => (value.trim() === "" ? "a reason is needed" : true) })) : undefined;
+    if (choice === null || choice === "later" || reason === null) {
+      io.stdout(`  ${describeApprovalChoices(runId, gate.id)}`);
+      break;
+    }
+    ({ state: current } = await followRun(io, repo, (following) =>
+      choice === "approve" ? approveStep({ repo, runId, stepId: gate.id, ...following }) : rejectStep({ repo, runId, stepId: gate.id, reason: reason!, ...following }),
+    { diff, continued: true }));
+  }
+  return exitCodeOf(current);
 }
 
 const short = (commit: string) => commit.slice(0, 12);
@@ -370,7 +489,8 @@ async function repositoryOf(dir: string, named: boolean, io: Io): Promise<void> 
   if (!named && same(top, home)) {
     throw new UsageError(`the git repository around ${dir} is your home folder (${top}), which is rarely the project you mean: run ahp in your project's folder, or pass --repo "${top}" if it is`);
   }
-  io.stdout(`repository: ${top}`);
+  // The compact view names it in its heading.
+  if (!io.terminal?.compact) io.stdout(`repository: ${top}`);
 }
 
 async function runCommand(file: string, repo: string, repoNamed: boolean, io: Io, diff = false): Promise<number> {
@@ -387,7 +507,7 @@ async function runCommand(file: string, repo: string, repoNamed: boolean, io: Io
   }
   await repositoryOf(repo, repoNamed, io);
   const { state } = await followRun(io, repo, (following) => runWorkflow(workflow as Parameters<typeof runWorkflow>[0], { repo, ...following }), { diff });
-  return exitCodeOf(state);
+  return await decideHere(io, repo, state, diff);
 }
 
 /** The `--seed` given, as a number: decimal digits naming an unsigned 32-bit integer. */
@@ -446,14 +566,14 @@ async function recoverCommand(target: string, policy: string | undefined, repo: 
     if (policy !== undefined) throw new UsageError(`--policy decides an attempt: \`ahp recover <attempt-id> --policy adopt|abort\``);
     const result = await followRun(io, repo, (following) => resumeRun({ repo, runId: target, ...following }), { diff });
     if (!result.resumed) io.stdout(formatUnresumed(result));
-    return exitCodeOf(result.state);
+    return result.resumed ? await decideHere(io, repo, result.state, diff) : exitCodeOf(result.state);
   }
   if (!isAttemptId(target)) throw new UsageError(`not a run ID or an attempt ID: ${target}`);
   if (policy === undefined) throw new UsageError(`recover ${target} needs --policy adopt or --policy abort`);
   if (policy === "discard_and_retry") throw new UsageError(DISCARD_AND_RETRY_DEFERRED);
   if (!RECOVERY_ACTIONS.includes(policy as RecoveryAction)) throw new UsageError(`--policy must be adopt or abort, not ${policy}`);
   const { state } = await followRun(io, repo, (following) => recoverAttempt({ repo, attemptId: target, policy: policy as RecoveryAction, ...following }), { diff });
-  return exitCodeOf(state);
+  return await decideHere(io, repo, state, diff);
 }
 
 /** `ahp approve <run> <step>` and `ahp reject <run> <step> --reason`: a person's decision at the gate a run waits at. */
@@ -473,7 +593,7 @@ async function decideCommand(
   const { state } = await followRun(io, repo, (following) =>
     command === "approve" ? approveStep({ repo, runId, stepId, ...following }) : rejectStep({ repo, runId, stepId, reason: reason!, ...following }),
   { diff });
-  return exitCodeOf(state);
+  return await decideHere(io, repo, state, diff);
 }
 
 function version(): string {

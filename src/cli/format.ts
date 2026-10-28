@@ -207,7 +207,7 @@ function describeAttempt(attempt: AttemptView): string {
 }
 
 /** Why a failed step stopped, as one line: the failure class says what happened, this says what was done about it. */
-function describeStop(step: StepView, state: Readonly<RunView>): string | null {
+export function describeStop(step: StepView, state: Readonly<RunView>): string | null {
   const before = state.steps[state.steps.indexOf(step) - 1];
   if (step.kind === "external_action") return step.action ? describeActionFailure(step.action) : null;
   if (step.kind === "approval_gate") {
@@ -241,7 +241,7 @@ function describeStop(step: StepView, state: Readonly<RunView>): string | null {
  * Why a step's last attempt failed, for the person reading the run's end: what the tool said went wrong, or what its
  * verification found, hidden tests' output included (it is withheld from the agent, never from the person).
  */
-function describeLastFailure(attempt: AttemptView): string[] {
+export function describeLastFailure(attempt: AttemptView): string[] {
   if (attempt.error) return [`  last attempt ${attempt.id}: ${attempt.error.message}`];
   const verification = attempt.verification;
   if (verification?.state !== "fail") return [];
@@ -455,7 +455,7 @@ const describeChangedPaths = (changed: readonly ChangedPath[], truncated: boolea
   changed.length === 0 ? "no changes" : `${quantity(changed.length, "path")} changed${truncated ? ", first only" : ""}`;
 
 /** What a person can decide at a gate the run waits at, and how. */
-const describeApprovalChoices = (runId: string, gateId: string) =>
+export const describeApprovalChoices = (runId: string, gateId: string) =>
   `\`ahp inspect ${runId}\` shows what is being approved; \`ahp approve ${runId} ${gateId}\` lets the run go on, \`ahp reject ${runId} ${gateId} --reason "..."\` sends the step before the gate back with your reason`;
 
 const describeResumption = (takenOverFrom: LockOwner | null) =>

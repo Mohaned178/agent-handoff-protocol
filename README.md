@@ -1,154 +1,208 @@
-# AHP: Agent Handoff Protocol and LLM Evaluation
+# AHP: Agent Handoff Protocol
 
-AHP makes handoffs between AI coding agents explicit, verifiable and measurable, and evaluates whether doing so improves real task outcomes.
+**Run AI coding agents as a team: one plans, one writes the code, one reviews it. Your tests decide whether the work is done, and nothing is pushed until you approve it.**
 
-Release 1 targets four coding-agent CLIs (Claude Code, Codex CLI, Gemini CLI, OpenCode), combinable in one workflow, each through a dedicated adapter. A step succeeds only when verification passes, never on an agent's own claim; every event is written to an append-only ledger so a crash never silently runs work twice; and an evaluation engine tests whether structured handoffs actually beat a single agent and a plain-text pipeline. A negative result is a legitimate outcome.
+AHP drives the coding agent CLIs you already use (Claude Code, Codex CLI, OpenCode, and Gemini CLI, which is untested so far) through a workflow such as *plan → implement → review → your approval → push*. Each step gets a structured, validated **handoff** from the one before it, works in its own git worktree, and passes only when **verification** passes: your test command, run in a fresh copy of the result. An agent saying "done" never counts.
 
-**Status: early development.** Linear multi-step workflows run end to end with the mock adapter, each step receiving a validated, versioned handoff, a run whose process stopped is recovered with `ahp recover`, and Ctrl+C cancels a run. Adapters exist for Claude Code, Codex CLI and OpenCode; the Gemini CLI adapter has never run a turn. See the [support matrix](docs/support-matrix.md).
+```
+$ ahp run ahp.workflow.mjs
+ahp · fix-cart · F:\ahp-demo\shop
+run run_mvsqau7ae78f374b
+
+  ✓ plan        Claude Code (haiku)   20s
+  ✓ implement   Claude Code (haiku)   17s
+      changed src/cart.mjs (+11 -3)
+  ✓ review      Claude Code (haiku)   13s
+      verdict: approved
+? waiting for your approval
+  what you are approving: changed src/cart.mjs (+11 -3)
+    ...
+    -  for (const item of cart.items) sum += item.price;
+    -  return sum;
+    +  for (const item of cart.items) sum += item.price * item.quantity;
+    +  return sum * (1 - cart.discount);
+     }
+```
+
+*(A real run: three Claude Code steps fix a cart bug and add a discount code. `npm test` passed in a fresh worktree before the review began.)*
+
+> **Status: early, and usable.** Workflows run end to end with Claude Code, Codex CLI and OpenCode on Windows (Claude Code on Linux too). Gemini CLI's adapter has never run a real turn, and macOS is untested. See the [support matrix](docs/support-matrix.md).
+
+## Why
+
+Chaining coding agents by hand means copying text from one to the next, trusting each one's own summary, and finding out at the end that a step quietly went wrong. AHP makes each step explicit and checkable:
+
+- **Verified, not claimed.** A step passes only when its check passes in a fresh worktree built from what the agent committed. If an attempt fails, its evidence goes back to the agent and it tries again, up to a retry budget.
+- **Structured handoffs.** The plan's summary and decisions reach the implementer as validated fields, not as a wall of chat. Files are handed on by content hash.
+- **Review that can say no.** If the reviewer asks for changes, the implement step goes back with its findings.
+- **You approve what is pushed.** The run stops at an approval gate and shows you the diff. Only AHP pushes, never an agent.
+- **Nothing is lost.** Every event goes to an append-only, hash-chained ledger. A crashed run picks up where it stopped (`ahp recover`), and Ctrl+C stops the agent and every process it started.
+- **Mix tools.** Use Claude Code to plan, Codex to implement and OpenCode to review, or any other combination, each with the model you choose.
 
 ## Quick start
 
-You need [Node.js](https://nodejs.org/) 24 or newer, git, and at least one coding agent tool installed and logged in with its own login (Claude Code, Codex CLI or OpenCode). AHP stores no keys.
+You need [Node.js](https://nodejs.org/) 24 or newer, git, and at least one coding agent CLI installed and logged in with its own login: [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex CLI](https://github.com/openai/codex) or [OpenCode](https://opencode.ai). AHP never asks for or stores API keys.
 
 ```sh
-npm install -g github:Mohaned178/agent-handoff-protocol   # installs the `ahp` command (builds on install, about 30 s)
+npm install -g github:Mohaned178/agent-handoff-protocol
 ```
+
+This builds on install (about 30 s). If npm warns about install scripts, that is the build step.
 
 Then, in your project's folder (a git repository with a commit and a remote named `origin`):
 
 ```sh
-ahp doctor                 # which tools AHP found, and whether they are logged in
-ahp setup                  # say what to build, the command that checks it, and which agent does each step
-ahp run ahp.workflow.mjs   # plan -> implement -> review; stops and shows you the code before anything is pushed
-ahp approve <run-id> approve   # AHP pushes the branch ahp/<task>; or: ahp reject <run-id> approve --reason "..."
+ahp doctor               # which agent tools AHP found, and whether they are logged in
+ahp setup                # menus: what to build, the command that checks it, which agent does each step
+ahp run ahp.workflow.mjs # plan → implement → review, then asks you to approve the diff
 ```
 
-`ahp` alone prints these steps; `ahp --help` lists everything. If npm warns that the package has install scripts, that is the build step (`prepare: npm run build`). To update, run the install command again; to remove, `npm uninstall -g agent-handoff-protocol`.
+Run `ahp` on its own for these steps, and `ahp --help` for everything else.
 
-## Development
+## What a run looks like
 
-Requires Node.js 24 or newer and git. Developed on Windows; CI runs on Windows, macOS and Linux.
+In a terminal, `ahp run` shows one line per step. The step at work has a spinner, with its tool, the time it has taken and what the agent is doing. Each step that ends leaves its result on screen, along with what it changed. A failed attempt shows why it failed and that it is being retried, and a review that asks for changes shows its findings. Here is a real failure, where Codex's first try missed an export and its tool then ran out of quota:
 
-```sh
-npm install
-npm run typecheck   # tsc, no emit
-npm test            # Vitest: the whole suite
-npx vitest run test/run.test.ts   # one test file
-npm run build       # compile to dist/
-npm run schemas     # regenerate schemas/*.json after changing a protocol schema
+```
+  ✓ plan        Claude Code (haiku)   18s
+  ↻ implement   attempt 1 failed: its check failed; trying again
+      last attempt att_mvsq8fqw2f8f8d80 failed verification: npm test
+      ...
+      | SyntaxError: The requested module '../src/cart.mjs' does not provide an export named 'applyDiscount'
+  ↻ implement   attempt 2 failed: the agent stopped with an error; trying again
+      last attempt att_mvsq91244279ae69: You've hit your usage limit. ...
+  ✗ implement   Codex CLI   1m 13s
+      retry budget spent
+
+✗ run failed
+  every attempt, handoff and verification: ahp inspect run_mvsq81d8c54ae7cc
 ```
 
-Try it against any git repository with a commit (after `npm run build`):
+At the approval gate you see the full diff you are approving, and decide in place:
 
-```sh
-node bin/ahp.mjs run workflow.ts --repo <repo>
-node bin/ahp.mjs inspect <run-id> --repo <repo>
-node bin/ahp.mjs recover <run-id> --repo <repo>                            # after the runtime died
-node bin/ahp.mjs recover <attempt-id> --policy adopt|abort --repo <repo>   # decide an unknown attempt
+```
+? waiting for your approval
+  what you are approving: changed src/cart.mjs (+9 -2)
+    diff --git a/src/cart.mjs b/src/cart.mjs
+    ...
+? Approve this change?
+❯ Approve
+  Reject
+  Show the whole diff
+  Decide later
 ```
 
-`ahp run` and `ahp recover` exit 0 when the run succeeded, 1 when it failed (or ahp did), 2 on a usage error, 3 when the run stopped for a recovery decision and 130 when it was cancelled.
+- **Approve:** the run goes on, and AHP pushes the branch (`ahp/<task>`).
+- **Reject:** you type a reason, and the implement step is sent back with it.
+- **Decide later:** AHP prints the `ahp approve` / `ahp reject` commands, and the run waits.
 
-A workflow file (`.ts` or `.js`) default-exports a workflow definition. The package is not published yet, so either `npm link` it into the target repository or export the same definition as a plain object. With the mock adapter:
+The pushed branch's history reads like a story of the run:
 
-```ts
-import { defineWorkflow, mock } from "agent-handoff-protocol";
-
-export default defineWorkflow({
-  name: "greeting",
-  steps: [
-    {
-      id: "implement",
-      agent: mock({ attempts: [{ edits: [{ path: "greeting.txt", content: "hello\n" }], exitCode: 0 }] }),
-      verification: { command: "node verify.mjs" },
-    },
-  ],
-});
+```
+bf4898f review: approved
+6a60959 implement: Updated src/cart.mjs: total() now multiplies each price by quan…
+6573cff plan: Read the repo (package.json, src/cart.mjs, test/cart.test.mjs)…
 ```
 
-### Choosing tools and models in menus
+`--verbose` prints every event as a line instead, which is also what you get when the output goes to a file, a pipe or CI. `--diff` prints each attempt's whole diff.
 
-`node bin/ahp.mjs setup` (or `node src/cli/bin.ts setup`) asks, in arrow-key menus, whether to set up a workflow on a repository or an evaluation, then which tool and which model runs each step (plan, implement, review), from the tools `ahp doctor` finds. Models come from the tool where it can list them (`opencode models`), else a short list (Claude Code's aliases `sonnet`, `opus`, `haiku`), and you can always keep the tool's own default or type a name. For Claude Code and Codex it then asks the effort level (`low` to `max` for Claude Code, `minimal` to `xhigh` for Codex); OpenCode's and Gemini CLI's adapters have no effort option, so they are not asked. It writes `ahp.workflow.mjs` or `ahp.suite.mjs` (never replacing a file) and offers to start it with `ahp run` or `ahp eval`. It needs an interactive terminal.
+## Your own workflow
 
-A workflow can be **your own task** or the password-reset example. For your own task it asks what to build or change, the command that checks the work (offered `npm test` when `package.json` has a test script), the command that installs dependencies in a fresh copy of the repository (offered `npm ci` or `npm install`; blank for none), and the folders the implementing agent may change (blank for anywhere). It writes plan (read-only) → implement (done only when your command passes in a fresh verification worktree) → review (a request for changes sends implement back) → your approval → AHP pushes `ahp/<task name>`. Your check command is visible to the agents; only the example uses a hidden test.
+`ahp setup` writes a plain JavaScript file you can read and edit. A step looks like this:
 
-### Several steps and handoffs
-
-A workflow is a linear list of steps; each runs after the one before it. Parallel steps are rejected before anything runs. A step can declare:
-
-- `verification.command`: run in the verification worktree; exit 0 passes.
-- `verification.requiredOutputFields`: fields (`summary`, `decisions`, `constraints`, ...) the coding agent must report. A missing or blank one fails verification, with the missing names as evidence. A step with fields and no command gets a *structural verification*, which checks only that the output is complete and says nothing about its quality. Every step needs a command, fields, or both.
-- `artifacts`: repository-relative paths of files it hands to the next step. Each must be a file in the step's snapshot (one it wrote or one already in the repository; a file git ignores is not in the snapshot), or the next handoff is rejected.
-- `instructions`: what the step is to do.
-- `timeout`: `{ totalMs, idleMs }`, limits on each attempt. An attempt that runs longer than `totalMs` (default an hour), or whose tool prints nothing for `idleMs` (default ten minutes: a model that took the request and never answers), is stopped with every process it started and fails as `agent_error`, so the step's retry budget decides what follows. `0` turns a limit off.
-
-`ahp run` first prints the repository it will use (a folder inside your home folder, when that is itself a git repository, is refused unless `--repo` names it). While an agent works it prints each tool call an ACP adapter logged as it finishes, and every minute that the attempt is still running and when its tool last printed anything. A step that fails says why its last attempt failed, the verification output included (output the agent was not shown, from hidden tests, is shown to you).
-
-You see the code: each attempt's snapshot line says which files it changed (`changed src/cart.mjs (+10 -3)`), `--diff` prints each attempt's whole diff, and an approval gate always shows the diff you are approving (from the run's base to the commit AHP would push, cut at 200 lines; `ahp inspect` has the rest) before the approve and reject commands. Everything shown is read from AHP's snapshot commits, so it is exactly what was verified. A snapshot's commit message is the step and its agent's summary (`implement: Fix total() to count quantities`), which is what a pushed branch's history shows; its body says the subject is the agent's own report.
-
-Before an attempt starts, the runtime issues the step an immutable, versioned **handoff** and validates it on the recipient's behalf. The handoff carries the step's contract, the previous step's required output fields as context, and the previous step's artifacts by reference: each is a path plus the SHA-256 of its *committed* content, so the same artifact hashes identically whatever line endings a checkout applied. The step's workspace starts from the previous step's snapshot, so those artifacts are present in it. A rejected handoff fails the step as `rejected` and no attempt runs. Rejection reasons are a closed set: `schema_invalid`, `artifact_hash_mismatch`, `unmet_dependency`; each comes with a JSON Pointer into the handoff. `ahp inspect` prints every handoff revision in full, and `validateHandoff(handoff, { repo })` from the SDK runs the same validation on any handoff document.
-
-The protocol's JSON Schemas are generated from its Zod schemas and published in [`schemas/`](schemas/) (run `npm run schemas` after changing one). They are at version 0.1.0, and the protocol stays 0.x.
-
-```ts
-import { defineWorkflow, mock } from "agent-handoff-protocol";
-
-export default defineWorkflow({
-  name: "plan-then-implement",
+```js
+export default {
+  name: "fix-cart",
   steps: [
     {
       id: "plan",
-      instructions: "Plan the endpoint.",
-      agent: mock({ attempts: [{ edits: [{ path: "PLAN.md", content: "# Plan\n" }], outputFields: { summary: "..." } }] }),
-      verification: { requiredOutputFields: ["summary"] },
-      artifacts: ["PLAN.md"],
+      agent: { adapter: "claude-code", model: "haiku" },
+      instructions: "Plan this task: ... Write no code; report a summary and the decisions you made.",
+      verification: { requiredOutputFields: ["summary", "decisions"] },
+      capabilities: [{ kind: "read_only" }],
     },
     {
       id: "implement",
-      agent: mock({ attempts: [{ edits: [{ path: "greeting.txt", content: "hello\n" }] }] }),
-      verification: { command: "node verify.mjs" },
+      agent: { adapter: "codex" },
+      instructions: "Fix total() ... The work is done when `npm test` passes. Change only src.",
+      verification: { command: "npm test", requiredOutputFields: ["summary"] },
+      capabilities: [{ kind: "write_scope", paths: ["src"] }],
     },
+    { id: "review", agent: { adapter: "opencode", model: "opencode/glm-5.3-flash-free" }, review: { sendBackTo: "implement" }, verification: {} },
+    { id: "approve", approval: {} },
+    { id: "publish", action: { kind: "push_branch", branch: "ahp/fix-cart" } },
   ],
-});
+};
 ```
 
-### Verification and worktrees
+| Field | What it does |
+|---|---|
+| `agent` | Which tool runs the step: `claude-code`, `codex`, `opencode` or `gemini-cli`, with an optional `model` and `options.effort` |
+| `verification.command` | Must exit 0 in a fresh worktree for the step to pass |
+| `verification.requiredOutputFields` | Fields the agent must report (`summary`, `decisions`, ...), handed to the next step |
+| `retry` | `{ budget }`: how many more attempts a failed step gets (default 2) |
+| `timeout` | `{ totalMs, idleMs }`: stop an attempt that runs too long or goes silent (defaults: 1 hour, 10 minutes) |
+| `capabilities` | `read_only` or `write_scope`. Each tool enforces these as far as it can; for most it is cooperative, see [limits](docs/limits.md) |
+| `review` | `{ sendBackTo }`: a request for changes sends that step back |
+| `approval` | Stop for a person's decision |
+| `action` | `push_branch`, `open_pr` or `merge_pr`, performed by AHP after an approval |
 
-A step succeeds only when its verification passes: the command exits 0 in a fresh verification worktree built from AHP's snapshot of the attempt, and every required output field is present. The verification command runs through the system shell on your machine and executes code the agent wrote. Mock adapter results are labelled `[mock]` and are never evidence. AHP keeps each run's ledger and snapshot refs inside the repository's git directory (`.git/ahp/runs/`, `refs/ahp/`), so they never appear in your working tree. Attempt and verification worktrees live outside every repository, under `AHP_HOME` (default `%LOCALAPPDATA%\ahp` on Windows, `~/Library/Application Support/ahp` on macOS, `$XDG_STATE_HOME/ahp` or `~/.local/state/ahp` on Linux), so verification cannot pick up your checkout's `node_modules` or config by walking up parent directories. AHP enables `core.longpaths` in every worktree it creates (deep paths fail on Windows otherwise). To keep that out of your own configuration it uses git's per-worktree config, which switches on `extensions.worktreeConfig` in the repository's `.git/config`; that one flag is the only change AHP makes to your repository configuration, and it is skipped in a repository that sets `core.worktree`. A git worktree is workspace isolation, not a security boundary.
+## Commands
 
-### The ledger
+| Command | |
+|---|---|
+| `ahp doctor` | What is installed and logged in |
+| `ahp setup` | Write a workflow (or an evaluation) in menus |
+| `ahp run <file>` | Run a workflow |
+| `ahp approve <run> <step>` / `ahp reject <run> <step> --reason "..."` | Decide a gate from another terminal or later |
+| `ahp inspect <run>` | Everything about a run: attempts, handoffs, verification, usage, the diff |
+| `ahp recover <run>` | Continue a run whose process stopped |
+| `ahp eval <suite>` | Run an evaluation (below) |
 
-A run's ledger is one JSONL file, `.git/ahp/runs/<run>/ledger.jsonl`, appended to and flushed to disk after every event, and never rewritten or renamed. Each event carries a sequence number, the previous event's hash and its own SHA-256 over its canonical JSON, so an event changed, reordered or missing anywhere but at the end breaks the chain: `ahp inspect` then names the line and exits 1 without showing any state, and `readRun` in the SDK throws `LedgerCorruptError`. Events lost from the very end leave a valid, shorter chain, which the file alone cannot reveal. A last line that a write did not finish, a *torn tail* such as a crash leaves, was never recorded: readers leave it out and `ahp inspect` reports it, and the next process to open the run for writing (`ahp recover`) truncates it and records the truncation.
+Exit codes: `0` succeeded, `1` failed, `2` usage error, `3` needs a recovery decision, `4` waiting for approval, `130` cancelled.
 
-Only one process writes a run. It holds `ledger.lock` beside the ledger, created exclusively and naming its host, PID and start time, until it finishes. `ahp inspect` says who is writing a run, and flags a run whose writer is gone (a stale lock, or an unfinished run with no lock) as needing recovery. AHP never takes a stale lock over by itself: `ahp recover` does when you ask, and records whose it was (a run that had already ended takes no more events, so its stale lock is just removed, and `ahp recover` says so). `ahp inspect --json` prints `{ state, ledger, lock }`.
+## Supported tools
 
-### Crashes and recovery
+| Tool | Adapter | Tested on |
+|---|---|---|
+| Claude Code | `claude-code` | Windows, Linux (WSL2) |
+| Codex CLI | `codex` | Windows |
+| OpenCode | `opencode` (over ACP) | Windows |
+| Gemini CLI | `gemini-cli` (over ACP) | not run yet |
 
-Every effect is recorded before it happens: an attempt's `dispatching` event is on disk before its agent is spawned. If the runtime dies, `ahp recover <run-id>` takes over its stale lock and continues the run from wherever its ledger stops. An attempt that was dispatched and has no record of how it ended is never dispatched again: its outcome is `unknown`, as is that of an attempt whose adapter lost contact with its agent. Each unknown attempt gets a recovery report: the last ledger events, what its workspace holds against the step's base commit, how the shared repository's refs (remote-tracking refs included) moved since just before it was dispatched, the transport's tool-call log if the adapter keeps one (none does yet), and the statement that host and external effects are undetermined. AHP cannot see files the agent changed elsewhere on the machine, its network calls, or a push that leaves no local ref behind.
+Each tool uses its own login and your own subscription or plan, under that vendor's terms. AHP reports the model and token usage only where the tool itself reports them. The [support matrix](docs/support-matrix.md) has the details.
 
-What happens next is the step's `recovery` policy:
+## Safety, honestly
 
-- `manual` (the default): the run stops in `needs_recovery` and you decide. `ahp recover <attempt-id> --policy adopt` verifies the attempt's workspace as its result (a result that fails ends the step as `verification_failed`: no new agent starts while the old one may still be running); `--policy abort` fails the step as `unknown`. `ahp recover` refuses an attempt that is not awaiting a decision.
-- `adopt` or `abort`: applied at once, without stopping.
+- A git worktree keeps agents out of your checkout. **It is not a security boundary.** An agent can still run commands on your machine.
+- Verification runs the code the agent wrote, on your machine.
+- Permission limits such as `read_only` are mostly *cooperative*: the agent is told and the tool is asked. AHP says which level each tool reaches and never calls cooperation "enforcement".
 
-`discard_and_retry` is deferred past release 1: its only safety check would be the ref diff, which cannot see a push that leaves no local ref behind. The shared refs are recorded just before every attempt is dispatched and again once it has exited or been found unknown, so a moved ref shows in the ledger.
+Read [docs/limits.md](docs/limits.md) before you point AHP at anything important.
 
-### Cancelling
+## Evaluation
 
-Ctrl+C on `ahp run` (or `ahp recover`) cancels the run; in the SDK, abort the `signal` you pass to `runWorkflow`. The cancel is recorded first, then the running agent and every process it started are stopped: on Linux and macOS SIGTERM to the agent's process group, then, after a grace period (5 s, `cancelGraceMs` in the SDK), SIGKILL to the group; on Windows a forced kill of the whole tree (`taskkill /T /F`), since a process without a console of its own cannot be asked to stop. An adapter whose transport has a cancel of its own (ACP `session/cancel`) uses it first. The attempt is recorded `cancelled` only once every process of its tree is seen gone, with whether that was graceful or forced; if that cannot be confirmed, its outcome is `unknown` and the run stops for you to decide, as after a crash. No further agent is dispatched, a verification command that is running is stopped (its verdict is `inconclusive`, which says nothing about the attempt), and the run ends `cancelled`. A second Ctrl+C does not interrupt the cancel. If ahp itself dies while cancelling, `ahp recover <run-id>` finishes the cancel.
+AHP also measures whether structured handoffs actually help. `ahp eval` freezes a suite of tasks and runs each one under four conditions: a single agent, a plain-text pipeline, a pipeline with structured fields but no checks, and the full AHP workflow, plus a baseline that gets the same number of attempts. It repeats them in a seeded random order and scores every trial with independent validators and hidden tests. A negative result is a legitimate outcome. See [docs/evaluation.md](docs/evaluation.md) and the [pilot suite](docs/pilot.md).
 
-Agents are started without a shell: AHP resolves the tool's real executable on PATH, and on Windows reads an npm `.cmd` shim to run its JavaScript entry point with Node rather than run the shim through `cmd.exe`. The prompt goes to the agent on stdin, never on a command line.
+## Development
 
-## Read first
+```sh
+git clone https://github.com/Mohaned178/agent-handoff-protocol && cd agent-handoff-protocol
+npm install
+npm test            # the whole Vitest suite (real git repos, a mock adapter, fake tools; no real agent runs)
+npm run typecheck
+npm run build && npm link   # `ahp` from your checkout
+```
 
-- [Support matrix](docs/support-matrix.md): which core and adapter combinations are tested, on which system, with which tool version.
-- [Limits](docs/limits.md): a worktree is not a security boundary; verification runs agent-written code on your machine; subscription terms; no credentials stored.
-- [Design direction](docs/design/ahp-v2-direction.md): the agreed direction; §9 records the settled decisions.
-- [Architecture decisions](docs/adr/)
-- [Glossary](GLOSSARY.md)
-- [Release-1 spec](.scratch/ahp-release-1/spec.md) and [tickets](.scratch/ahp-release-1/issues/)
+TypeScript on Node 24, with no build needed to run from source (`node src/cli/bin.ts <command>`). Developed on Windows, and CI runs on Windows, macOS and Linux.
 
-`AHP-presentation.pdf` shows the original design and is superseded by the documents above. `docs/diagrams/ahp-user-workflow.excalidraw` shows the reference scenario as the spec defines it.
+## Learn more
+
+- [How AHP works](docs/how-it-works.md): handoffs, verification, the ledger, crash recovery, cancelling
+- Adapters: [Claude Code](docs/adapters/claude-code.md), [Codex](docs/adapters/codex.md), [OpenCode](docs/adapters/opencode.md), [Gemini CLI](docs/adapters/gemini-cli.md)
+- [Support matrix](docs/support-matrix.md) and [limits](docs/limits.md)
+- [Design direction](docs/design/ahp-v2-direction.md), [architecture decisions](docs/adr/), [glossary](GLOSSARY.md)
+- [A2A mapping](docs/a2a-mapping.md): how AHP's shapes map to the Agent2Agent protocol
 
 ## License
 
