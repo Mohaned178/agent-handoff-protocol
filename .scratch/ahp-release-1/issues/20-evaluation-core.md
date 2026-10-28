@@ -4,7 +4,7 @@
 
 **Blocked by:** 04, 06
 
-**Status:** implemented, decisions confirmed; awaiting the first green CI run
+**Status:** done
 
 **Model:** Sonnet 5.5 · xhigh
 
@@ -58,3 +58,5 @@
 **Not done, on purpose.** C1, C2, the matched-budget baseline, repeats, shuffled order, paired statistics (ticket 21); the spend cap, invalid cells, tool-version pinning and the API-key expectation in the output (ticket 22); resuming an evaluation after a crash (a crashed `ahp eval` leaves a ledger with a started trial and no `evaluation_ended`); any real-tool trial.
 
 **Confirmed by the maintainer on 2026-10-28 ("do recommendation"): decisions 1 to 14 above stand as recommended; reopen one only with a new decision.** That includes decision 6 (the planted constraints go to the first step only, and C3's later steps get them only as handoff context), decision 13 (hidden tests being readable in a trial's run ledger is accepted for the pilot, with the transcripts of trials where C3 does suspiciously well to be read) and decision 14 (a cancel that cannot confirm a kill leaves the trial's run in `needs_recovery`).
+
+2026-10-28, done. First green CI run after the push: run 40622021744 on `eaad1e9` (the first run this ticket's commits had). Ubuntu, Windows and macOS all succeeded: 698 passed and 1 skipped on Ubuntu and on macOS, 695 passed and 4 skipped on Windows (699 tests in all; the skips are the ones that need another OS). No trial in it, or anywhere in this ticket, ran a real coding agent: every result the evaluation produces is `[mock]` and none is evidence.
