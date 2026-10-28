@@ -7,7 +7,9 @@
 //
 // The model is requested by name, so the model OpenCode records equals the request, and the suite skips that check as an
 // echo it cannot tell from a report. The default is OpenCode's free tier, which needs no login or payment; set
-// AHP_CONFORMANCE_OPENCODE_MODEL for another one (as `provider/model`, one the tool's session lists).
+// AHP_CONFORMANCE_OPENCODE_MODEL for another one (as `provider/model`, one the tool's session lists), or to `none` to
+// request no model, which makes `model:reported` checkable but runs whatever default the user's OpenCode has (not
+// necessarily free).
 //
 // Run by the maintainer on their machine, never in CI: `npm run conformance -- run opencode`. Unset OPENAI_API_KEY and the
 // like first: OpenCode picks provider keys up from the environment, and a model that bills one is not the free tier.
@@ -45,10 +47,14 @@ writeFileSync(${JSON.stringify(slashes(pidFile))}, process.pid + "\\n" + child.p
 setTimeout(() => {}, 600000);
 `;
 
+/** The model the suite requests: the free tier by default, none for `none`. */
+export const modelOf = (chosen: string | undefined): string | null => (chosen === "none" ? null : chosen || "opencode/deepseek-v4.1-flash-free");
+
 export function openCodeSubject(): ConformanceSubject {
   return {
     adapter: openCodeAdapter,
-    requestedModel: process.env.AHP_CONFORMANCE_OPENCODE_MODEL || "opencode/deepseek-v4.1-flash-free",
+    // `none` requests no model: OpenCode runs its own default, so the model it records is a report, not an echo.
+    requestedModel: modelOf(process.env.AHP_CONFORMANCE_OPENCODE_MODEL),
     // The free model needs no login, a failed ACP turn leaves exit code 0 and no way is known to cause a rate limit, so
     // these are recorded `unprovokable`. `model:reported` is not: OpenCode records the name it was asked for, so it stays skipped as an echo.
     unprovokable: ["fails", "login_problem", "rate_limited", "no_model_report", "no_usage_report"],

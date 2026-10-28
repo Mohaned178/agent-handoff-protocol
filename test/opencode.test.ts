@@ -456,3 +456,13 @@ describe("error classes and redaction", () => {
     expect(redacted("x".repeat(900))).toHaveLength(501);
   });
 });
+
+describe("the conformance subject's model", () => {
+  it("requests the free tier by default, the named model when set, and none for `none`", async () => {
+    const { modelOf } = await import("../src/adapters/opencode/conformance.ts");
+    expect(modelOf(undefined)).toBe("opencode/deepseek-v4.1-flash-free");
+    expect(modelOf("")).toBe("opencode/deepseek-v4.1-flash-free");
+    expect(modelOf("opencode/other")).toBe("opencode/other");
+    expect(modelOf("none")).toBeNull();
+  });
+});
