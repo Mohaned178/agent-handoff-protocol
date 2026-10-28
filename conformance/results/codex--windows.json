@@ -5,7 +5,7 @@
   "platform": "win32",
   "osLabel": "Windows",
   "toolVersion": "0.146.0",
-  "ranAt": "2026-10-27T22:43:01.835Z",
+  "ranAt": "2026-10-28T17:05:02.657Z",
   "checks": [
     {
       "id": "declaration:complete",
@@ -15,7 +15,7 @@
     {
       "id": "spawn_and_exit",
       "status": "passed",
-      "detail": "started as process 17644, exited 0, reported its summary, and its file is in the workspace"
+      "detail": "started as process 1368, exited 0, reported its summary, and its file is in the workspace"
     },
     {
       "id": "failure:agent_error",
@@ -29,7 +29,7 @@
     },
     {
       "id": "failure:transient",
-      "status": "skipped",
+      "status": "unprovokable",
       "detail": "the subject cannot make its agent do \"rate_limited\""
     },
     {
@@ -39,17 +39,17 @@
     },
     {
       "id": "model:not_reported",
-      "status": "skipped",
+      "status": "unprovokable",
       "detail": "the subject cannot make its agent do \"no_model_report\""
     },
     {
       "id": "usage:reported",
       "status": "passed",
-      "detail": "reported usage labelled with its source \"codex exec --json turn.completed event (usage); input_tokens includes cached_input_tokens, and 0 cache writes were reported, not added; 72 reasoning_output_tokens were reported, not added; no total or cost is reported\""
+      "detail": "reported usage labelled with its source \"codex exec --json turn.completed event (usage); input_tokens includes cached_input_tokens; 87 reasoning_output_tokens were reported, not added; no total or cost is reported\""
     },
     {
       "id": "usage:not_reported",
-      "status": "skipped",
+      "status": "unprovokable",
       "detail": "the subject cannot make its agent do \"no_usage_report\""
     },
     {
@@ -60,7 +60,7 @@
     {
       "id": "cancel:forced_tree",
       "status": "passed",
-      "detail": "killed the tree of 3 processes, which ignored every signal, and none is left"
+      "detail": "killed the tree of 3 processes, which ignored every signal (tree_kill), and none is left"
     },
     {
       "id": "capability:read_only",

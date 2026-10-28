@@ -4,8 +4,8 @@
   "mock": false,
   "platform": "win32",
   "osLabel": "Windows",
-  "toolVersion": "2.1.311",
-  "ranAt": "2026-10-27T19:18:35.384Z",
+  "toolVersion": "2.1.312",
+  "ranAt": "2026-10-28T17:00:26.010Z",
   "checks": [
     {
       "id": "declaration:complete",
@@ -15,7 +15,7 @@
     {
       "id": "spawn_and_exit",
       "status": "passed",
-      "detail": "started as process 18808, exited 0, reported its summary, and its file is in the workspace"
+      "detail": "started as process 2688, exited 0, reported its summary, and its file is in the workspace"
     },
     {
       "id": "failure:agent_error",
@@ -29,7 +29,7 @@
     },
     {
       "id": "failure:transient",
-      "status": "skipped",
+      "status": "unprovokable",
       "detail": "the subject cannot make its agent do \"rate_limited\""
     },
     {
@@ -39,17 +39,17 @@
     },
     {
       "id": "model:not_reported",
-      "status": "skipped",
+      "status": "unprovokable",
       "detail": "the subject cannot make its agent do \"no_model_report\""
     },
     {
       "id": "usage:reported",
       "status": "passed",
-      "detail": "reported usage labelled with its source \"claude stream-json result event (usage, total_cost_usd); input_tokens excludes cache reads (cachedInputTokens) and cache writes (3033 reported, not included); cost is a list-price figure from the tool, not a charge; apiKeySource none\""
+      "detail": "reported usage labelled with its source \"claude stream-json result event (usage, total_cost_usd); input_tokens excludes cache reads (cachedInputTokens) and cache writes (3034 reported, not included); cost is a list-price figure from the tool, not a charge; apiKeySource none\""
     },
     {
       "id": "usage:not_reported",
-      "status": "skipped",
+      "status": "unprovokable",
       "detail": "the subject cannot make its agent do \"no_usage_report\""
     },
     {
@@ -60,7 +60,7 @@
     {
       "id": "cancel:forced_tree",
       "status": "passed",
-      "detail": "killed the tree of 3 processes, which ignored every signal, and none is left"
+      "detail": "killed the tree of 3 processes, which ignored every signal (tree_kill), and none is left"
     },
     {
       "id": "capability:read_only",
