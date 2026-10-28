@@ -1,0 +1,96 @@
+{
+  "suiteVersion": 1,
+  "adapter": "claude-code",
+  "mock": false,
+  "platform": "linux",
+  "osLabel": "Linux (WSL2)",
+  "toolVersion": "2.1.312",
+  "ranAt": "2026-10-28T17:40:19.784Z",
+  "checks": [
+    {
+      "id": "declaration:complete",
+      "status": "passed",
+      "detail": "transport, model reporting, login, graceful cancel and a level for every capability, stance and operating system"
+    },
+    {
+      "id": "spawn_and_exit",
+      "status": "passed",
+      "detail": "started as process 1546, exited 0, reported its summary, and its file is in the workspace"
+    },
+    {
+      "id": "failure:agent_error",
+      "status": "passed",
+      "detail": "classifies as \"agent_error\" (exit code 1, error \"agent_error\")"
+    },
+    {
+      "id": "failure:config_auth",
+      "status": "passed",
+      "detail": "classifies as \"config_auth\" (exit code 1, error \"config_auth\")"
+    },
+    {
+      "id": "failure:transient",
+      "status": "unprovokable",
+      "detail": "the subject cannot make its agent do \"rate_limited\""
+    },
+    {
+      "id": "model:reported",
+      "status": "passed",
+      "detail": "reported \"claude-sonnet-5-5\", which is what the tool said (the requested model was \"sonnet\")"
+    },
+    {
+      "id": "model:not_reported",
+      "status": "unprovokable",
+      "detail": "the subject cannot make its agent do \"no_model_report\""
+    },
+    {
+      "id": "usage:reported",
+      "status": "passed",
+      "detail": "reported usage labelled with its source \"claude stream-json result event (usage, total_cost_usd); input_tokens excludes cache reads (cachedInputTokens) and cache writes (2938 reported, not included); cost is a list-price figure from the tool, not a charge; apiKeySource none\""
+    },
+    {
+      "id": "usage:not_reported",
+      "status": "unprovokable",
+      "detail": "the subject cannot make its agent do \"no_usage_report\""
+    },
+    {
+      "id": "cancel:stops_agent",
+      "status": "passed",
+      "detail": "stopped the hung agent (signal, forced: false) and it is gone"
+    },
+    {
+      "id": "cancel:forced_tree",
+      "status": "passed",
+      "detail": "killed the tree of 3 processes, which ignored every signal (tree_kill), and none is left"
+    },
+    {
+      "id": "capability:read_only",
+      "status": "passed",
+      "detail": "accepted at \"cooperative\" on linux. cooperative is a request the agent may ignore, not enforcement: the suite checks that the attempt accepts it, not that the agent obeys"
+    },
+    {
+      "id": "capability:write_scope",
+      "status": "passed",
+      "detail": "accepted at \"cooperative\" on linux. cooperative is a request the agent may ignore, not enforcement: the suite checks that the attempt accepts it, not that the agent obeys"
+    },
+    {
+      "id": "capability:no_external_actions",
+      "status": "passed",
+      "detail": "accepted at \"cooperative\" on linux. cooperative is a request the agent may ignore, not enforcement: the suite checks that the attempt accepts it, not that the agent obeys"
+    },
+    {
+      "id": "network:deny",
+      "status": "not_applicable",
+      "detail": "declared \"none\" on linux: nothing is applied"
+    },
+    {
+      "id": "network:package_registries",
+      "status": "not_applicable",
+      "detail": "declared \"none\" on linux: nothing is applied"
+    },
+    {
+      "id": "declaration:refuses_above_declared",
+      "status": "passed",
+      "detail": "declares read_only \"cooperative\" on linux and refused to apply it at \"enforced_by_tool\": claude-code adapter declares read_only \"cooperative\" on linux and cannot apply it at \"enforced_by_tool\""
+    }
+  ]
+}

@@ -4,7 +4,7 @@
 
 **Blocked by:** 12, 14
 
-**Status:** implemented and committed; waiting on the maintainer for the Linux (WSL2) conformance run and for the decisions below
+**Status:** done
 
 **Model:** Sonnet 5.5 · high
 
@@ -12,9 +12,9 @@
 - [x] Capabilities applied via settings, deny rules and `PreToolUse` hooks written as Node scripts; enforcement levels declared per OS from spike evidence
 - [x] Requested model passed through; reported model and usage recorded where emitted
 - [x] Cancellation recorded as forced on Windows headless
-- [ ] Passes the conformance suite on Windows native and Linux (WSL2, worktrees in the Linux filesystem); results recorded as matrix cells
+- [x] Passes the conformance suite on Windows native and Linux (WSL2, worktrees in the Linux filesystem); results recorded as matrix cells
   - [x] Windows native: recorded, `conformance/results/claude-code--windows.json`. 14 checks passed, none failed, 2 not applicable, 3 skipped (the tool cannot be made to do them), so the outcome is `untested`, not `passed` (see decision 7)
-  - [ ] Linux (WSL2): not run; needs a Linux `claude` and a login that only the maintainer can make (commands in the comments)
+  - [x] Linux (WSL2): recorded 2026-10-28, `conformance/results/claude-code--linux-wsl2.json`, Claude Code 2.1.312: `passed`, with `failure:transient`, `model:not_reported` and `usage:not_reported` recorded `unprovokable` (ticket 24). The Windows cell was re-run the same day with 2.1.312 and is `passed` too
 - [x] Docs state subscription use falls under Anthropic's terms and is the user's responsibility (`docs/adapters/claude-code.md`)
 
 ## Implementer notes
@@ -59,3 +59,5 @@ Then commit `conformance/results/claude-code--linux-wsl2.json`. The run spends a
 9. **ADR 0001 still says ACP `session/cancel` is the only graceful cancel on Windows**; the spike (decision 4) showed Claude Code's `interrupt` is another, not adopted. I did not edit the ADR. *Recommended: add one sentence to the ADR in the docs ticket (24).*
 
 **Confirmed by the maintainer on 2026-10-27 ("do recommendation"): decisions 1 to 9 above stand as recommended; reopen one only with a new decision.** Decision 9 means the ADR 0001 sentence is added in ticket 24, not now. Still open for this ticket: the Linux (WSL2) conformance run, which only the maintainer can start (it needs their login).
+
+2026-10-28: both cells `passed` (ticket 24 added `unprovokable`, so the three checks no tool can be made to do no longer keep a cell untested). Decision 9 done in ticket 24: one sentence added to ADR 0001.
