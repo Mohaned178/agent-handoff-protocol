@@ -1,6 +1,6 @@
 /**
  * The settings in an environment: `APP_DB__HOST=x` becomes `{ db: { host: "x" } }`. Only names that start with `prefix` are
- * read; the rest of the name is lowercased and `__` nests. Every value stays the string it was given.
+ * read; the rest of the name is lowercased and `__` nests.
  */
 export function parseEnv(env, prefix = "APP_") {
   const result = {};

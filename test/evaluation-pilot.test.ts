@@ -6,7 +6,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { mock, type MockAttemptScript } from "../src/index.ts";
+import { mock, type MockAttemptScript, type MockEdit } from "../src/index.ts";
 import { loadTask, validateSuite, type EvaluationSuite, type EvaluationTask, type TrialSlot } from "../src/evaluation/index.ts";
 import { evaluate, trialOf } from "./helpers/evaluation.ts";
 import { removeTempRepos } from "./helpers/repo.ts";
@@ -14,16 +14,13 @@ import { removeTempRepos } from "./helpers/repo.ts";
 afterEach(removeTempRepos);
 
 const PILOT = fileURLToPath(new URL("../pilot/", import.meta.url));
+// A test that runs trials starts repositories, worktrees and processes, so under the whole suite it needs more than the default minute.
+const SLOW_TEST = 240_000;
 const TASKS_DIR = join(PILOT, "tasks");
 const TASK_IDS = readdirSync(TASKS_DIR).sort();
 
-interface Edit {
-  path: string;
-  content: string;
-}
-
 /** Every file under `dir`, by path relative to it with `/` separators. */
-function filesUnder(dir: string, base = dir): Edit[] {
+function filesUnder(dir: string, base = dir): MockEdit[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
     return entry.isDirectory() ? filesUnder(path, base) : [{ path: path.slice(base.length + 1).replaceAll("\\", "/"), content: readFileSync(path, "utf8") }];
@@ -31,7 +28,7 @@ function filesUnder(dir: string, base = dir): Edit[] {
 }
 
 /** `edits` laid over `base`: a path in both takes the later content. */
-const overlay = (base: Edit[], edits: Edit[]): Edit[] => [...new Map([...base, ...edits].map((edit) => [edit.path, edit])).values()];
+const overlay = (base: MockEdit[], edits: MockEdit[]): MockEdit[] => [...new Map([...base, ...edits].map((edit) => [edit.path, edit])).values()];
 
 /** What a task's reference material holds: the edits that solve it, and for each constraint, edits that break only it. */
 function referenceOf(id: string) {
@@ -97,7 +94,7 @@ describe("each task, scored by the validators on the mock adapter's reference ed
     it(`${id}: the untouched fixture fails its hidden tests, the solution passes them and breaks no constraint, and each violation passes but breaks its constraint`, async () => {
       const task = await loadedTask(id);
       const { solution, violations } = referenceOf(id);
-      const variants: { name: string; edits: Edit[]; violated: string | null }[] = [
+      const variants: { name: string; edits: MockEdit[]; violated: string | null }[] = [
         { name: "fixture", edits: [], violated: null },
         { name: "solution", edits: solution, violated: null },
         ...violations.map(({ constraint, edits }) => ({ name: `violation of ${constraint}`, edits: overlay(solution, edits), violated: constraint })),
@@ -135,7 +132,7 @@ describe("each task, scored by the validators on the mock adapter's reference ed
           variant.name,
         ).toEqual(Object.fromEntries(task.constraints.map((constraint) => [constraint.id, constraint.id === variant.violated ? "violated" : "held"])));
       }
-    });
+    }, SLOW_TEST);
   }
 });
 
@@ -149,13 +146,13 @@ describe("the pilot suites", () => {
       expect(suite.conditions).toBeUndefined(); // every condition, the matched-budget baseline included
       expect(suite.tasks.map((path) => path.replace("./tasks/", "")).sort()).toEqual(TASK_IDS);
     }
-    const adapterOf = (suite: EvaluationSuite, role: "plan" | "implement" | "review") => (suite.agents[role] as { adapter: string }).adapter;
-    for (const role of ["plan", "implement", "review"] as const) {
+    const ROLES = ["plan", "implement", "review"] as const;
+    const adapterOf = (suite: EvaluationSuite, role: (typeof ROLES)[number]) => (suite.agents[role] as { adapter: string }).adapter;
+    for (const role of ROLES) {
       expect(adapterOf(a, role), role).not.toBe(adapterOf(b, role));
       expect(["claude-code", "codex", "opencode"]).toContain(adapterOf(a, role));
     }
-    expect(["plan", "implement", "review"].map((role) => adapterOf(a, role as "plan")).sort()).toEqual(["claude-code", "codex", "opencode"]);
-    expect(["plan", "implement", "review"].map((role) => adapterOf(b, role as "plan")).sort()).toEqual(["claude-code", "codex", "opencode"]);
+    for (const suite of [a, b]) expect(ROLES.map((role) => adapterOf(suite, role)).sort()).toEqual(["claude-code", "codex", "opencode"]);
   });
 
   it("freeze, and schedule 3 repeats of 4 conditions on each task, once their workflows validate against the registered adapters", async () => {
@@ -218,6 +215,6 @@ describe("the pilot suites", () => {
         (everyCondition ? ["C0", "C1", "C2", "C3"] : ["C0", "C3"]).map((condition) => [condition, 1, 1]),
       );
       expect(trialOf(state, "C3").ended!.runState).toBe("succeeded");
-    });
+    }, SLOW_TEST);
   }
 });

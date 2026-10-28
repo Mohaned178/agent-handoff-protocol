@@ -1,4 +1,4 @@
-/** Stock by SKU. Every change is recorded with `audit.record`. */
+/** Stock by SKU. */
 export function createInventory({ audit }) {
   const stock = new Map();
   return {

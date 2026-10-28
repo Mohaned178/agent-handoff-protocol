@@ -1,4 +1,4 @@
-/** Stock by SKU, and what is reserved for orders. Every change is recorded with `audit.record`. */
+/** Stock by SKU, and what is reserved for orders. */
 export function createInventory({ audit }) {
   const stock = new Map();
   const reservations = new Map();
