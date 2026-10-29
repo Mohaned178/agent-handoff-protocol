@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { mock, type MockAttemptScript, type MockEdit } from "../src/index.ts";
-import { loadTask, validateSuite, type EvaluationSuite, type EvaluationTask, type TrialSlot } from "../src/evaluation/index.ts";
+import { CONDITIONS, loadTask, validateSuite, type EvaluationSuite, type EvaluationTask, type TrialSlot } from "../src/evaluation/index.ts";
 import { evaluate, trialOf } from "./helpers/evaluation.ts";
 import { removeTempRepos } from "./helpers/repo.ts";
 
@@ -141,6 +141,9 @@ describe("each task, scored by the validators on the mock adapter's reference ed
 /** Every condition but the matched-budget baseline, whose trials are drawn in only as C3 trials are scored; in report order. */
 const TRIAL_CONDITIONS = ["C0", "C0V", "C1", "C2", "C3min", "C3"];
 
+/** The conditions the pilot suites run, in report order. */
+const PILOT_CONDITIONS = ["C0", "C0V", "C1", "C3min", "C3"];
+
 describe("the pilot suites", () => {
   it("are valid, give each task 3 repeats of every condition, and cast the same three tools in different roles", async () => {
     const [a, b] = [await pilotSuite("suite-a"), await pilotSuite("suite-b")];
@@ -148,7 +151,8 @@ describe("the pilot suites", () => {
     for (const suite of [a, b]) {
       expect(validateSuite(suite)).toEqual([]);
       expect(suite.repeats).toBe(3);
-      expect(suite.conditions).toBeUndefined(); // every condition, the matched-budget baseline included
+      // Ticket 27, decision 4: C2 and the matched-budget baseline are left out of the pilot.
+      expect(suite.conditions).toEqual(PILOT_CONDITIONS);
       expect(suite.tasks.map((path) => path.replace("./tasks/", "")).sort()).toEqual(TASK_IDS);
     }
     const ROLES = ["plan", "implement", "review"] as const;
@@ -160,7 +164,7 @@ describe("the pilot suites", () => {
     for (const suite of [a, b]) expect(ROLES.map((role) => adapterOf(suite, role)).sort()).toEqual(["claude-code", "codex", "opencode"]);
   });
 
-  it("freeze, and schedule 3 repeats of 6 conditions on each task, once their workflows validate against the registered adapters", async () => {
+  it("freeze, and schedule 3 repeats of 5 conditions on each task, once their workflows validate against the registered adapters", async () => {
     // Cancelled before the first trial: the suite is loaded, its tasks frozen, every workflow validated and the order recorded,
     // and no coding agent is started.
     const cancelled = new AbortController();
@@ -172,9 +176,9 @@ describe("the pilot suites", () => {
       expect(state.state).toBe("cancelled");
       expect(events.filter((event) => event.type === "task_frozen").map((event) => (event as { taskId: string }).taskId).sort()).toEqual(TASK_IDS);
       const scheduled = events.find((event) => event.type === "trials_scheduled") as { order: { taskId: string; condition: string; repeat: number }[] };
-      expect(scheduled.order).toHaveLength(TASK_IDS.length * TRIAL_CONDITIONS.length * 3);
+      expect(scheduled.order).toHaveLength(TASK_IDS.length * PILOT_CONDITIONS.length * 3);
       for (const id of TASK_IDS) {
-        for (const condition of TRIAL_CONDITIONS) {
+        for (const condition of PILOT_CONDITIONS) {
           expect(scheduled.order.filter((slot) => slot.taskId === id && slot.condition === condition).map((slot) => slot.repeat).sort(), `${id} ${condition}`).toEqual([1, 2, 3]);
         }
       }
@@ -198,7 +202,8 @@ describe("the pilot suites", () => {
         ...(await pilotSuite("suite-a")),
         tasks: [taskDir(id)],
         repeats: 1,
-        ...(everyCondition ? {} : { conditions: ["C0", "C3"] as const }),
+        // Every condition there is on one task, the two the pilot leaves out included, so each is run once on a real fixture.
+        conditions: everyCondition ? [...CONDITIONS] : ["C0", "C3"],
         agents: {
           plan: (task) => script({ outputFields: reports(task) }),
           implement: (task) => script({ edits: solution, outputFields: reports(task) }),

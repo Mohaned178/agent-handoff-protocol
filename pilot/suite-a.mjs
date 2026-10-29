@@ -4,11 +4,12 @@
 // Not set here, because they are the maintainer's calls: `model` for each agent (a tool's own default runs when it is left
 // out), `spendCap`, `maxIncidentRate` (the pilot exists to measure that rate) and `toolVersions` (`ahp doctor` shows what is
 // installed; a trial records the version it found either way).
-import { REPEATS, TASKS } from "./common.mjs";
+import { CONDITIONS, REPEATS, TASKS } from "./common.mjs";
 
 export default {
   name: "pilot-a",
   tasks: TASKS,
+  conditions: CONDITIONS,
   repeats: REPEATS,
   agents: {
     plan: { adapter: "claude-code" },

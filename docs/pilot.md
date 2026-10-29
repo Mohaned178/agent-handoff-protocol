@@ -57,7 +57,7 @@ ahp eval pilot/suite-a.mjs --seed <n>
 ahp eval pilot/suite-b.mjs --seed <n>
 ```
 
-Each is one evaluation in its own directory; the two are compared by reading both reports, since `ahp eval` has no command for combining them. With 6 tasks, 6 conditions and 3 repeats, a suite schedules 108 trials, and then a matched-budget baseline trial for each attempt of each scored C3 trial (below).
+Each is one evaluation in its own directory; the two are compared by reading both reports, since `ahp eval` has no command for combining them. Both suites run C0, C0V, C1, C3min and C3 (`CONDITIONS` in `pilot/common.mjs`): C2 and the matched-budget baseline are left out (ticket 27, decision 4, confirmed 2026-10-29), since C2 matters only if C3 beats C0V and the baseline is a ceiling, not a rival. With 6 tasks, 5 conditions and 3 repeats, a suite schedules 90 trials.
 
 ## Estimated cost
 
@@ -69,18 +69,17 @@ Each is one evaluation in its own directory; the two are compared by reading bot
 |---|---|
 | C0: 1 attempt a trial | 18 |
 | C0V: 1 a trial at least, 3 at most (its budget of 2 retries) | 18 to 54 |
-| C1 and C2: plan, implement, review, no retry; 3 a trial | 54 + 54 |
+| C1: plan, implement, review, no retry; 3 a trial | 54 |
 | C3min: implement and review, 2 a trial at least; at most 8 a trial: implement 3 and review 5, as in C3 | 36 to 144 |
 | C3: the same 3 a trial at least; at most 11 a trial: plan 3 and implement 3 (their budgets of 2 retries, which a send-back also spends), and review 5 (its own 2 retries, plus the one run after each of the 2 send-backs the implement budget allows, since a send-back spends the implement step's budget and not the review's) | 54 to 198 |
-| Baseline: one C0 trial for each attempt of each scored C3 trial | 54 to 198 |
-| **Total** | **288 to 720** |
+| **Total** | **180 to 468** |
 
-For both combinations: **576 to 1,440 attempts.** The low end is no condition ever retrying or sending back, the high end is every trial using every attempt its budgets allow (a ceiling that no real pilot should come near, and which counts the matched baseline at the same size). Per tool across the two combinations: Claude Code plans in A and implements in B, 216 to 504 attempts; Codex implements in A and reviews in B, 234 to 630; OpenCode reviews in A and plans in B, 126 to 306. Leaving C2 and the baseline out of a suite's `conditions` takes 108 and 54 to 198 attempts off each combination.
+For both combinations: **360 to 936 attempts.** The low end is no condition ever retrying or sending back, the high end is every trial using every attempt its budgets allow (a ceiling that no real pilot should come near). Per tool across the two combinations: Claude Code plans in A and implements in B, 126 to 270 attempts; Codex implements in A and reviews in B, 144 to 396; OpenCode reviews in A and plans in B, 90 to 270. Adding C2 back would add 54 attempts per combination, and the baseline 54 to 198.
 
 **Per attempt, as the tools reported it in the spike**, with the labels they carry:
 
-- **Claude Code** (`claude-sonnet-5-5`, effort low): `total_cost_usd` 0.027 to 0.069, a list-price figure from the tool (`costBasis: list`), not a charge on that login; with an API key set it would be charged at API rates. 216 to 504 attempts at those figures is about **$5.83 to $34.78**. If an attempt on these tasks cost 5 or 10 times the spike's figures, which is an assumption and nothing measured, the same arithmetic gives about $29 to $174 or $58 to $348.
-- **Codex** (`gpt-5.6-luna`, ChatGPT login): input 57,384 to 96,278 tokens, of which 40,960 to 75,520 cached, and output 771 to 925 (reasoning 123 to 294) for the four small shell tasks; the larger inputs came with the agent reading user-level skill files. Codex reports **no cost**. 234 to 630 attempts at those figures is about **13.4 to 60.7 million input tokens (cached ones included) and 0.18 to 0.58 million output tokens**. No dollar figure is given: it depends on the price of the model chosen, which the spike does not hold and this document does not look up.
+- **Claude Code** (`claude-sonnet-5-5`, effort low): `total_cost_usd` 0.027 to 0.069, a list-price figure from the tool (`costBasis: list`), not a charge on that login; with an API key set it would be charged at API rates. 126 to 270 attempts at those figures is about **$3.40 to $18.63**. If an attempt on these tasks cost 5 or 10 times the spike's figures, which is an assumption and nothing measured, the same arithmetic gives about $17 to $93 or $34 to $186. (A first real run on `password-reset` with `haiku`, 2026-10-29, reported $0.008 to $0.034 per trial and $0.005 to $0.008 per attempt: one trial per condition, not a measurement of the pilot.)
+- **Codex** (`gpt-5.6-luna`, ChatGPT login): input 57,384 to 96,278 tokens, of which 40,960 to 75,520 cached, and output 771 to 925 (reasoning 123 to 294) for the four small shell tasks; the larger inputs came with the agent reading user-level skill files. Codex reports **no cost**. 144 to 396 attempts at those figures is about **8.3 to 38.1 million input tokens (cached ones included) and 0.11 to 0.37 million output tokens**. No dollar figure is given: it depends on the price of the model chosen, which the spike does not hold and this document does not look up.
 - **OpenCode** (free `deepseek-v4.1-flash-free`): 13,509 to 21,168 tokens per model call, cost 0, and one ACP prompt of input 13,187 and output 111. An attempt is several calls and the default paid model was not usable in the spike (HTTP 402), so there is **no estimate** for it.
 
 **What this does not include:** the models' price for Codex and OpenCode; any attempt's growth with the size of the task; retries after a `transient` failure (a rate limit), which every condition makes and which add attempts; and the trial validators, which run no agent.
@@ -89,4 +88,4 @@ For both combinations: **576 to 1,440 attempts.** The low end is no condition ev
 
 ## What the tests cover
 
-`test/evaluation-pilot.test.ts`, on the mock adapter only, in this order: the tasks are valid and there are five to eight; constraints and defects are not in the prompt or fixture; every constraint has a violation; per task, the fixture fails its hidden tests, the solution passes with no constraint broken, each violation passes but breaks exactly its constraint (scored by the independent validators); both suites are valid, have 3 repeats and cast the same three tools in different roles; both suites freeze all six tasks, validate against the registered adapters and schedule 108 trials with 3 repeats of every task and condition (cancelled before the first trial, so no tool starts); and each task runs end to end on scripted mock agents (every condition on `password-reset`, C0 and C3 on the rest).
+`test/evaluation-pilot.test.ts`, on the mock adapter only, in this order: the tasks are valid and there are five to eight; constraints and defects are not in the prompt or fixture; every constraint has a violation; per task, the fixture fails its hidden tests, the solution passes with no constraint broken, each violation passes but breaks exactly its constraint (scored by the independent validators); both suites are valid, have 3 repeats and cast the same three tools in different roles; both suites freeze all six tasks, validate against the registered adapters and schedule 90 trials with 3 repeats of each of their five conditions (cancelled before the first trial, so no tool starts); and each task runs end to end on scripted mock agents (every condition on `password-reset`, C0 and C3 on the rest).

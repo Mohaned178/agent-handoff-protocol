@@ -13,3 +13,10 @@ export const TASKS = [
 
 /** Trials per task and condition. */
 export const REPEATS = 3;
+
+/**
+ * The conditions the pilot runs (ticket 27, decision 4): whether a pipeline beats one agent with the same acceptance check and
+ * retry (C0V), with C0 and C1 for the ladder. C2 matters only if C3 beats C0V, and the matched-budget baseline is a ceiling,
+ * not a rival; both are left out to keep the cost down.
+ */
+export const CONDITIONS = ["C0", "C0V", "C1", "C3min", "C3"];
