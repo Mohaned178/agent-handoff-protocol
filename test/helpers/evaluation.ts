@@ -105,16 +105,23 @@ export function greetingSpec(changes: Record<string, unknown> = {}): Record<stri
         check: { kind: "forbidden_pattern", pattern: "goodbye", flags: "i" },
       },
     ],
-    verification: { command: "node check-greeting.mjs" },
+    verification: { command: "node check-greeting.mjs", acceptance: "node visible-check.mjs" },
     ...changes,
   };
 }
 
-/** The files of the greeting task: a fixture with a README, one hidden test, and a `task.json`. */
+/**
+ * The greeting task's visible test, in the fixture, which the gated conditions run as their acceptance check: the same check
+ * as the hidden test, so a test steers C0V, C3min and C3 through a failing acceptance the same way it fails the hidden test.
+ */
+export const VISIBLE_GREETING_TEST = HIDDEN_GREETING_TEST;
+
+/** The files of the greeting task: a fixture with a README and a visible test, one hidden test, and a `task.json`. */
 export function greetingFiles(changes: Record<string, unknown> = {}, extra: Record<string, string> = {}): Record<string, string> {
   return {
     "task.json": JSON.stringify(greetingSpec(changes), null, 2),
     "repo/README.md": "# greeting\n",
+    "repo/visible-check.mjs": VISIBLE_GREETING_TEST,
     "hidden/check-greeting.mjs": HIDDEN_GREETING_TEST,
     ...extra,
   };

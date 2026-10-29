@@ -17,6 +17,7 @@
   ],
   "verification": {
     "command": "node --test",
+    "acceptance": "node --test",
     "protectedPaths": ["package.json", "test/inventory.test.js"]
   },
   "network": { "stance": "deny" }

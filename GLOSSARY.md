@@ -262,17 +262,21 @@ A directory holding one task of an evaluation suite: `task.json` (id, prompt, pl
 _Avoid_: Step, benchmark
 
 **Suite**:
-The module `ahp eval` runs: the evaluation tasks, the conditions, the coding agent for each role (`plan`, `implement`, `review`), the retry budget of C3's steps and the number of repeats.
+The module `ahp eval` runs: the evaluation tasks, the conditions, the coding agent for each role (`plan`, `implement`, `review`), the retry budget of the steps of C0V, C3min and C3, and the number of repeats.
 
 **Frozen task**:
 An evaluation task whose directory was hashed and recorded in the evaluation's ledger before any trial started. The hash is the SHA-256 of the sorted (relative path, content hash) pairs of every file; it is taken again before each trial, and a task that no longer hashes as frozen stops the evaluation (`task_changed`), never to be frozen again.
 _Avoid_: Locked, pinned
 
 **Condition**:
-How the same task is worked: C0, one coding agent doing the whole task in one step with no retry budget (only a `transient` failure is retried, as in every condition); C1, the plain-text pipeline (plan, implement, review by the same agents as C3, each handing the next one field of free text, `output`; no acceptance check, no retry); C2, the pipeline with AHP's handoffs (C3's structured fields under a validated handoff, C3's capability requests and words) but no verification command, hidden tests or protected paths, no retry, and a review that sends nothing back; C3, full AHP (C2 plus hidden tests as the implement step's verification, bounded retry and send-back). The matched-budget baseline is listed with them as `baseline`. A condition builds an ordinary workflow, which the run API runs; it has agent steps only, so no approval gate and no external action, and recovers every `unknown` attempt by abort.
+How the same task is worked: C0, one coding agent doing the whole task in one step with no retry budget (only a `transient` failure is retried, as in every condition); C1, the plain-text pipeline (plan, implement, review by the same agents as C3, each handing the next one field of free text, `output`; no acceptance check, no retry); C2, the pipeline with AHP's handoffs (C3's structured fields under a validated handoff, C3's capability requests and words) but no verification command, acceptance check or protected paths, no retry, and a review that sends nothing back; C3, full AHP (C2 plus the task's acceptance check as the implement step's verification, bounded retry and send-back); C0V, C0 with C3's acceptance check and retry budget (one agent with a verify-and-retry loop, the comparison a pipeline must beat); C3min, C3 without its plan step (implement → review). No condition's workflow holds the hidden tests: they score trials only. The matched-budget baseline is listed with them as `baseline`. A condition builds an ordinary workflow, which the run API runs; it has agent steps only, so no approval gate and no external action, and recovers every `unknown` attempt by abort.
 
 **Matched-budget baseline**:
-For each scored C3 trial, as many independent C0 trials as attempts that trial made, on the same task in the same repeat: one **cell**, which passes if any of its trials passes. A cell with a trial not scored or not run is incomplete and left out of the rate. It tells structure apart from trying more.
+For each scored C3 trial, as many independent C0 trials as attempts that trial made, on the same task in the same repeat: one **cell**, which passes if any of its trials passes. A cell with a trial not scored or not run is incomplete and left out of the rate. It tells structure apart from trying more, and is a ceiling rather than a rival: no developer can pick the attempt that passed the hidden tests.
+
+**Acceptance check**:
+In an evaluation, the check a developer would have: the task's `verification.acceptance` command, run on an agent's result in a verification worktree with no hidden tests in place (in the pilot, the fixture's visible tests). The verification of C0V's one step and of C3min's and C3's implement step, whose failure is retried with its output as evidence. Never the hidden tests, so no condition is retried against what scores it.
+_Avoid_: Hidden tests (those are the validators' alone)
 
 **Repeat**:
 One more trial of every task under every condition. Trials run in a Fisher-Yates shuffle drawn from mulberry32 seeded with the evaluation's **seed**; the seed and the order are recorded (`trials_scheduled`) before the first trial, and baseline trials are drawn into the trials still to come (`baseline_scheduled`).

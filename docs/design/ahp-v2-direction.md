@@ -133,7 +133,7 @@ Rules:
 Append-only, event-sourced; run/step/attempt state derived by replay. Intent before effect. Single writer per run (lock file), sequence numbers, hash chain, torn-tail detection and truncation on startup. Storage (hardened JSONL vs SQLite) is open.
 
 ## 7. Evaluation
-- Conditions: **C0** single agent; **C1** naive text pipeline; **C2** AHP envelope only; **C3** full AHP (envelope + runtime acceptance checks + bounded retry). C2 vs C3 separates the envelope's effect from retry-on-failure.
+- Conditions: **C0** single agent; **C1** naive text pipeline; **C2** AHP envelope only; **C3** full AHP (envelope + runtime acceptance checks + bounded retry). C2 vs C3 separates the envelope's effect from retry-on-failure. Added 2026-10-29 (ticket 27): **C0V**, one agent with C3's acceptance check and retry, and **C3min**, implement → review without the plan step. C3 and C3min against C0V is what a pipeline adds beyond a verify-and-retry loop a developer can build without AHP. The acceptance check is the task's visible check; the hidden tests score trials and reach no agent, so no condition is retried against what scores it.
 - Tasks carry hidden tests, planted early constraints (context-loss checks) and, for review, seeded defects.
 - Metrics: verified success rate, constraint-violation rate, duplicated/reverted work, retries per success, wall time, usage only where reported (labelled with source, not compared across mismatched units).
 - Rigor: repeated runs, paired per-task comparisons with confidence intervals, pinned tool versions, stored configs/prompts/raw transcripts, randomized run order.

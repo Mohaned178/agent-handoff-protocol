@@ -87,17 +87,22 @@ describe("an evaluation of C3", () => {
     });
   });
 
-  it("verifies the implement step against the hidden tests, which the agent is never sent, and retries it on a failure", async () => {
+  it("verifies the implement step by the task's acceptance check, never the hidden tests, and retries it on a failure", async () => {
     const wrong = { ...IMPLEMENTS, edits: [{ path: "greeting.txt", content: "wrong\n" }] };
     const { dir, state } = await evaluate(c3({ plan: scripted(PLANS), implement: scripted(wrong, IMPLEMENTS), review: scripted(APPROVES) }));
 
-    const run = await runOf(dir, state.trials[0]!);
+    const trial = state.trials[0]!;
+    const run = await runOf(dir, trial);
     const implement = run.steps[1]!;
     expect(implement.attempts.map((attempt) => attempt.verification?.state)).toEqual(["fail", "pass"]);
-    expect(state.trials[0]!.ended).toMatchObject({ outcome: "scored", attempts: 4, score: { verdict: "pass" } });
-    // The second revision carries the failed verification as evidence: with the hidden tests' output withheld.
+    expect(trial.ended).toMatchObject({ outcome: "scored", attempts: 4, score: { verdict: "pass" } });
+    // The check is the visible one, so its output is the agent's to read: the second revision carries it as evidence.
     expect(implement.handoffs).toHaveLength(2);
-    for (const { handoff } of implement.handoffs) expect(JSON.stringify(handoff)).not.toContain("greeting missing or wrong");
+    expect(JSON.stringify(implement.handoffs[1]!.handoff)).toContain("greeting missing or wrong");
+    // The hidden test reaches no workflow, so nothing of it is in the run's ledger, which sits in the trial's repository.
+    const events = JSON.stringify(await runEventsOf(dir, trial));
+    expect(events).toContain("node visible-check.mjs");
+    expect(events).not.toContain("check-greeting.mjs");
   });
 
   it("sends the implement step back when the review asks for changes", async () => {

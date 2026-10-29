@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { formatReport, loadTask, readEvaluation, runEvaluation, SuiteInvalidError, TaskInvalidError } from "../src/evaluation/index.ts";
 import { LedgerCorruptError, readLedger } from "../src/ledger/index.ts";
 import { replayEvaluation, EvaluationLedgerInconsistentError, type EvaluationEvent } from "../src/evaluation/index.ts";
-import { APPROVES, DOES_NOTHING, evaluate, GREETS, greetingFiles, greetingTaskDir, HIDDEN_GREETING_TEST, IMPLEMENTS, PLANS, repoOf, runOf, scripted, sha256Of, suiteOf, trialOf } from "./helpers/evaluation.ts";
+import { APPROVES, DOES_NOTHING, evaluate, GREETS, greetingFiles, greetingTaskDir, IMPLEMENTS, PLANS, repoOf, runOf, scripted, sha256Of, suiteOf, trialOf } from "./helpers/evaluation.ts";
 import { git, removeTempRepos, writeTree } from "./helpers/repo.ts";
 
 afterEach(removeTempRepos);
@@ -110,14 +110,15 @@ describe("what a trial keeps", () => {
     expect(JSON.parse(read(artifacts.validation!).toString("utf8"))).toMatchObject({ validatorRuns: 1, tests: { exitCode: 0 } });
   });
 
-  it("does not write the hidden tests into the trial's configuration, only their paths and hashes", async () => {
+  it("keeps no hidden test in the trial's configuration: no condition's workflow carries one", async () => {
     const { dir, state } = await evaluate(both(greetingTaskDir()));
 
     const c3 = trialOf(state, "C3");
     const text = readFileSync(join(dir, ...c3.ended!.artifacts!.config.path.split("/")), "utf8");
-    expect(text).not.toContain("greeting missing or wrong");
+    expect(text).not.toContain("check-greeting.mjs");
     const implement = JSON.parse(text).workflow.steps[1];
-    expect(implement.verification.hiddenTests).toEqual([{ path: "check-greeting.mjs", sha256: sha256Of(HIDDEN_GREETING_TEST) }]);
+    expect(implement.verification).toMatchObject({ command: "node visible-check.mjs" });
+    expect(implement.verification).not.toHaveProperty("hiddenTests");
   });
 
   it("goes on to say how a trial ended when what it kept cannot all be kept, and says what could not be", async () => {

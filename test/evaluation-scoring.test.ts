@@ -75,7 +75,7 @@ describe("scoring is the validators' alone", () => {
     const validation = JSON.parse(readFileSync(join(dir, ...trial.ended!.artifacts!.validation!.path.split("/")), "utf8"));
     expect(validation.tests.output).toContain("greeting ok");
     expect(validation.commit).toBe(trial.ended!.result!.commit);
-    expect(git(repoOf(dir, trial), "ls-tree", "-r", "--name-only", trial.ended!.result!.commit).split("\n")).toEqual(["README.md", "greeting.txt"]);
+    expect(git(repoOf(dir, trial), "ls-tree", "-r", "--name-only", trial.ended!.result!.commit).split("\n")).toEqual(["README.md", "greeting.txt", "visible-check.mjs"]);
   });
 });
 

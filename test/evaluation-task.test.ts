@@ -56,14 +56,14 @@ describe("loading a task", () => {
     expect(loaded.task).toMatchObject({
       id: "greeting",
       prompt: "Create greeting.txt containing the word hello.",
-      verification: { command: "node check-greeting.mjs", protectedPaths: [] },
+      verification: { command: "node check-greeting.mjs", acceptance: "node visible-check.mjs", protectedPaths: [] },
       network: { stance: "deny" },
       seededDefects: [],
     });
-    expect([...loaded.task.fixture.keys()]).toEqual(["README.md"]);
+    expect([...loaded.task.fixture.keys()]).toEqual(["README.md", "visible-check.mjs"]);
     expect(loaded.task.hiddenTests.map((test) => test.path)).toEqual(["check-greeting.mjs"]);
     expect(loaded.task.constraints.map((constraint) => constraint.id)).toEqual(["no-goodbye"]);
-    expect(loaded.files.map((file) => file.path)).toEqual(["hidden/check-greeting.mjs", "repo/README.md", "task.json"]);
+    expect(loaded.files.map((file) => file.path)).toEqual(["hidden/check-greeting.mjs", "repo/README.md", "repo/visible-check.mjs", "task.json"]);
     // The same bytes on disk, the same hashes: loading twice agrees, and a change to a hidden test changes both hashes.
     const again = await loadTask(dir);
     expect(again.hash).toBe(loaded.hash);
@@ -87,11 +87,12 @@ describe("loading a task", () => {
 
   it.each([
     ["no task.json", () => { const files = greetingFiles(); delete (files as Record<string, string>)["task.json"]; return files; }, /no `task.json`/],
-    ["no fixture", () => { const files = greetingFiles(); delete (files as Record<string, string>)["repo/README.md"]; return files; }, /`repo\/` holds no files/],
+    ["no fixture", () => { const files: Record<string, string> = greetingFiles(); delete files["repo/README.md"]; delete files["repo/visible-check.mjs"]; return files; }, /`repo\/` holds no files/],
     ["no hidden tests", () => { const files = greetingFiles(); delete (files as Record<string, string>)["hidden/check-greeting.mjs"]; return files; }, /`hidden\/` holds no files/],
     ["an unknown property", () => greetingFiles({ difficulty: "hard" }), /unknown property `difficulty`/],
     ["no prompt", () => greetingFiles({ prompt: " " }), /non-empty `prompt`/],
     ["no verification command", () => greetingFiles({ verification: {} }), /non-empty `verification.command`/],
+    ["a blank acceptance command", () => greetingFiles({ verification: { command: "node x", acceptance: " " } }), /`verification.acceptance` must be a non-empty string/],
     ["a protected path with a .. segment", () => greetingFiles({ verification: { command: "node x", protectedPaths: ["../outside"] } }), /protectedPaths/],
     ["a constraint check that is a judgement", () => greetingFiles({ constraints: [{ id: "tidy", statement: "Keep it tidy.", check: { kind: "llm_judge", rubric: "is it tidy" } }] }), /never judged/],
     ["a forbidden pattern that does not compile", () => greetingFiles({ constraints: [{ id: "bad", statement: "x", check: { kind: "forbidden_pattern", pattern: "(" } }] }), /does not compile/],

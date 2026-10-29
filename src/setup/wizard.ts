@@ -12,7 +12,7 @@ import { isBranchName, isRepoPath } from "../protocol/index.ts";
 import type { DoctorReport } from "../doctor/doctor.ts";
 import { TOOLS, type ToolId } from "../doctor/tools.ts";
 import { CONDITIONS, type ConditionId } from "../evaluation/events.ts";
-import { validateSuite, type EvaluationRole } from "../evaluation/suite.ts";
+import { rolesFor, validateSuite, type EvaluationRole } from "../evaluation/suite.ts";
 import { effortsFor, offeredByOpenCode, OPENCODE_ACCESS, OPENCODE_ACCESS_NAMES, type ModelList, type OpenCodeAccess } from "./models.ts";
 
 export interface Choice<T> {
@@ -51,11 +51,16 @@ export const DEFAULT_SUITE_FILE = "ahp.suite.mjs";
 
 const CONDITION_NAMES: Record<ConditionId, string> = {
   C0: "C0  one agent alone",
+  C0V: "C0V  one agent with the acceptance check and retry",
   C1: "C1  plan → implement → review, plain text handed on",
   C2: "C2  the same steps with structured handoffs, nothing checked",
+  C3min: "C3min  implement → review, with the acceptance check, retry and send-back",
   C3: "C3  full AHP: validated handoffs, verification, retry, send-back",
-  baseline: "baseline  one agent given as many attempts as C3 used",
+  baseline: "baseline  one agent given as many attempts as C3 used (a ceiling)",
 };
+
+/** The conditions offered ticked: whether a pipeline beats one agent that has the same acceptance check and retry. */
+const PRECHECKED: readonly ConditionId[] = ["C0V", "C3min", "C3"];
 
 const ROLE_WORDS: Record<Role, string> = { plan: "plans (read-only)", implement: "writes the code", review: "reviews it" };
 
@@ -65,7 +70,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
     message: "What do you want to set up?",
     choices: [
       { name: "Run a workflow on a repository", value: "workflow", description: "plan → implement → review → your approval → AHP pushes (ahp run)" },
-      { name: "Run an evaluation", value: "evaluation", description: "frozen tasks under conditions C0 to C3, scored by hidden tests (ahp eval)" },
+      { name: "Run an evaluation", value: "evaluation", description: "frozen tasks under conditions C0 to C3, scored by hidden tests no agent sees (ahp eval)" },
     ],
   });
   return kind === "workflow" ? setupWorkflow(options) : setupEvaluation(options);
@@ -251,15 +256,15 @@ async function setupEvaluation(options: SetupOptions): Promise<SetupResult> {
   }
   let conditions: ConditionId[] = [];
   while (conditions.length === 0) {
-    conditions = await prompter.checkbox({ message: "Which conditions?", choices: CONDITIONS.map((id) => ({ name: CONDITION_NAMES[id], value: id, checked: id === "C3" })) });
+    conditions = await prompter.checkbox({ message: "Which conditions?", choices: CONDITIONS.map((id) => ({ name: CONDITION_NAMES[id], value: id, checked: PRECHECKED.includes(id) })) });
     if (conditions.length === 0) prompter.say("Choose at least one condition.");
     else if (conditions.includes("baseline") && !conditions.includes("C3")) {
       prompter.say("The baseline is matched to C3's attempts, so it needs C3.");
       conditions = [];
     }
   }
-  // C0, and so the baseline, is the implement agent alone; the pipeline conditions need all three.
-  const roles: EvaluationRole[] = conditions.some((id) => id === "C1" || id === "C2" || id === "C3") ? ["plan", "implement", "review"] : ["implement"];
+  // C0, C0V and the baseline are the implement agent alone; the pipeline conditions add a reviewer, and all but C3min a planner.
+  const roles: EvaluationRole[] = rolesFor(conditions);
   const agents: Partial<Record<EvaluationRole, { adapter: string; model?: string; options?: { effort: string } }>> = {};
   for (const role of roles) {
     const cast = await castRole(options, role, false);

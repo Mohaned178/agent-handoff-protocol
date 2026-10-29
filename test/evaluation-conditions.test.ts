@@ -85,3 +85,86 @@ describe("C2, AHP handoffs without acceptance checks or retry", () => {
     expect((c2!.steps[0] as { instructions: string }).instructions).toContain("Never write the word goodbye");
   });
 });
+
+/** The greeting's agent that writes the wrong word first: its acceptance check fails, then it passes. */
+const WRONG_FIRST = { ...IMPLEMENTS, edits: [{ path: "greeting.txt", content: "wrong\n" }] };
+
+describe("C0V, one agent with the acceptance check and retry", () => {
+  it("runs C0's one step, verified by the task's acceptance check and retried on a failure with that check's output", async () => {
+    const { dir, state } = await evaluate(suiteOf([greetingTaskDir()], { implement: scripted(WRONG_FIRST, GREETS) }, { conditions: ["C0V"] }));
+
+    const trial = state.trials[0]!;
+    expect(trial.ended).toMatchObject({ outcome: "scored", runState: "succeeded", attempts: 2, retries: 1, score: { verdict: "pass" } });
+    const workflow = await workflowOf(dir, trial);
+    expect(workflow.steps).toHaveLength(1);
+    expect(workflow.steps[0]).toMatchObject({ id: "solve", retry: { budget: 2 }, recovery: "abort", verification: { command: "node visible-check.mjs", protectedPaths: [], requiredOutputFields: ["summary"] } });
+    expect((workflow.steps[0] as { verification: object }).verification).not.toHaveProperty("hiddenTests");
+    // C0's words: the same agent, told the same thing, so C0V − C0 is the check and the retry alone.
+    expect((workflow.steps[0] as { instructions: string }).instructions).toContain("Never write the word goodbye");
+    const run = await runOf(dir, trial);
+    expect(JSON.stringify(run.steps[0]!.handoffs[1]!.handoff)).toContain("greeting missing or wrong");
+  });
+
+  it("takes its retry budget from the suite, as C3 does", async () => {
+    const { state } = await evaluate(suiteOf([greetingTaskDir()], { implement: scripted(WRONG_FIRST) }, { conditions: ["C0V"], retryBudget: 0 }));
+
+    expect(state.trials[0]!.ended).toMatchObject({ outcome: "scored", runState: "failed", failureClass: "verification_failed", attempts: 1, score: { verdict: "fail" } });
+  });
+});
+
+describe("C3min, implement → review with no plan step", () => {
+  it("tells the implementer the task, verifies it by the acceptance check, and lets the review send it back", async () => {
+    const { dir, state } = await evaluate(suiteOf([greetingTaskDir()], { implement: scripted(IMPLEMENTS, IMPLEMENTS), review: scripted(REQUESTS_CHANGES, APPROVES) }, { conditions: ["C3min"] }));
+
+    const trial = state.trials[0]!;
+    expect(trial.ended).toMatchObject({ outcome: "scored", runState: "succeeded", attempts: 4, score: { verdict: "pass" } });
+    const workflow = await workflowOf(dir, trial);
+    expect(workflow.steps.map((step) => step.id)).toEqual(["implement", "review"]);
+    const [implement, review] = workflow.steps as { instructions: string; verification: object }[];
+    expect(implement!.instructions).toContain("Never write the word goodbye");
+    expect(implement!.verification).toMatchObject({ command: "node visible-check.mjs", requiredOutputFields: ["summary", "decisions", "constraints"] });
+    expect(implement!.verification).not.toHaveProperty("hiddenTests");
+    expect(review).toMatchObject({ review: { sendBackTo: "implement" }, capabilities: [{ kind: "read_only" }] });
+    const run = await runOf(dir, trial);
+    expect(run.steps[0]!.attempts).toHaveLength(2);
+    // The reviewer learns the constraints only from the implementer's handoff, as C3's does.
+    expect(run.steps[1]!.handoffs[0]!.handoff.context.fields).toMatchObject({ constraints: PLANS.outputFields!.constraints });
+  });
+
+  it("gives the review C3's words, and needs no plan agent", async () => {
+    const { dir, state } = await evaluate(suiteOf([greetingTaskDir()], { implement: scripted(IMPLEMENTS), review: scripted(APPROVES) }, { conditions: ["C3min"] }));
+
+    const workflow = await workflowOf(dir, state.trials[0]!);
+    expect((workflow.steps[1] as { instructions: string }).instructions).toBe(
+      "Review the implementation in this workspace against the decisions and constraints you were handed. Do not change any file. Report your verdict and your findings.",
+    );
+  });
+});
+
+describe("the acceptance check", () => {
+  it("is needed by C0V, C3min and C3: a task without one is refused before anything runs, and C0 runs without one", async () => {
+    const task = greetingTaskDir({ verification: { command: "node check-greeting.mjs" } });
+    const agents = { plan: scripted(PLANS), implement: scripted(IMPLEMENTS), review: scripted(APPROVES) };
+
+    const error = await evaluate(suiteOf([task], agents, { conditions: ["C0", "C0V", "C3min", "C3"] })).then(() => null, (e: unknown) => e);
+
+    expect((error as { problems: string[] }).problems).toEqual(
+      ["C0V", "C3min", "C3"].map((condition) => expect.stringMatching(new RegExp(`^task "greeting", ${condition}: the task has no \`verification.acceptance\``))),
+    );
+    const { state } = await evaluate(suiteOf([task], { implement: scripted(GREETS) }, { conditions: ["C0"] }));
+    expect(state.trials[0]!.ended).toMatchObject({ outcome: "scored", score: { verdict: "pass" } });
+  });
+});
+
+describe("the comparisons", () => {
+  it("put what a pipeline adds beyond one gated agent first, then what the check adds and what the plan step adds", async () => {
+    const { COMPARISONS } = await import("../src/evaluation/index.ts");
+
+    expect(COMPARISONS.slice(0, 4)).toEqual([
+      ["C3min", "C0V"],
+      ["C3", "C0V"],
+      ["C0V", "C0"],
+      ["C3", "C3min"],
+    ]);
+  });
+});

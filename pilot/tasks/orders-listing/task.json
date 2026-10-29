@@ -22,6 +22,7 @@
   ],
   "verification": {
     "command": "node --test",
+    "acceptance": "node --test",
     "protectedPaths": ["package.json", "test/orders.test.js"]
   },
   "network": { "stance": "deny" }

@@ -59,6 +59,8 @@ describe("the pilot's tasks", () => {
       expect(task.hiddenTests.length, `${id} hidden tests`).toBeGreaterThan(0);
       expect(hiddenTestsHash).toMatch(/^[0-9a-f]{64}$/);
       expect(task.verification.protectedPaths, `${id} protects package.json`).toContain("package.json");
+      // The acceptance check is the fixture's visible tests, the check a developer has; the hidden tests stay the validators'.
+      expect(task.verification.acceptance, `${id} acceptance`).toBe("node --test");
       // No install: the network stance is deny, and a fixture has no dependencies.
       expect(task.verification.install).toBeUndefined();
       expect(task.network.stance).toBe("deny");
@@ -136,6 +138,9 @@ describe("each task, scored by the validators on the mock adapter's reference ed
   }
 });
 
+/** Every condition but the matched-budget baseline, whose trials are drawn in only as C3 trials are scored; in report order. */
+const TRIAL_CONDITIONS = ["C0", "C0V", "C1", "C2", "C3min", "C3"];
+
 describe("the pilot suites", () => {
   it("are valid, give each task 3 repeats of every condition, and cast the same three tools in different roles", async () => {
     const [a, b] = [await pilotSuite("suite-a"), await pilotSuite("suite-b")];
@@ -155,7 +160,7 @@ describe("the pilot suites", () => {
     for (const suite of [a, b]) expect(ROLES.map((role) => adapterOf(suite, role)).sort()).toEqual(["claude-code", "codex", "opencode"]);
   });
 
-  it("freeze, and schedule 3 repeats of 4 conditions on each task, once their workflows validate against the registered adapters", async () => {
+  it("freeze, and schedule 3 repeats of 6 conditions on each task, once their workflows validate against the registered adapters", async () => {
     // Cancelled before the first trial: the suite is loaded, its tasks frozen, every workflow validated and the order recorded,
     // and no coding agent is started.
     const cancelled = new AbortController();
@@ -167,9 +172,9 @@ describe("the pilot suites", () => {
       expect(state.state).toBe("cancelled");
       expect(events.filter((event) => event.type === "task_frozen").map((event) => (event as { taskId: string }).taskId).sort()).toEqual(TASK_IDS);
       const scheduled = events.find((event) => event.type === "trials_scheduled") as { order: { taskId: string; condition: string; repeat: number }[] };
-      expect(scheduled.order).toHaveLength(TASK_IDS.length * 4 * 3);
+      expect(scheduled.order).toHaveLength(TASK_IDS.length * TRIAL_CONDITIONS.length * 3);
       for (const id of TASK_IDS) {
-        for (const condition of ["C0", "C1", "C2", "C3"]) {
+        for (const condition of TRIAL_CONDITIONS) {
           expect(scheduled.order.filter((slot) => slot.taskId === id && slot.condition === condition).map((slot) => slot.repeat).sort(), `${id} ${condition}`).toEqual([1, 2, 3]);
         }
       }
@@ -206,13 +211,13 @@ describe("the pilot suites", () => {
       expect(state.state).toBe("completed");
       expect(state.mock).toBe(true);
       // The matched-budget baseline has one trial per attempt C3 made: plan, implement and review.
-      expect(state.trials.map((trial) => trial.condition).sort()).toEqual(everyCondition ? ["C0", "C1", "C2", "C3", "baseline", "baseline", "baseline"] : ["C0", "C3"]);
+      expect(state.trials.map((trial) => trial.condition).sort()).toEqual(everyCondition ? [...TRIAL_CONDITIONS, "baseline", "baseline", "baseline"].sort() : ["C0", "C3"]);
       for (const trial of state.trials) {
         expect(trial.ended, `${trial.condition}`).toMatchObject({ outcome: "scored", score: { verdict: "pass" } });
         expect(trial.ended!.score!.constraints.every((constraint) => constraint.outcome === "held"), trial.condition).toBe(true);
       }
       expect(report.conditions.map((condition) => [condition.condition, condition.passes, condition.scored])).toEqual(
-        (everyCondition ? ["C0", "C1", "C2", "C3"] : ["C0", "C3"]).map((condition) => [condition, 1, 1]),
+        (everyCondition ? TRIAL_CONDITIONS : ["C0", "C3"]).map((condition) => [condition, 1, 1]),
       );
       expect(trialOf(state, "C3").ended!.runState).toBe("succeeded");
     }, SLOW_TEST);

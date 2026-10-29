@@ -41,6 +41,12 @@ export interface EvaluationTask {
     command: string;
     /** Run before `command`, to install dependencies; a failing install is a validator that could not run. */
     install?: string;
+    /**
+     * The check a developer would have: run through the system shell on an agent's result, in a verification worktree with
+     * no hidden tests in place (so over what the fixture holds, such as its visible tests), exit code 0 a pass. The
+     * conditions with an acceptance check (C0V, C3min, C3) need it; the hidden tests reach no agent and no workflow.
+     */
+    acceptance?: string;
     /** Repository-relative paths no trial may change; the hidden tests' paths are protected as well. */
     protectedPaths: string[];
   };
@@ -74,7 +80,7 @@ export class TaskInvalidError extends Error {
 }
 
 const TASK_KEYS = ["id", "prompt", "constraints", "seededDefects", "verification", "network"];
-const VERIFICATION_KEYS = ["command", "install", "protectedPaths"];
+const VERIFICATION_KEYS = ["command", "install", "acceptance", "protectedPaths"];
 const CONSTRAINT_KEYS = ["id", "statement", "check"];
 const CHECK_KEYS: Record<ConstraintCheckKind, readonly string[]> = { forbidden_pattern: ["kind", "pattern", "flags", "paths"], required_invariant: ["kind", "command"] };
 const DEFECT_KEYS = ["id", "description", "path"];
@@ -161,6 +167,7 @@ function taskOf(spec: Record<string, unknown>, fixture: ReadonlyMap<string, Buff
   const verification = spec.verification;
   let command = "";
   let install: string | undefined;
+  let acceptance: string | undefined;
   let protectedPaths: string[] = [];
   if (!isRecord(verification)) problem("task.json: needs a `verification` object with a `command`");
   else {
@@ -169,6 +176,8 @@ function taskOf(spec: Record<string, unknown>, fixture: ReadonlyMap<string, Buff
     else command = verification.command;
     if (verification.install !== undefined && !isNonBlank(verification.install)) problem("`verification.install` must be a non-empty string");
     else install = verification.install as string | undefined;
+    if (verification.acceptance !== undefined && !isNonBlank(verification.acceptance)) problem("`verification.acceptance` must be a non-empty string");
+    else acceptance = verification.acceptance as string | undefined;
     const paths = verification.protectedPaths;
     if (paths !== undefined && !(Array.isArray(paths) && paths.every(isRepoPath))) problem("`verification.protectedPaths` must be an array of repository-relative paths");
     else protectedPaths = (paths as string[] | undefined) ?? [];
@@ -198,7 +207,7 @@ function taskOf(spec: Record<string, unknown>, fixture: ReadonlyMap<string, Buff
   }
 
   if (typeof spec.id !== "string" || typeof spec.prompt !== "string") return undefined;
-  return { id: spec.id, prompt: spec.prompt, constraints, seededDefects, verification: { command, ...(install !== undefined ? { install } : {}), protectedPaths }, network: { stance }, fixture: fixture as ReadonlyMap<string, Buffer>, hiddenTests };
+  return { id: spec.id, prompt: spec.prompt, constraints, seededDefects, verification: { command, ...(install !== undefined ? { install } : {}), ...(acceptance !== undefined ? { acceptance } : {}), protectedPaths }, network: { stance }, fixture: fixture as ReadonlyMap<string, Buffer>, hiddenTests };
 }
 
 function listOf(value: unknown, name: string, problem: (message: string) => void): unknown[] {

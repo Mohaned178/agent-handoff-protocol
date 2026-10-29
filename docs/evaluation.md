@@ -1,6 +1,6 @@
 # Evaluation
 
-`ahp eval <suite-file>` runs a suite of tasks under conditions C0 to C3 and a matched-budget baseline, says how often each produced a result that independent validators accept, and compares the conditions task by task with confidence intervals. It exists to test one claim, that structured, validated handoffs beat a single agent and a plain-text pipeline (design doc §7), and a negative or inconclusive result is reported as plainly as a positive one. Tickets 20 (the core) and 21 (C1, C2, the baseline, repeats, a seeded order, the measures and the statistics); the spend cap, invalid cells and version pinning are ticket 22.
+`ahp eval <suite-file>` runs a suite of tasks under conditions C0 to C3 and a matched-budget baseline, says how often each produced a result that independent validators accept, and compares the conditions task by task with confidence intervals. It exists to test one claim, that structured, validated handoffs beat a single agent and a plain-text pipeline (design doc §7), and a negative or inconclusive result is reported as plainly as a positive one. The comparison that decides it is against **C0V**, one agent with the same acceptance check and retry the pipeline gets: a developer can give one agent that loop without AHP, so a pipeline that does not beat C0V adds nothing they need. Tickets 20 (the core) and 21 (C1, C2, the baseline, repeats, a seeded order, the measures and the statistics); the spend cap, invalid cells and version pinning are ticket 22; C0V, C3min and the acceptance check apart from the hidden tests are ticket 27.
 
 **Mock results are never evidence.** A trial that ran on the mock adapter is labelled `[mock]` in the report, in the ledger (`trial_ended.mock`) and in the CLI output. Real-tool trials need the pilot's budget and keys, which are still open (design doc §9, item 9).
 
@@ -13,10 +13,14 @@ A **task** is a directory (below). A **suite** names tasks and the coding agent 
 | **C0** | One step, `solve`, by the suite's `implement` agent: the task and all its constraints in one prompt, **no retry budget** (one attempt at the task; only a `transient` failure such as a rate limit is retried, with backoff, as in every condition), and no acceptance check beyond reporting a `summary`. |
 | **C1** | The plain-text pipeline: `plan` → `implement` → `review` by the same three agents as C3, each reporting **one field of free text, `output`**, which is all the next step is handed. No acceptance check but that the text was reported (there is nothing to hand on otherwise), **no retry**, and a review that sends nothing back. |
 | **C2** | AHP's handoffs without acceptance checks: the same pipeline, each step handing on C3's structured fields (`summary`, `decisions`, `constraints`; the review reports `verdict` and `findings`) under a validated, versioned handoff with C3's capability requests. **No verification command, no hidden tests, no protected paths, no retry**, and a review that is an ordinary step: its verdict sends nothing back. A step that does not report a field its handoff carries ends the run there, as nothing can be handed on. |
-| **C3** | Full AHP: C2 plus the task's hidden tests (with its `install` and protected paths) as the implement step's verification, a retry budget (default 2) on every step shared by agent errors, failed verification and review send-backs, and a review that sends `implement` back on `changes_requested`. |
-| **baseline** | The matched-budget baseline: for each **scored** C3 trial, as many independent C0 trials as attempts that C3 trial made (plan, implement and review, retries and `transient` ones included), on the same task in the same repeat. The cell **passes if any of its trials passes**. It tells structure apart from simply trying more. |
+| **C0V** | C0 with C3's loop: the same one step, agent and words, verified by the task's **acceptance check** (with its `install` and protected paths) and given the suite's retry budget (default 2), a failure going back to the agent with the check's output. One agent with a verify-and-retry loop, which a developer can build without AHP (a Claude Code `Stop` hook running the tests). |
+| **C3min** | C3 without its plan step: `implement` (told the task and its constraints, as C0's agent is) → `review`, with C3's acceptance check, retry budget, structured handoff and send-back. The smallest pipeline. |
+| **C3** | Full AHP: C2 plus the task's acceptance check (with its `install` and protected paths) as the implement step's verification, a retry budget (default 2) on every step shared by agent errors, failed verification and review send-backs, and a review that sends `implement` back on `changes_requested`. |
+| **baseline** | The matched-budget baseline: for each **scored** C3 trial, as many independent C0 trials as attempts that C3 trial made (plan, implement and review, retries and `transient` ones included), on the same task in the same repeat. The cell **passes if any of its trials passes**. It tells structure apart from simply trying more, but it is a **ceiling**, not a rival: picking whichever trial passed the hidden tests is a choice no developer can make. |
 
-C2 against C1 is the envelope's effect; C3 against C2 is the acceptance checks' and retry's (design doc §7). So the three pipeline conditions tell every step **the same words**, apart from how C1 reports, and give it the same capability requests: the plan and review steps ask to be `read_only` in all three (at the level the adapter declares, which for most adapters is `cooperative`: words, not enforcement).
+**No agent is ever checked against the hidden tests.** The conditions with a check (C0V, C3min, C3) run the task's `acceptance` command, which a developer would have: in the pilot, the fixture's own visible tests. The hidden tests score every trial and nothing else, so no condition is retried against the check it is scored by.
+
+C3min and C3 against C0V is what a pipeline adds beyond the loop; C0V against C0 is what the loop adds to one agent; C3 against C3min is the plan step's worth. C2 against C1 is the envelope's effect; C3 against C2 is the acceptance checks' and retry's (design doc §7). So the three pipeline conditions tell every step **the same words**, apart from how C1 reports, and give it the same capability requests: the plan and review steps ask to be `read_only` in all three (at the level the adapter declares, which for most adapters is `cooperative`: words, not enforcement).
 
 What is told to whom is part of the design. The task's prompt **and its planted constraints** go to the first step only: C0's single agent, the pipeline's `plan`. The pipeline's `implement` and `review` are told what to do in fixed words and learn the constraints only from what the step before them handed on: C1's text, or C2's and C3's handoff context (`summary`, `decisions`, `constraints`). That is what makes the constraints a test of context loss.
 
@@ -54,13 +58,13 @@ The seed is `--seed <n>` (an integer from 0 to 4294967295; `seed` in `runEvaluat
     }
   ],
   "seededDefects": [{ "id": "off-by-one", "description": "the page size is one too many", "path": "src/page.js" }],
-  "verification": { "command": "node --test", "install": "npm ci", "protectedPaths": ["package.json", "test"] },
+  "verification": { "command": "node --test", "acceptance": "node --test", "install": "npm ci", "protectedPaths": ["package.json", "test"] },
   "network": { "stance": "deny" }
 }
 ```
 
 - **`prompt`** is the task as the first agent is told it. **`constraints`** are *planted*: each has a `statement` the first agent is told, and a **deterministic** `check`, never a judgement: `forbidden_pattern` (a regular expression searched in the text files of the result, optionally under `paths`) or `required_invariant` (a command that must exit 0 in the result, with the hidden tests in place). A fixture that already matches a forbidden pattern is rejected, since no trial could then violate it.
-- **`verification`**: `command` runs through the system shell in a validator's worktree with the hidden tests written in. `install` runs first, for dependencies. `protectedPaths` (and the hidden tests' own paths) may not be changed by a trial.
+- **`verification`**: `command` runs through the system shell in a validator's worktree with the hidden tests written in. `acceptance` is the check C0V, C3min and C3 run on an agent's result, in a verification worktree with **no** hidden tests: so over what the fixture holds, such as its visible tests (the same command as `command` is fine when the fixture has tests of its own). A suite that runs one of those conditions refuses a task without it. `install` runs first, for dependencies, in both. `protectedPaths` (and the hidden tests' own paths) may not be changed by a trial.
 - **`seededDefects`** are defects the fixture is known to contain, for review evaluation. They are part of the format and are frozen with the task. **Ticket 20 does not score them**; nothing reads them yet. Each names a file of the fixture.
 - Everything else in the directory is frozen too and used for nothing. A task holds plain files: a `.git` directory, a symbolic link or anything that is not a file or a directory is refused. Hidden tests must be UTF-8 text. Keep tasks small: a task is read into memory.
 
@@ -74,13 +78,13 @@ A module whose default export is the suite, like a workflow file for `ahp run`:
 export default {
   name: "pilot-1",
   tasks: ["./tasks/password-reset", "./tasks/rate-limit"], // relative to this file
-  conditions: ["C0", "C1", "C2", "C3", "baseline"],         // default: all five
+  conditions: ["C0", "C0V", "C1", "C3min", "C3"],           // default: all seven, C2 and the baseline included
   agents: {
     plan:      { adapter: "claude-code" },
     implement: { adapter: "codex", model: "..." },
     review:    { adapter: "opencode", model: "..." },
   },
-  retryBudget: 2,                                           // C3's steps; the others have none
+  retryBudget: 2,                                           // each step of C0V, C3min and C3; the others have none
   repeats: 3,                                               // trials per task and condition; default 1
   spendCap: { amount: 40, currency: "USD" },                // optional: see Safeguards
   maxIncidentRate: 0.34,                                    // optional: see Safeguards
@@ -88,7 +92,7 @@ export default {
 };
 ```
 
-`implement` is always needed, since C0 (and so the baseline) is that one agent alone; `plan` and `review` are needed when C1, C2 or C3 runs. The baseline needs C3. An agent may also be a function of the task and the trial (`implement: (task, { condition, repeat, baselineIndex }) => ...`), which is how a scripted mock agent is given the right edits for each fixture; it is called while the suite is validated too. Every workflow a condition would build is validated against the registered adapters before anything is written: an invalid suite or task is a usage error (exit 2) that names the task, the condition and the problem.
+`implement` is always needed, since C0 (and so C0V and the baseline) is that one agent alone; `plan` is needed when C1, C2 or C3 runs, and `review` when one of those or C3min does. The baseline needs C3. An agent may also be a function of the task and the trial (`implement: (task, { condition, repeat, baselineIndex }) => ...`), which is how a scripted mock agent is given the right edits for each fixture; it is called while the suite is validated too. Every workflow a condition would build is validated against the registered adapters before anything is written: an invalid suite or task is a usage error (exit 2) that names the task, the condition and the problem.
 
 ## Safeguards
 
@@ -136,7 +140,7 @@ An `unknown` attempt is never retried: the steps' `abort` policy ends the step, 
   report.json  report.txt
   trials/<trial id>/
     repo/               the trial's repository: `ahp inspect <run> --repo <this>` reads its run
-    config.json         condition, repeat, baseline cell, task and its hash, the workflow (hidden tests by path and hash, not text), retry budget, platform, Node and protocol versions
+    config.json         condition, repeat, baseline cell, task and its hash, the workflow (which holds no hidden test), retry budget, platform, Node and protocol versions
     prompts/<attempt>.txt       what the attempt's agent process was sent on stdin
     transcripts/<attempt>.txt   what it printed on stdout, raw
     run-ledger.jsonl    the trial's run ledger as it ended
@@ -157,18 +161,20 @@ Per condition: trials, scored trials, **verified success** and **constraint viol
 
 **The baseline** is reported by cell, one per scored C3 trial: a cell passes when any of its trials passed and fails when every one was scored and none did. A cell with a trial that was not scored (a harness incident, an unscored trial) or never run is **incomplete** and left out, named with why, whether or not another of its trials passed: it was not given C3's whole budget, and counting only the cells that happened to pass would flatter it. Its wall time is per complete cell, the sum of its trials'.
 
-**Paired comparisons.** For each pair the evaluation ran (C3 against C0, the baseline, C1 and C2; C2 against C1; C1 against C0), task by task: each side's success rate on a task is its passes over its valid trials (scored trials, harness incidents excluded; for the baseline, complete cells), the paired difference is rate(A) − rate(B), and the headline is the **mean paired difference across tasks**, with a **95% interval from a paired bootstrap over tasks**: 10,000 resamples of the tasks with replacement, from mulberry32 seeded with the evaluation's seed, the interval's ends being the 250th and the 9,750th of the sorted resampled means. Each task's raw counts (passes, valid trials, incidents) are shown beside its rates, and a task without a valid trial on a side is left out and named.
+**Paired comparisons.** For each pair the evaluation ran (first C3min and C3 against C0V, C0V against C0 and C3 against C3min; then C3 against C0, the baseline, C1 and C2; C2 against C1; C1 against C0), task by task: each side's success rate on a task is its passes over its valid trials (scored trials, harness incidents excluded; for the baseline, complete cells), the paired difference is rate(A) − rate(B), and the headline is the **mean paired difference across tasks**, with a **95% interval from a paired bootstrap over tasks**: 10,000 resamples of the tasks with replacement, from mulberry32 seeded with the evaluation's seed, the interval's ends being the 250th and the 9,750th of the sorted resampled means. Each task's raw counts (passes, valid trials, incidents) are shown beside its rates, and a task without a valid trial on a side is left out and named.
 
 - An interval that **includes 0** is reported as **"no detectable difference"**, never as better or worse.
 - Only an interval wholly above or below 0 says one rate is **higher** or **lower** than the other.
 - With fewer than 2 tasks to pair there is no interval, and the comparison is **inconclusive**.
-- Each interval stands alone: nothing corrects for making six comparisons, so one of them excluding 0 by chance is to be expected now and then. A pilot of 5–8 tasks gives wide intervals; it is sized to measure variance and cost, not to test the hypothesis (design doc §7).
+- Each interval stands alone: nothing corrects for making up to ten comparisons, so one of them excluding 0 by chance is to be expected now and then. A pilot of 5–8 tasks gives wide intervals; it is sized to measure variance and cost, not to test the hypothesis (design doc §7).
 
 Whatever the numbers, they are not evidence while they are `[mock]`.
 
 ## What an evaluation does not hide from an agent
 
-The hidden tests are never in an agent's workspace, its snapshot or its handoff. They are in the run's ledger, though, because the workflow definition is (C3's only: no other condition's workflow holds them), and that ledger is in the trial repository's `.git/ahp`, which every attempt's worktree shares. An agent that goes looking there can read them. Capabilities are `cooperative` at most for most adapters, and a worktree is isolation, not a security boundary: this is the limit of what the design (ADR 0002) gives, and a pilot should treat a task whose hidden tests an agent could have read as a reason to read its transcript. The trial's `config.json`, beside the repository, does not hold them.
+The hidden tests are never in an agent's workspace, its snapshot, its handoff, a condition's workflow or the run's ledger: since ticket 27 no workflow holds them, so the run ledger in the trial repository's `.git/ahp`, which every attempt's worktree shares, has nothing of them. The validators write them only after the run has ended, in a worktree of their own. They are on the machine, though, in the task directory, and an agent runs as you: capabilities are `cooperative` at most for most adapters, and a worktree is isolation, not a security boundary (ADR 0002). Keep task directories outside anything an agent is pointed at, and treat a trial that passes where every other condition failed as a reason to read its transcript.
+
+What an agent does see is the acceptance check's output, as the evidence of a retry: that check is the visible one, which a developer would have too.
 
 ## Before a real evaluation
 

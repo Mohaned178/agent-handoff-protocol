@@ -33,13 +33,13 @@ export interface EvaluationSuite {
   /** Default: every condition there is, the matched-budget baseline (`baseline`) among them. The baseline needs C3. */
   conditions?: ConditionId[];
   /**
-   * The coding agent each role is cast as. `implement` is needed always, since C0 (and so the baseline) is that one agent
-   * alone; `plan` and `review` are needed when C1, C2 or C3 runs.
+   * The coding agent each role is cast as. `implement` is needed always, since C0 (and so C0V and the baseline) is that one
+   * agent alone; `plan` is needed when C1, C2 or C3 runs, and `review` when one of those or C3min does.
    */
   agents: Partial<Record<EvaluationRole, AgentSource>>;
   /**
-   * The retry budget of each of C3's steps, shared by agent errors, failed verifications and review send-backs (default
-   * 2). C0, C1 and C2 have none; their `transient` failures are retried as C3's are, since a rate limit is not something a
+   * The retry budget of each step of C0V, C3min and C3, shared by agent errors, failed verifications and review send-backs
+   * (default 2). C0, C1 and C2 have none; their `transient` failures are retried as C3's are, since a rate limit is not something a
    * condition does.
    */
   retryBudget?: number;
@@ -63,8 +63,12 @@ export interface EvaluationSuite {
 
 export const DEFAULT_RETRY_BUDGET = 2;
 
-/** The conditions that cast all three roles as plan → implement → review. */
-const PIPELINE_CONDITIONS: readonly ConditionId[] = ["C1", "C2", "C3"];
+/** The conditions that cast each role beside `implement`, which every condition casts: C3min has no plan step. */
+const CASTING: Record<Exclude<EvaluationRole, "implement">, readonly ConditionId[]> = { plan: ["C1", "C2", "C3"], review: ["C1", "C2", "C3min", "C3"] };
+
+/** The roles `conditions` cast, in `EVALUATION_ROLES` order. */
+export const rolesFor = (conditions: readonly ConditionId[]): EvaluationRole[] =>
+  EVALUATION_ROLES.filter((role) => role === "implement" || conditions.some((condition) => CASTING[role].includes(condition)));
 
 export const agentFor = (source: AgentSource, task: EvaluationTask, slot: TrialSlot): AgentRef => (typeof source === "function" ? source(task, slot) : source);
 
@@ -103,9 +107,9 @@ export function validateSuite(suite: unknown): string[] {
     for (const key of Object.keys(suite.agents)) if (!(EVALUATION_ROLES as readonly string[]).includes(key)) problems.push(`unknown role \`agents.${key}\` (roles: ${EVALUATION_ROLES.join(", ")})`);
     for (const role of EVALUATION_ROLES) {
       const source = suite.agents[role];
-      const pipeline = conditions.filter((condition) => PIPELINE_CONDITIONS.includes(condition));
-      const needed = role === "implement" || pipeline.length > 0;
-      if (source === undefined && needed) problems.push(`\`agents.${role}\` is needed: ${role === "implement" ? "C0 is that agent alone" : `${pipeline.join(", ")} cast${pipeline.length === 1 ? "s" : ""} it as a step`}`);
+      const casting = role === "implement" ? [] : conditions.filter((condition) => CASTING[role].includes(condition));
+      const needed = rolesFor(conditions).includes(role);
+      if (source === undefined && needed) problems.push(`\`agents.${role}\` is needed: ${role === "implement" ? "C0 is that agent alone" : `${casting.join(", ")} cast${casting.length === 1 ? "s" : ""} it as a step`}`);
       else if (source !== undefined && typeof source !== "function" && !(isRecord(source) && typeof source.adapter === "string")) {
         problems.push(`\`agents.${role}\` must be an agent (\`{ adapter, model?, options? }\`) or a function of the task that returns one`);
       }

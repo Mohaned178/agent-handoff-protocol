@@ -165,10 +165,16 @@ export interface ConditionComparison extends PairedComparison {
 }
 
 /**
- * The comparisons a report makes, `a` against `b`, when the evaluation ran both: full AHP against each alternative, and each
- * step of the ladder against the one below it (C2 against C1 is the envelope's effect, C3 against C2 the acceptance checks').
+ * The comparisons a report makes, `a` against `b`, when the evaluation ran both. First what a pipeline adds beyond one agent
+ * with the same acceptance check and retry (C3min and C3 against C0V), what that check and retry add to one agent (C0V
+ * against C0) and what the plan step adds (C3 against C3min); then full AHP against each other alternative, and each step of
+ * the ladder against the one below it (C2 against C1 is the envelope's effect, C3 against C2 the acceptance checks').
  */
 export const COMPARISONS: readonly (readonly [ConditionId, ConditionId])[] = [
+  ["C3min", "C0V"],
+  ["C3", "C0V"],
+  ["C0V", "C0"],
+  ["C3", "C3min"],
   ["C3", "C0"],
   ["C3", "baseline"],
   ["C3", "C1"],
@@ -437,10 +443,12 @@ export const MOCK_REPORT_NOTE = "These results come from the mock adapter. They 
 
 const CONDITION_NAMES: Record<ConditionId, string> = {
   C0: "single agent",
+  C0V: "single agent with the acceptance check and retry",
   C1: "plain-text pipeline",
   C2: "AHP handoffs, no acceptance checks or retry",
+  C3min: "implement → review, with the acceptance check and retry",
   C3: "full AHP",
-  baseline: "matched-budget baseline: C0 as many times as C3 made attempts",
+  baseline: "matched-budget baseline: C0 as many times as C3 made attempts, a pass if any passed (a ceiling: no developer can pick a pass by the hidden tests)",
 };
 
 /** `n of d what (p%)`, or why there is no rate. */

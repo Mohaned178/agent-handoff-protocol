@@ -42,8 +42,23 @@ const PIPELINE = {
   review: "Review the implementation in this workspace against the decisions and constraints you were handed. Do not change any file.",
 };
 
-/** The retry budget of every step of `condition`: C3's from the suite (default 2), and none for any other. */
-export const retryBudgetOf = (condition: ConditionId, suite: EvaluationSuite): number => (condition === "C3" ? (suite.retryBudget ?? DEFAULT_RETRY_BUDGET) : 0);
+/** The conditions with an acceptance check and a retry budget: what C3 has that C0, C1 and C2 do not. */
+export const GATED_CONDITIONS: readonly ConditionId[] = ["C0V", "C3min", "C3"];
+
+/** The retry budget of every step of `condition`: the suite's (default 2) for a gated condition, and none for any other. */
+export const retryBudgetOf = (condition: ConditionId, suite: EvaluationSuite): number =>
+  GATED_CONDITIONS.includes(condition) ? (suite.retryBudget ?? DEFAULT_RETRY_BUDGET) : 0;
+
+/**
+ * The acceptance check of a gated condition's step that writes code: the task's `acceptance` command over the agent's result,
+ * with its install and protected paths. Never the hidden tests: those are the validators' alone, so no agent is retried
+ * against the check it is scored by.
+ */
+function acceptanceOf(task: EvaluationTask, requiredOutputFields: string[]) {
+  const { acceptance, install, protectedPaths } = task.verification;
+  if (acceptance === undefined) throw new Error("the task has no `verification.acceptance`, the check C0V, C3min and C3 run on an agent's result");
+  return { command: acceptance, ...(install !== undefined ? { install } : {}), protectedPaths, requiredOutputFields };
+}
 
 /**
  * The workflow `condition` runs for `task`.
@@ -53,9 +68,11 @@ export const retryBudgetOf = (condition: ConditionId, suite: EvaluationSuite): n
  *   that the text was reported (there is nothing to hand on otherwise), and nothing is retried.
  * - C2: the pipeline with C3's handoffs: the structured fields, each step's handoff validated, the same capability requests;
  *   but no verification command, hidden tests or protected paths, no retry, and a review that sends nothing back.
- * - C3: full AHP: C2 plus the hidden tests as the implement step's acceptance, a retry budget on every step, and a review
+ * - C3: full AHP: C2 plus the task's acceptance check on the implement step, a retry budget on every step, and a review
  *   that sends `implement` back.
- * Every pipeline step is told the same words in C1, C2 and C3, and only the first is told the task and its constraints.
+ * - C0V: C0 with C3's acceptance check and retry budget on its one step: a single agent with a verify-and-retry loop.
+ * - C3min: C3 without its plan step: implement (told the task and its constraints) → review.
+ * Every pipeline step is told the same words in C1, C2, C3min and C3, and only the first is told the task and its constraints.
  */
 export function workflowFor(condition: ConditionId, task: EvaluationTask, suite: EvaluationSuite, slot: TrialSlot): WorkflowDefinition {
   const common = commonOf(task.network.stance);
@@ -73,6 +90,20 @@ export function workflowFor(condition: ConditionId, task: EvaluationTask, suite:
             instructions: `${taskText(task)}\n\nDo the whole task in this workspace.`,
             verification: { requiredOutputFields: ["summary"] },
             retry: noRetry,
+            ...common,
+          },
+        ],
+      };
+    case "C0V":
+      return {
+        name: `${task.id}-C0V`,
+        steps: [
+          {
+            id: "solve",
+            agent: agent("implement"),
+            instructions: `${taskText(task)}\n\nDo the whole task in this workspace.`,
+            verification: acceptanceOf(task, ["summary"]),
+            retry: { budget: retryBudgetOf(condition, suite) },
             ...common,
           },
         ],
@@ -112,30 +143,31 @@ export function workflowFor(condition: ConditionId, task: EvaluationTask, suite:
       };
     }
     case "C2":
+    case "C3min":
     case "C3": {
-      const full = condition === "C3";
+      const full = condition !== "C2";
       const retry = { budget: retryBudgetOf(condition, suite) };
-      const { command, install, protectedPaths } = task.verification;
+      const reportKept = "Report your summary, your decisions, and every constraint you kept: restate each one.";
+      const plan = (): StepDefinition => ({
+        id: "plan",
+        agent: agent("plan"),
+        instructions: `${taskText(task)}\n\n${PIPELINE.plan} Report your summary, the decisions you made, and every constraint the work must respect: restate each one you were given.`,
+        capabilities: [{ kind: "read_only" }],
+        verification: { requiredOutputFields: HANDED_ON },
+        retry,
+        ...common,
+      });
       return {
         name: `${task.id}-${condition}`,
         steps: [
-          {
-            id: "plan",
-            agent: agent("plan"),
-            instructions: `${taskText(task)}\n\n${PIPELINE.plan} Report your summary, the decisions you made, and every constraint the work must respect: restate each one you were given.`,
-            capabilities: [{ kind: "read_only" }],
-            verification: { requiredOutputFields: HANDED_ON },
-            retry,
-            ...common,
-          },
+          ...(condition === "C3min" ? [] : [plan()]),
           {
             id: "implement",
             agent: agent("implement"),
-            instructions: `${PIPELINE.implement} Report your summary, your decisions, and every constraint you kept: restate each one.`,
-            // In C3 the hidden tests are this step's acceptance, which its agent never sees; a failure sends it back with the evidence.
-            verification: full
-              ? { command, ...(install !== undefined ? { install } : {}), hiddenTests: task.hiddenTests, protectedPaths, requiredOutputFields: HANDED_ON }
-              : { requiredOutputFields: HANDED_ON },
+            // With no plan step, the implementer is the first step: it is told the task and its constraints, as C0's agent is.
+            instructions: condition === "C3min" ? `${taskText(task)}\n\nDo the whole task in this workspace. ${reportKept}` : `${PIPELINE.implement} ${reportKept}`,
+            // In C3 and C3min the task's acceptance check is this step's; a failure sends it back with the evidence.
+            verification: full ? acceptanceOf(task, HANDED_ON) : { requiredOutputFields: HANDED_ON },
             retry,
             ...common,
           },
