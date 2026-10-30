@@ -43,3 +43,7 @@ defaults)`, `branchFor(task, existing)` and `inferTask` over all three. Tests: `
    and a symbolic link is treated as absent. The test of that skips on Windows when links cannot be created.
 5. A `Makefile` has a `test` target when a rule line names `test` among its targets before a `:` that is not `:=`
    (`.PHONY: test` alone is not one). A `package.json` that does not parse gives no check but still `npm install`.
+
+## Comments
+
+- 2026-10-31: the maintainer adopted every choice in the implementation notes ("do recommendation"); they are settled.

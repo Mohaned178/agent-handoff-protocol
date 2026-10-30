@@ -48,3 +48,7 @@ the inferred `npm install` and `npm test` for real, about 3 s). Choices made:
 6. Cancel at Run? exits 0 ("cancelled: nothing was started"); Ctrl+C at a question exits 130 with the same line.
 7. Without a check (review only) no install is shown or run: verification then has no command to install for.
 8. The guide (`ahp` with no terminal) now names `ahp "<task>"` first for a project; the README is ticket 05.
+
+## Comments
+
+- 2026-10-31: the maintainer adopted every choice in the implementation notes ("do recommendation"); they are settled.
