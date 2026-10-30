@@ -3,7 +3,12 @@
 // interval excludes 0; otherwise it says there is no detectable difference, and with too few tasks it says that.
 
 import type { FailureClass, PathChange } from "../protocol/index.ts";
-import type { AttemptUsage, ConditionId, UnscoredReason } from "./events.ts";
+import { money, sourcesText, summarizeUsage, USAGE_COUNTS, usageLines, type UsageCount, type UsageSummary } from "../runtime/usage.ts";
+import type { ConditionId, UnscoredReason } from "./events.ts";
+
+export { money, sourcesText, USAGE_COUNTS, type UsageCount, type UsageSummary };
+
+const USAGE_HEADING = "usage, as each tool reported it (per adapter, not summed across adapters and not compared):";
 import type { EvaluationState, EvaluationView, TrialView } from "./replay.ts";
 import { byPath } from "./freeze.ts";
 import { BOOTSTRAP_RESAMPLES, comparePaired, type PairedComparison, type PairingGap, type TaskTally } from "./statistics.ts";
@@ -16,26 +21,6 @@ export type FailureOutcome = FailureClass | "run_succeeded" | "run_failed";
 
 /** A condition proper, which is scored trial by trial; the baseline is scored by cell (`BaselineReport`). */
 export type TrialCondition = Exclude<ConditionId, "baseline">;
-
-/** The token counts a tool may report; each is summed only over the attempts that reported it, and says how many did. */
-export const USAGE_COUNTS = ["inputTokens", "outputTokens", "cachedInputTokens", "totalTokens"] as const;
-export type UsageCount = (typeof USAGE_COUNTS)[number];
-
-/**
- * What the attempts on one adapter reported using, as reported: never estimated, never summed across adapters (their units
- * differ: one counts cached input inside its input tokens, another outside), and not compared between conditions.
- */
-export interface UsageSummary {
-  adapter: string;
-  attempts: number;
-  /** Of those, the attempts that reported any usage. */
-  reported: number;
-  /** The sources the numbers came from, in the adapter's words. */
-  sources: string[];
-  counts: Record<UsageCount, { sum: number; attempts: number }>;
-  /** Per currency, as reported. */
-  cost: { currency: string; amount: number; attempts: number }[];
-}
 
 /** A run's wall time, from its creation to its end, over the trials that measured one. */
 export interface WallTime {
@@ -217,34 +202,7 @@ function wallTimeOf(times: readonly (number | null)[]): WallTime {
 }
 
 function usageOf(trials: readonly TrialView[]): UsageSummary[] {
-  const byAdapter = new Map<string, UsageSummary>();
-  const attempts: AttemptUsage[] = trials.flatMap((trial) => trial.ended?.usage ?? []);
-  for (const { adapter, usage } of attempts) {
-    let summary = byAdapter.get(adapter);
-    if (!summary) {
-      const counts = Object.fromEntries(USAGE_COUNTS.map((count) => [count, { sum: 0, attempts: 0 }])) as UsageSummary["counts"];
-      summary = { adapter, attempts: 0, reported: 0, sources: [], counts, cost: [] };
-      byAdapter.set(adapter, summary);
-    }
-    summary.attempts += 1;
-    if (!usage) continue;
-    summary.reported += 1;
-    if (!summary.sources.includes(usage.source)) summary.sources.push(usage.source);
-    for (const count of USAGE_COUNTS) {
-      const value = usage[count];
-      if (value === null) continue;
-      summary.counts[count].sum += value;
-      summary.counts[count].attempts += 1;
-    }
-    if (usage.cost) {
-      const cost = summary.cost.find((entry) => entry.currency === usage.cost!.currency);
-      if (cost) {
-        cost.amount += usage.cost.amount;
-        cost.attempts += 1;
-      } else summary.cost.push({ currency: usage.cost.currency, amount: usage.cost.amount, attempts: 1 });
-    }
-  }
-  return [...byAdapter.values()].sort((x, y) => byPath(x.adapter, y.adapter));
+  return summarizeUsage(trials.flatMap((trial) => trial.ended?.usage ?? []));
 }
 
 function exclusionsOf(ended: readonly TrialView[], notRun: number): Exclusions {
@@ -457,49 +415,12 @@ const ratio = (part: number, whole: number, what: string) =>
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
-/** A sum of money for reading: floating-point noise from adding many costs is rounded off (the ledger keeps the exact numbers). */
-export const money = (amount: number): string => String(Number(amount.toFixed(6)));
-
-/**
- * Source labels that differ only in their numbers (an adapter names per-attempt counts in its label) shown once, with
- * each number that varies between them replaced by "…".
- */
-export function sourcesText(sources: readonly string[]): string {
-  const groups = new Map<string, string[][]>();
-  for (const source of sources) {
-    const shape = source.replace(/\d+(\.\d+)?/g, "#");
-    groups.set(shape, [...(groups.get(shape) ?? []), source.match(/\d+(\.\d+)?/g) ?? []]);
-  }
-  return [...groups].map(([shape, numbers]) => {
-    let index = 0;
-    return shape.replace(/#/g, () => {
-      const values = new Set(numbers.map((list) => list[index]));
-      index += 1;
-      return values.size === 1 ? [...values][0]! : "…";
-    });
-  }).join("; ");
-}
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 const signed = (value: number) => `${value > 0 ? "+" : value < 0 ? "−" : ""}${Math.abs(value).toFixed(2)}`;
 
 function wallTimeLine(wallTime: WallTime, over: string): string {
   if (wallTime.medianMs === null) return `  wall time: n/a: no ${over} measured one`;
   return `  wall time: median ${seconds(wallTime.medianMs)}, mean ${seconds(wallTime.meanMs!)}, over ${wallTime.measured} ${over}`;
-}
-
-function usageLines(usage: readonly UsageSummary[]): string[] {
-  if (usage.length === 0) return [];
-  const lines = ["  usage, as each tool reported it (per adapter, not summed across adapters and not compared):"];
-  for (const summary of usage) {
-    if (summary.reported === 0) {
-      lines.push(`    ${summary.adapter}: none reported by ${plural(summary.attempts, "attempt")}`);
-      continue;
-    }
-    const counts = USAGE_COUNTS.filter((count) => summary.counts[count].attempts > 0).map((count) => `${count} ${summary.counts[count].sum} (${summary.counts[count].attempts})`);
-    const costs = summary.cost.map((cost) => `cost ${money(cost.amount)} ${cost.currency} (${cost.attempts})`);
-    lines.push(`    ${summary.adapter}: ${summary.reported} of ${plural(summary.attempts, "attempt")} reported; ${[...counts, ...costs].join(", ")}; source: ${sourcesText(summary.sources)}`);
-  }
-  return lines;
 }
 
 function exclusionLines(report: Exclusions & { invalidCells: InvalidCell[] }): string[] {
@@ -580,7 +501,7 @@ export function formatReport(report: EvaluationReport): string {
       }
     }
     lines.push(wallTimeLine(condition.wallTime, "scored trials"));
-    lines.push(...usageLines(condition.usage));
+    lines.push(...usageLines(condition.usage, USAGE_HEADING, "  "));
     lines.push(...exclusionLines(condition));
   }
   const { baseline } = report;
@@ -589,7 +510,7 @@ export function formatReport(report: EvaluationReport): string {
     lines.push(`  verified success: ${ratio(baseline.passingCells, baseline.completeCells, "complete cells")}, a cell passing when any of its trials passed`);
     for (const cell of baseline.cells.filter((candidate) => candidate.incomplete !== null)) lines.push(`    ${cell.taskId} #${cell.repeat}: incomplete, left out: ${cell.incomplete}`);
     lines.push(wallTimeLine(baseline.wallTime, "complete cells (the sum of each cell's trials)"));
-    lines.push(...usageLines(baseline.usage));
+    lines.push(...usageLines(baseline.usage, USAGE_HEADING, "  "));
     lines.push(...exclusionLines(baseline));
   }
   if (report.comparisons.length > 0) {

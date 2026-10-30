@@ -29,7 +29,9 @@ import {
   type PendingApproval,
   type ResumeResult,
   type RunInspection,
+  type RunListing,
 } from "../sdk/index.ts";
+import { summarizeUsage, usageLines } from "../runtime/index.ts";
 
 export const MOCK_NOTE = "note: this run used the mock adapter; its results are labelled [mock] and are not evidence.";
 
@@ -640,6 +642,63 @@ export function formatUnresumed({ state, takenOverFrom }: ResumeResult): string 
   return lines.join("\n");
 }
 
+const RUN_USAGE_HEADING = "usage, as each tool reported it (per adapter, not summed across adapters; nothing is estimated):";
+
+/** What a run's attempts reported using, summed per adapter; null before any attempt. */
+export function formatRunUsage(state: Readonly<RunView>, indent = ""): string | null {
+  const lines = usageLines(summarizeUsage(state.steps.flatMap((step) => step.attempts)), RUN_USAGE_HEADING, indent);
+  return lines.length > 0 ? lines.join("\n") : null;
+}
+
+/** How many runs `ahp runs` shows without `--all`. */
+export const RUNS_SHOWN = 20;
+
+/** A time as `YYYY-MM-DD HH:MM` in this machine's time zone. */
+function localMinute(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const two = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())} ${two(date.getHours())}:${two(date.getMinutes())}`;
+}
+
+/** What a person can do next for a run in the list, in one line; null for a run that ended. */
+function nextFor({ runId, state, lock }: RunListing): string | null {
+  if (!state) return `\`ahp inspect ${runId}\` says what is wrong with its ledger`;
+  if (lock.state === "held") return `running now (PID ${lock.owner.pid})`;
+  if (lock.state === "other_host") return `being run on ${lock.owner.host}, or was: it cannot be checked from here`;
+  if (state.state === "pending" || state.state === "running") return `its process stopped partway: \`ahp recover ${runId}\` resumes it`;
+  if (state.state === "waiting_approval") {
+    const gate = awaitedGates(state)[0];
+    return gate ? `\`ahp approve ${runId} ${gate.id}\`, or \`ahp reject ${runId} ${gate.id} --reason "..."\`` : null;
+  }
+  if (state.state === "needs_recovery") {
+    const attempts = awaitedAttempts(state);
+    return attempts.length > 0 ? attempts.map((attempt) => `\`ahp recover ${attempt.id} --policy adopt|abort\``).join("; ") : null;
+  }
+  return null;
+}
+
+/** `ahp runs`: a repository's runs, newest first, one line each and what can be done next for those that wait. */
+export function formatRuns(listings: readonly RunListing[], repo: string, all: boolean): string {
+  if (listings.length === 0) return `no runs in ${repo} yet: \`ahp run <workflow-file>\` starts one`;
+  const shown = all ? listings : listings.slice(0, RUNS_SHOWN);
+  const stateOf = (listing: RunListing) => listing.state?.state ?? "unreadable";
+  const nameOf = (listing: RunListing) => listing.state?.workflowName ?? "?";
+  const stateWidth = Math.max(...shown.map((listing) => stateOf(listing).length));
+  const nameWidth = Math.max(...shown.map((listing) => nameOf(listing).length));
+  const lines = [`runs in ${repo}, newest first:`];
+  for (const listing of shown) {
+    const when = listing.state ? localMinute(listing.state.createdAt) : "";
+    lines.push(`  ${listing.runId}  ${stateOf(listing).padEnd(stateWidth)}  ${nameOf(listing).padEnd(nameWidth)}  ${when}${mockTag(listing.state?.mock ?? false)}`.trimEnd());
+    const next = nextFor(listing);
+    if (next) lines.push(`      next: ${next}`);
+  }
+  const hidden = listings.length - shown.length;
+  if (hidden > 0) lines.push(`  ${quantity(hidden, "older run")} not shown: \`ahp runs --all\` lists every run`);
+  lines.push("", "`ahp inspect <run-id>` shows a run in full; `ahp inspect` alone shows the newest");
+  return lines.join("\n");
+}
+
 /** A human-readable account of a run's derived state, its ledger and who is writing it. */
 export function formatRun(inspection: RunInspection): string {
   const { state } = inspection;
@@ -653,6 +712,8 @@ export function formatRun(inspection: RunInspection): string {
     `  ended: ${state.endedAt ?? "-"}`,
     ...describeLedger(inspection),
   ];
+  const usage = formatRunUsage(state, "  ");
+  if (usage) lines.push(usage);
   if (state.mock) lines.push(`  ${MOCK_NOTE}`);
   const agentActions = describeAgentExternalActions(state);
   if (agentActions) lines.push(`  ${agentActions}`);

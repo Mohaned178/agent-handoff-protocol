@@ -177,7 +177,8 @@ export default {
 | `ahp run <file>` | Runs a workflow |
 | `ahp approve <run> <step>` | Approves a waiting gate, from another terminal or later |
 | `ahp reject <run> <step> --reason "..."` | Rejects it and sends the step before the gate back |
-| `ahp inspect <run>` | Shows everything about a run: attempts, handoffs, verification, usage and the diff |
+| `ahp runs` | Lists the repository's runs, newest first, with the command to run next for any that waits |
+| `ahp inspect [run]` | Shows everything about a run: attempts, handoffs, verification, usage and the diff (default: the newest run) |
 | `ahp recover <run>` | Continues a run whose process stopped |
 | `ahp eval <suite>` | Runs an evaluation suite |
 
@@ -200,7 +201,7 @@ Exit codes:
 | Codex CLI | `codex` | Windows |
 | OpenCode | `opencode` (over ACP) | Windows |
 
-AHP reports a model and token usage only when the tool itself reports them. The [support matrix](docs/support-matrix.md) has the details.
+AHP reports a model and token usage only when the tool itself reports them. At the end of a run it prints each tool's reported tokens and cost, per tool and with where the numbers came from; nothing is estimated, and tools are never added together. The [support matrix](docs/support-matrix.md) has the details.
 
 ## Safety
 

@@ -139,6 +139,10 @@ describe("deciding a gate in place", () => {
     expect(run.stdout.match(/ahp · greeting/g)).toHaveLength(1);
     expect(run.stdout.match(/note: this run used the mock adapter/g)).toHaveLength(1);
     expect(run.stdout.match(/\? waiting for your approval/g)).toHaveLength(2);
+    // Usage is summed once, at the run's end, over both attempts: not at each gate the person decided.
+    expect(run.stdout.match(/usage, as each tool reported it/g)).toHaveLength(1);
+    expect(run.stdout.indexOf("usage, as each tool reported it")).toBeGreaterThan(run.stdout.search(/✓ run succeeded/));
+    expect(run.stdout).toContain("  mock: none reported by 2 attempts");
   });
 
   it("leaves the run waiting, with the commands to decide it, when the person decides later", async () => {
@@ -148,6 +152,7 @@ describe("deciding a gate in place", () => {
 
     expect(run.code).toBe(4);
     expect(run.stdout).toMatch(/`ahp approve run_[a-z0-9]+ approve` lets the run go on/);
+    expect(run.stdout.match(/usage, as each tool reported it/g)).toHaveLength(1);
   });
 
   it("prints the commands instead of asking when no one can answer", async () => {

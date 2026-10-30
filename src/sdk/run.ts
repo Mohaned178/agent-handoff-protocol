@@ -1,10 +1,15 @@
+import { readdir } from "node:fs/promises";
 import { adapters } from "../adapters/index.ts";
 import { lockPathOf, readCheckedLedger, readLockState, replay, type LockState } from "../ledger/index.ts";
 import type { LedgerEvent, RecoveryAction, RunView, WorkflowDefinition } from "../protocol/index.ts";
 import {
   decideApproval,
   executeRun,
+  isRunId,
+  ledgerPath,
+  locateRepo,
   locateRun,
+  runsDir,
   pendingApprovalOf,
   type PendingApproval,
   recoverAttempt as recoverAttemptInRuntime,
@@ -152,6 +157,50 @@ export async function inspectRun(options: ReadRunOptions): Promise<RunInspection
   const read = await readCheckedLedger(path);
   const state = replay(read.events);
   return { state, ledger: { events: read.events.length, tornTail: read.tornTail }, lock, approval: await pendingApprovalOf(state) };
+}
+
+export interface ListRunsOptions {
+  /** Any directory inside the git repository whose runs to list. */
+  repo: string;
+}
+
+/** One run of a repository, as `listRuns` finds it. */
+export interface RunListing {
+  runId: string;
+  /** Derived from its ledger; null when the ledger cannot be read or its hash chain is broken (`problem` says which). */
+  state: RunView | null;
+  /** The run's ledger lock: whether a process is writing it now, or one stopped without releasing it. */
+  lock: LockState;
+  problem: string | null;
+}
+
+/**
+ * Every run of the repository, newest first by when it was created (a run whose ledger cannot be read last, by ID). A
+ * broken ledger is listed with its problem rather than failing the list; `inspectRun` says more about it.
+ */
+export async function listRuns(options: ListRunsOptions): Promise<RunListing[]> {
+  const location = await locateRepo(options.repo);
+  let names: string[];
+  try {
+    names = await readdir(runsDir(location));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  const listings = await Promise.all(
+    names.filter(isRunId).map(async (runId): Promise<RunListing> => {
+      const path = ledgerPath(location, runId);
+      // The lock before the ledger, as `inspectRun` reads them.
+      const lock = await readLockState(lockPathOf(path));
+      try {
+        return { runId, state: replay((await readCheckedLedger(path)).events), lock, problem: null };
+      } catch (error) {
+        return { runId, state: null, lock, problem: (error as Error).message };
+      }
+    }),
+  );
+  const created = (listing: RunListing) => listing.state?.createdAt ?? "";
+  return listings.sort((a, b) => (created(a) !== created(b) ? (created(a) < created(b) ? 1 : -1) : a.runId < b.runId ? -1 : 1));
 }
 
 const runLedgerPath = async ({ repo, runId }: ReadRunOptions) => (await locateRun(repo, runId)).path;

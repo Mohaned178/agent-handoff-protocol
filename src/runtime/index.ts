@@ -12,7 +12,8 @@ export {
 } from "./failure.ts";
 export { currentPlatform, requestsOf, resolveCapabilities } from "./capabilities.ts";
 export { validateHandoffRevision, type HandoffRecipient, type HandoffValidation } from "./handoff.ts";
-export { isAttemptId, isRunId, locateRepo, locateRun } from "./paths.ts";
+export { isAttemptId, isRunId, ledgerPath, locateRepo, locateRun, runsDir } from "./paths.ts";
+export { money, sourcesText, summarizeUsage, USAGE_COUNTS, usageLines, type UsageCount, type UsageSummary } from "./usage.ts";
 export { githubCli, type GithubCliOptions, type PullRequestProvider, type PullRequestTarget } from "./pull-requests.ts";
 export { refChanges } from "./recovery.ts";
 export { ApprovalRefusedError, decideApproval, pendingApprovalOf, type DecideApprovalOptions, type PendingApproval } from "./approval.ts";

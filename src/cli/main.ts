@@ -10,6 +10,7 @@ import {
   DISCARD_AND_RETRY_DEFERRED,
   inspectRun,
   isAttemptId,
+  listRuns,
   isRunId,
   recoverAttempt,
   rejectStep,
@@ -22,7 +23,7 @@ import { API_KEY_NOTICE, formatReport, isSeed, runEvaluation, SuiteInvalidError,
 import { evaluationsRoot, locateRepo, toolCallLogPath, transcriptPaths } from "../runtime/index.ts";
 import { changesBetween, describeChanges, diffBetween, formatDiff } from "./diff.ts";
 import { watchProgress } from "./progress.ts";
-import { describeApprovalChoices, formatEvent, formatRun, formatUnresumed, MOCK_NOTE } from "./format.ts";
+import { describeApprovalChoices, formatEvent, formatRun, formatRunUsage, formatRuns, formatUnresumed, MOCK_NOTE } from "./format.ts";
 import { LiveView, type Terminal } from "./live.ts";
 import { formatDoctor, formatInit } from "./format-doctor.ts";
 import { formatEvaluationEvent } from "./format-evaluation.ts";
@@ -40,7 +41,8 @@ Commands:
   eval <suite-file>     Run the evaluation suite exported by default from <suite-file>: its tasks are frozen,
                         then each runs under conditions C0-C3 and the matched-budget baseline, repeated, in a
                         shuffled order, each trial scored by independent validators, conditions compared by task
-  inspect <run-id>      Show a run's state, derived from its ledger, and who is writing it
+  runs                  List this repository's runs, newest first, with what to do next for any that waits
+  inspect [run-id]      Show a run's state, derived from its ledger, and who is writing it (default: the newest run)
   recover <run-id>      Resume a run whose process stopped; an attempt it left with no
                         record of how it ended becomes unknown and gets a recovery report
   recover <attempt-id> --policy adopt|abort
@@ -56,7 +58,8 @@ Options:
   --out <dir>           eval: where the evaluation is kept (default: AHP's per-user directory)
   --seed <n>            eval: the seed of the trial order and of the comparisons, 0 to 4294967295 (default: drawn)
   --json                inspect: print the derived state, the ledger check and the run's lock as JSON;
-                        doctor: print the report as JSON; eval: print only the report, as JSON
+                        runs: every run as JSON; doctor: print the report as JSON; eval: print only the report, as JSON
+  --all                 runs: list every run, not only the newest 20
   --policy <decision>   recover: adopt or abort
   --reason <text>       reject: why the work is rejected (required)
   --diff                run, recover, approve, reject: print the whole diff of every attempt (each attempt
@@ -139,6 +142,7 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
         reason: { type: "string" },
         diff: { type: "boolean" },
         verbose: { type: "boolean" },
+        all: { type: "boolean" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean", short: "v" },
       },
@@ -177,8 +181,10 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
       case "eval":
         if (!target) throw new UsageError("eval needs a suite file");
         return await evalCommand(target, values.out, seedOf(values.seed), values.json ?? false, io);
+      case "runs":
+        if (target) throw new UsageError(`unexpected argument: ${target}`);
+        return await runsCommand(repo, values.all ?? false, values.json ?? false, io);
       case "inspect":
-        if (!target) throw new UsageError("inspect needs a run ID");
         return await inspectCommand(target, repo, values.json ?? false, io);
       case "recover":
         if (!target) throw new UsageError("recover needs a run ID, or an attempt ID and --policy");
@@ -234,6 +240,7 @@ interface Following {
 async function followRun<R>(io: Io, repo: string, execute: (following: Following) => Promise<R>, options: { diff?: boolean; continued?: boolean } = {}): Promise<R> {
   let usedMock = false;
   let waitsHere = false;
+  let last: Readonly<RunView> | null = null;
   const interrupt = cancelOnInterrupt(io, "the run", "waiting until the agent and every process it started are seen gone");
   // While an agent runs, what it does and that it is alive (`progress.ts`), until its attempt has an end.
   let watching: { attemptId: string; stop: () => void } | null = null;
@@ -271,6 +278,7 @@ async function followRun<R>(io: Io, repo: string, execute: (following: Following
       signal: interrupt.signal,
       onEvent: (event, current) => {
         usedMock = current.mock;
+        last = current;
         // A person will be asked at the gate here, and the run goes on: the mock note waits for its end.
         waitsHere = current.state === "waiting_approval" && live !== null && io.terminal?.prompter != null;
         const text = formatEvent(event, current);
@@ -354,6 +362,9 @@ async function followRun<R>(io: Io, repo: string, execute: (following: Following
     await printing;
     live?.stop();
     interrupt.release();
+    // Once the run stops here, not at a gate the person decides in place: the run goes on then, and says it at its end.
+    const usage = last && !waitsHere ? formatRunUsage(last) : null;
+    if (usage) io.stdout(usage);
     if (usedMock && !waitsHere) io.stdout(MOCK_NOTE);
   }
 }
@@ -399,6 +410,9 @@ async function decideHere(io: Io, repo: string, state: Readonly<RunView>, diff: 
     const reason = choice === "reject" ? await ask(() => prompter.input({ message: "Why? (the agent is given this)", validate: (value) => (value.trim() === "" ? "a reason is needed" : true) })) : undefined;
     if (choice === null || choice === "later" || reason === null) {
       io.stdout(`  ${describeApprovalChoices(runId, gate.id)}`);
+      // The run stops here after all: what it used so far, as `followRun` would have said.
+      const usage = formatRunUsage(current);
+      if (usage) io.stdout(usage);
       break;
     }
     ({ state: current } = await followRun(io, repo, (following) =>
@@ -555,7 +569,17 @@ async function evalCommand(file: string, out: string | undefined, seed: number |
   }
 }
 
-async function inspectCommand(runId: string, repo: string, json: boolean, io: Io): Promise<number> {
+/** `ahp runs`: the repository's runs, newest first; with --json every run, as `listRuns` gives them. */
+async function runsCommand(repo: string, all: boolean, json: boolean, io: Io): Promise<number> {
+  const listings = await listRuns({ repo });
+  io.stdout(json ? JSON.stringify(listings, null, 2) : formatRuns(listings, (await locateRepo(repo)).repo, all));
+  return 0;
+}
+
+/** `ahp inspect [run-id]`: with no ID, the newest run of the repository. */
+async function inspectCommand(given: string | undefined, repo: string, json: boolean, io: Io): Promise<number> {
+  const runId = given ?? (await listRuns({ repo }))[0]?.runId;
+  if (!runId) throw new UsageError(`no runs in ${(await locateRepo(repo)).repo} yet: \`ahp run <workflow-file>\` starts one`);
   const inspection = await inspectRun({ repo, runId });
   io.stdout(json ? JSON.stringify(inspection, null, 2) : formatRun(inspection));
   return 0;

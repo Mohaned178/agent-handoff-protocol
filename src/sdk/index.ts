@@ -3,6 +3,7 @@ export { validateHandoff, type HandoffValidation, type ValidateHandoffOptions } 
 export {
   approveStep,
   inspectRun,
+  listRuns,
   rejectStep,
   readRun,
   readRunEvents,
@@ -10,11 +11,13 @@ export {
   resumeRun,
   runWorkflow,
   type DecideOptions,
+  type ListRunsOptions,
   type ReadRunOptions,
   type RejectOptions,
   type RecoverAttemptOptions,
   type ResumeRunOptions,
   type RunInspection,
+  type RunListing,
   type RunWorkflowOptions,
 } from "./run.ts";
 export {
