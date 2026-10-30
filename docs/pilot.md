@@ -59,6 +59,14 @@ ahp eval pilot/suite-b.mjs --seed <n>
 
 Each is one evaluation in its own directory; the two are compared by reading both reports, since `ahp eval` has no command for combining them. Both suites run C0, C0V, C1, C3min and C3 (`CONDITIONS` in `pilot/common.mjs`): C2 and the matched-budget baseline are left out (ticket 27, decision 4, confirmed 2026-10-29), since C2 matters only if C3 beats C0V and the baseline is a ceiling, not a rival. With 6 tasks, 5 conditions and 3 repeats, a suite schedules 90 trials.
 
+## The mini pilot
+
+`pilot/suite-mini.mjs` is the pilot's first and cheapest slice (one-command run, ticket 06): `password-reset`, `csv-export` and `retry-backoff`, under C0, C0V and C3min, one repeat, one combination (implement Claude Code, review Codex): **9 trials.** C3min against C0V is the question it is the start of, and what the one-command run's default steps wait on. Claude Code implements because C0 and C0V are the implement agent alone and Claude Code reports a cost, so a spend cap sees most of what the trials spend; Codex reports none.
+
+Attempts, from the budgets (default retry budget 2), as in the table below: C0 1 a trial; C0V 1 to 3; C3min 2 to 8. **12 to 36 attempts**: Claude Code 9 to 21, Codex 3 to 15. No dollar figure: the spike's per-attempt numbers are a low-end guess for these tasks, and Codex reports no cost.
+
+It has **not been run.** It waits on the same things as the full pilot: the budget decision, a `spendCap` and each provider console's limit, `toolVersions` pinned from `ahp doctor` on the day, and OpenAI's terms read (`docs/terms-review-2026-10-28.md` could not retrieve them). Its report goes in `docs/` with its date, tool versions and this statement: **a sample of 9 trials is a pilot. It shows cost per trial and harness problems, and it cannot show a difference between conditions.** Whatever it shows goes into the README as it is, "no detectable difference" included.
+
 ## Estimated cost
 
 **This is an estimate from the spike's numbers, not a measurement, and its per-attempt figures are a low-end guess.** The spike (`docs/spikes/2026-10-27-transport-spike-windows.md`, section 5) measured attempts at tasks that were trivial ("reply ok", a small shell task, two to five turns, a few hundred output tokens). An attempt that writes and tests a module of one of these tasks will use more, by an amount nobody has measured. Nothing below comes from the mock adapter.

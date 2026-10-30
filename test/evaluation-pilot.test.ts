@@ -43,7 +43,7 @@ function referenceOf(id: string) {
 const taskDir = (id: string) => join(TASKS_DIR, id);
 const loadedTask = async (id: string) => (await loadTask(taskDir(id))).task;
 
-async function pilotSuite(name: "suite-a" | "suite-b"): Promise<EvaluationSuite> {
+async function pilotSuite(name: "suite-a" | "suite-b" | "suite-mini"): Promise<EvaluationSuite> {
   return ((await import(pathToFileURL(join(PILOT, `${name}.mjs`)).href)) as { default: EvaluationSuite }).default;
 }
 
@@ -183,6 +183,24 @@ describe("the pilot suites", () => {
         }
       }
     }
+  });
+
+  it("include a mini pilot of 9 trials: 3 tasks under C0, C0V and C3min, once each, with no budget of its own set", async () => {
+    const mini = await pilotSuite("suite-mini");
+    expect(validateSuite(mini)).toEqual([]);
+    // The spend cap, incident threshold and tool versions are the maintainer's calls, made when the budget is.
+    expect(mini).not.toHaveProperty("spendCap");
+    expect(mini).not.toHaveProperty("maxIncidentRate");
+    expect(mini).not.toHaveProperty("toolVersions");
+    const cancelled = new AbortController();
+    cancelled.abort();
+
+    const { events } = await evaluate(mini, { baseDir: PILOT, signal: cancelled.signal });
+
+    const scheduled = events.find((event) => event.type === "trials_scheduled") as { order: { taskId: string; condition: string }[] };
+    expect(scheduled.order.map((slot) => `${slot.taskId} ${slot.condition}`).sort()).toEqual(
+      ["csv-export", "password-reset", "retry-backoff"].flatMap((id) => ["C0", "C0V", "C3min"].map((condition) => `${id} ${condition}`)).sort(),
+    );
   });
 
   // Every condition on the reference scenario's task; C0 and C3 on the rest, since a trial costs a repository, worktrees and processes.
