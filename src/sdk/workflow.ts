@@ -7,6 +7,7 @@ import {
   isBranchName,
   isOutputFieldName,
   isRemoteName,
+  THIS_REPOSITORY,
   isRepoPath,
   isStepId,
   MERGE_METHODS,
@@ -295,7 +296,11 @@ function validateExternalAction(step: Record<string, unknown>, index: number, se
   const branchProblem = (name: string) =>
     `\`action.${name}\` must be a branch name: letters, digits, ".", "_", "-" and "/" between parts, no part starting with "." or "-" or ending in ".lock", no ".."`;
   if (!isBranchName(action.branch)) problem(branchProblem("branch"));
-  if (action.remote !== undefined && !isRemoteName(action.remote)) problem("`action.remote` must name a configured git remote (letters, digits, \".\", \"_\" and \"-\")");
+  if (action.remote !== undefined && !isRemoteName(action.remote)) {
+    problem("`action.remote` must name a configured git remote (letters, digits, \".\", \"_\" and \"-\"), or be \".\" for a branch in this repository");
+  } else if (action.remote === THIS_REPOSITORY && kind !== "push_branch") {
+    problem(`\`action.remote\` "." is this repository, which has no pull requests: ${kind} needs a hosted remote such as origin`);
+  }
   if (kind === "open_pr") {
     if (!isBranchName(action.base)) problem(branchProblem("base"));
     else if (action.base === action.branch) problem("`action.base` names the pull request's own branch");

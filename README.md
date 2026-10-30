@@ -71,20 +71,26 @@ npm install -g github:Mohaned178/agent-handoff-protocol
 
 The package builds when it installs, which takes about 30 seconds. If npm warns that it has install scripts, that warning is about this build step.
 
-### Your first run
-
-In your project's folder, which must be a git repository with a commit and a remote named `origin`:
+### Try it first
 
 ```sh
-ahp doctor                 # which agent tools AHP found, and whether they are logged in
-ahp setup                  # menus: what to build, the command that checks it, which agent does each step
-ahp run ahp.workflow.mjs   # plan → implement → review, then asks you to approve the diff
+ahp demo
 ```
 
-If you approve, AHP pushes the result to the branch `ahp/<task>`.
+This needs no project and no setup. AHP makes a small sample project and runs plan → implement → review in it, with a review that sends the work back once, then asks you to approve the diff and pushes it to a local stand-in remote. The agents are scripted, so the demo is free and instant; `ahp demo --real` uses your own tools instead.
+
+### Your first run
+
+In your project's folder:
+
+```sh
+ahp
+```
+
+It asks what to build, the command that checks the work, and which agent does each step, then runs it and asks you to approve the diff. A folder that is not a git repository yet, or has no commit, is offered one first. If you approve, AHP pushes the result to the branch `ahp/<task>` on `origin`, or, when the repository has no remote, puts it on that branch in the repository for you to merge.
 
 > [!TIP]
-> Run `ahp` on its own to see these steps, or `ahp --help` to list every command and option.
+> `ahp doctor` shows which agent tools AHP found and whether they are logged in; `ahp --help` lists every command and option.
 
 ## What a run looks like
 
@@ -166,14 +172,16 @@ export default {
 | `capabilities` | `read_only` or `write_scope`, enforced as far as each tool allows |
 | `review` | `{ sendBackTo }`: a request for changes sends that step back |
 | `approval` | Stops the run for a person's decision |
-| `action` | `push_branch`, `open_pr` or `merge_pr`, performed by AHP after an approval |
+| `action` | `push_branch`, `open_pr` or `merge_pr`, performed by AHP after an approval. `remote` defaults to `origin`; `remote: "."` puts a pushed branch in this repository instead |
 
 ## Commands
 
 | Command | Description |
 |---|---|
+| `ahp` | In a terminal, the same as `ahp setup` |
+| `ahp demo` | Tries AHP in a sample project it makes: scripted agents, free (`--real` uses your tools) |
 | `ahp doctor` | Shows which tools are installed and logged in |
-| `ahp setup` | Writes a workflow or an evaluation suite, using menus |
+| `ahp setup` | Writes a workflow or an evaluation suite, using menus, and offers to start it |
 | `ahp run <file>` | Runs a workflow |
 | `ahp approve <run> <step>` | Approves a waiting gate, from another terminal or later |
 | `ahp reject <run> <step> --reason "..."` | Rejects it and sends the step before the gate back |

@@ -8,6 +8,7 @@ export {
   initWorkflow,
   InitRefusedError,
   PREFERRED,
+  publishRemoteOf,
   renderTaskWorkflow,
   renderWorkflow,
   ROLES,

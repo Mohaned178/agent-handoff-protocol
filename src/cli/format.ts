@@ -1,4 +1,4 @@
-import { reviewFindingsOf, reviewVerdictOf, UNKNOWN_MODEL } from "../protocol/index.ts";
+import { reviewFindingsOf, reviewVerdictOf, THIS_REPOSITORY, UNKNOWN_MODEL } from "../protocol/index.ts";
 import type {
   AppliedCapabilities,
   AttemptCancel,
@@ -395,7 +395,7 @@ export function formatEvent(event: LedgerEvent, state: Readonly<RunView>): strin
 
 /** What an external action sets out to do, in words. */
 function describeTarget(target: ExternalActionTarget): string {
-  const where = `on remote ${target.remote}`;
+  const where = target.remote === THIS_REPOSITORY ? "in this repository" : `on remote ${target.remote}`;
   switch (target.kind) {
     case "push_branch":
       return `push commit ${short(target.commit)}, approved at gate ${target.gateStepId}, to branch ${target.branch} ${where}`;

@@ -3,7 +3,7 @@
 // back). The steps still to come are listed below it and redrawn in place. Everything is derived from the ledger's
 // events and the state replayed after them, as the plain log is; `--verbose`, a pipe or CI print that log instead.
 
-import type { LedgerEvent, RunView, StepView } from "../protocol/index.ts";
+import { THIS_REPOSITORY, type LedgerEvent, type RunView, type StepView } from "../protocol/index.ts";
 import { TOOLS } from "../doctor/index.ts";
 import type { Prompter } from "../setup/index.ts";
 import { describeLastFailure, describeStop, formatEvent } from "./format.ts";
@@ -234,6 +234,9 @@ export class LiveView {
       const target = step.action?.target;
       if (!target || step.state !== "succeeded") return "";
       const already = step.action?.performed === null;
+      if (target.kind === "push_branch" && target.remote === THIS_REPOSITORY) {
+        return `${already ? "branch already here" : "made branch"} ${target.branch}: \`git merge ${target.branch}\` takes it into your branch`;
+      }
       if (target.kind === "push_branch") return already ? `${target.branch} was already on ${target.remote}` : `pushed ${target.branch} to ${target.remote}`;
       return target.kind === "open_pr" ? "pull request open" : "pull request merged";
     }

@@ -1,4 +1,5 @@
 import type { DoctorReport, InitResult, ToolReport } from "../doctor/index.ts";
+import { THIS_REPOSITORY } from "../protocol/index.ts";
 import { ENFORCEMENT_NOTE } from "./format.ts";
 
 function formatTool(tool: ToolReport): string[] {
@@ -41,12 +42,12 @@ export function formatDoctor({ system, tools, ok }: DoctorReport): string {
 }
 
 /** What `ahp init` did, and what to do next. */
-export function formatInit({ path, assignments }: InitResult): string {
+export function formatInit({ path, assignments, remote }: InitResult): string {
   return [
     `wrote ${path}`,
     ...assignments.map(({ role, adapter, reason }) => `  ${role}: ${adapter}${adapter === "mock" ? " [mock]" : ""} (${reason})`),
     "",
-    `Next: in a git repository with a commit and a remote named origin, \`ahp run ${path}\`.`,
-    "It stops at the approval gate (exit code 4); `ahp approve <run-id> approve` lets AHP push the branch.",
+    `Next: \`ahp run ${path}\`. It stops at the approval gate (exit code 4); \`ahp approve <run-id> approve\` then lets AHP`,
+    remote === THIS_REPOSITORY ? "put the approved work on a local branch (this repository has no remote named origin)." : `push the branch to ${remote}.`,
   ].join("\n");
 }

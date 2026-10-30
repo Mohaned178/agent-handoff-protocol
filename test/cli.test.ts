@@ -131,8 +131,8 @@ describe("ahp run and ahp inspect", () => {
     const result = ahp([], process.cwd());
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("1. ahp doctor");
-    expect(result.stdout).toContain("2. ahp setup");
+    expect(result.stdout).toContain("Try it, with nothing to set up:   ahp demo");
+    expect(result.stdout).toContain("Use it on your project:           cd your-project, then ahp");
     expect(result.stdout).toContain("Every command and option: ahp --help");
   });
 

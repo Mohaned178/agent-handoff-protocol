@@ -323,8 +323,15 @@ export function isBranchName(value: unknown): value is string {
   return value.split("/").every((part) => part !== "" && !part.startsWith(".") && !part.startsWith("-") && !part.endsWith(".lock") && !part.includes(".."));
 }
 
-/** A git remote's name, as an external action may name it: never read as an option. */
-export const isRemoteName = (value: unknown): value is string => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(value);
+/**
+ * The remote that is the repository itself, as git reads `.`: a push to it makes or moves a local branch, which is how a
+ * repository with no remote gets the approved work. Only a push may name it; a pull request needs a hosted remote.
+ */
+export const THIS_REPOSITORY = ".";
+
+/** A git remote's name, as an external action may name it, or `THIS_REPOSITORY`: never read as an option. */
+export const isRemoteName = (value: unknown): value is string =>
+  typeof value === "string" && (value === THIS_REPOSITORY || /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(value));
 
 /**
  * Pushes the approved commit, exactly as it was approved, to `refs/heads/<branch>` on the remote. Never forced: a
@@ -333,7 +340,7 @@ export const isRemoteName = (value: unknown): value is string => typeof value ==
 export interface PushBranchAction {
   kind: "push_branch";
   branch: string;
-  /** A configured git remote. Default `origin`. */
+  /** A configured git remote, or `.` (`THIS_REPOSITORY`) for a branch in this repository. Default `origin`. */
   remote?: string;
 }
 

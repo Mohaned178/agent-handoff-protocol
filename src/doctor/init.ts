@@ -2,6 +2,8 @@ import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { MockAttemptScript } from "../adapters/index.ts";
+import { DEFAULT_REMOTE, THIS_REPOSITORY } from "../protocol/index.ts";
+import { git } from "../runtime/git.ts";
 import { validateWorkflow } from "../sdk/workflow.ts";
 import { diagnose, type DoctorOptions, type DoctorReport } from "./doctor.ts";
 import { TOOLS, type ToolId } from "./tools.ts";
@@ -135,8 +137,25 @@ function agentOf({ role, adapter, model, effort }: RoleAssignment) {
   return { adapter, ...(model === undefined ? {} : { model }), ...(effort === undefined ? {} : { options: { effort } }) };
 }
 
+/** The last step: push the approved commit; `remote` is left out when it is the default. */
+const publishAction = (branch: string, remote: string) => ({ kind: "push_branch", branch, ...(remote === DEFAULT_REMOTE ? {} : { remote }) });
+
+/**
+ * Where a generated workflow publishes in the repository around `dir`: `origin` when it has a remote of that name, else
+ * the repository itself (`.`), so a project with no remote still gets the approved work, on a local branch, rather than
+ * a run that fails at its last step.
+ */
+export async function publishRemoteOf(dir: string): Promise<string> {
+  try {
+    await git(dir, ["remote", "get-url", DEFAULT_REMOTE]);
+    return DEFAULT_REMOTE;
+  } catch {
+    return THIS_REPOSITORY;
+  }
+}
+
 /** The reference scenario as a workflow definition: plan, implement, review (with send-back), approval gate, push. */
-export function buildWorkflow(assignments: readonly RoleAssignment[], branch = DEFAULT_BRANCH): Record<string, unknown> {
+export function buildWorkflow(assignments: readonly RoleAssignment[], branch = DEFAULT_BRANCH, remote = DEFAULT_REMOTE): Record<string, unknown> {
   const who = (role: Role) => assignments.find((assignment) => assignment.role === role)!;
   return {
     name: "password-reset",
@@ -168,7 +187,7 @@ export function buildWorkflow(assignments: readonly RoleAssignment[], branch = D
         capabilities: [{ kind: "read_only" }],
       },
       { id: "approve", approval: {} },
-      { id: "publish", action: { kind: "push_branch", branch } },
+      { id: "publish", action: publishAction(branch, remote) },
     ],
   };
 }
@@ -191,7 +210,7 @@ export interface UserTask {
 }
 
 /** A workflow for the user's own task: plan, implement (verified by the user's command), review, gate, push. */
-export function buildTaskWorkflow(assignments: readonly RoleAssignment[], task: UserTask, branch: string): Record<string, unknown> {
+export function buildTaskWorkflow(assignments: readonly RoleAssignment[], task: UserTask, branch: string, remote = DEFAULT_REMOTE): Record<string, unknown> {
   const who = (role: Role) => assignments.find((assignment) => assignment.role === role)!;
   const scope = task.paths.length > 0 ? ` Change only ${task.paths.join(", ")}.` : "";
   return {
@@ -220,28 +239,28 @@ export function buildTaskWorkflow(assignments: readonly RoleAssignment[], task: 
         capabilities: [{ kind: "read_only" }],
       },
       { id: "approve", approval: {} },
-      { id: "publish", action: { kind: "push_branch", branch } },
+      { id: "publish", action: publishAction(branch, remote) },
     ],
   };
 }
 
 /** The text of a workflow file for `assignments`; its header says which steps are scripted by the mock. */
-export function renderWorkflow(assignments: readonly RoleAssignment[], branch = DEFAULT_BRANCH, writtenBy = "init"): string {
-  return renderFile(buildWorkflow(assignments, branch), assignments, branch, writtenBy, [
+export function renderWorkflow(assignments: readonly RoleAssignment[], branch = DEFAULT_BRANCH, writtenBy = "init", remote = DEFAULT_REMOTE): string {
+  return renderFile(buildWorkflow(assignments, branch, remote), assignments, branch, remote, writtenBy, [
     "// The password-reset reference scenario: plan, implement (verified by a hidden test), review (a request for",
     "// changes sends implement back), an approval gate, then AHP itself pushes the approved commit.",
   ]);
 }
 
 /** The text of a workflow file for the user's own task. */
-export function renderTaskWorkflow(assignments: readonly RoleAssignment[], task: UserTask, branch: string, writtenBy = "setup"): string {
-  return renderFile(buildTaskWorkflow(assignments, task, branch), assignments, branch, writtenBy, [
+export function renderTaskWorkflow(assignments: readonly RoleAssignment[], task: UserTask, branch: string, writtenBy = "setup", remote = DEFAULT_REMOTE): string {
+  return renderFile(buildTaskWorkflow(assignments, task, branch, remote), assignments, branch, remote, writtenBy, [
     `// ${task.name}: plan, implement (done when \`${task.command}\` passes), review (a request for changes sends`,
     "// implement back), an approval gate, then AHP itself pushes the approved commit.",
   ]);
 }
 
-function renderFile(workflow: Record<string, unknown>, assignments: readonly RoleAssignment[], branch: string, writtenBy: string, about: string[]): string {
+function renderFile(workflow: Record<string, unknown>, assignments: readonly RoleAssignment[], branch: string, remote: string, writtenBy: string, about: string[]): string {
   const problems = validateWorkflow(workflow);
   if (problems.length > 0) throw new Error(`the generated workflow is invalid:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
   const cast = assignments.map(({ role, adapter, tool, model, effort }) => `//   ${role.padEnd(9)} ${adapter}${model ? `, model ${model}` : ""}${effort ? `, effort ${effort}` : ""}${tool === null ? "  (scripted mock: not a real coding agent, and its output is no evidence)" : ""}`);
@@ -251,8 +270,16 @@ function renderFile(workflow: Record<string, unknown>, assignments: readonly Rol
     `// Written by \`ahp ${writtenBy}\`. Who plays each step:`,
     ...cast,
     "//",
-    "// Run it in a git repository with a commit and a remote named origin: `ahp run " + DEFAULT_WORKFLOW_FILE + "`.",
-    "// It stops at the gate (exit code 4); `ahp approve <run-id> approve` lets AHP push " + branch + ".",
+    ...(remote === THIS_REPOSITORY
+      ? [
+          "// Run it in a git repository with a commit: `ahp run " + DEFAULT_WORKFLOW_FILE + "`. It stops at the gate for your approval;",
+          "// then AHP puts the approved commit on branch " + branch + " in this repository (there was no remote named origin;",
+          "// set the publish step's `remote` to push to one instead). `git merge " + branch + "` takes it into your branch.",
+        ]
+      : [
+          "// Run it in a git repository with a commit and a remote named " + remote + ": `ahp run " + DEFAULT_WORKFLOW_FILE + "`.",
+          "// It stops at the gate (exit code 4); `ahp approve <run-id> approve` lets AHP push " + branch + ".",
+        ]),
     "",
     `export default ${JSON.stringify(workflow, null, 2)};`,
     "",
@@ -265,6 +292,8 @@ export interface InitOptions extends DoctorOptions {
   /** The file to write, relative to `dir`. Default `ahp.workflow.mjs`. */
   file?: string;
   branch?: string;
+  /** Where the workflow publishes; default `publishRemoteOf(dir)`. */
+  remote?: string;
   /** A report to use instead of looking at this machine. */
   report?: DoctorReport;
 }
@@ -273,6 +302,8 @@ export interface InitResult {
   path: string;
   assignments: RoleAssignment[];
   report: DoctorReport;
+  /** Where the workflow publishes: a remote, or `.` for a branch in this repository. */
+  remote: string;
 }
 
 /** `ahp init` refuses to replace a file. */
@@ -284,7 +315,8 @@ export class InitRefusedError extends Error {
 export async function initWorkflow(options: InitOptions): Promise<InitResult> {
   const report = options.report ?? (await diagnose(options));
   const assignments = assignRoles(report.tools.filter((tool) => tool.usable).map((tool) => tool.id));
-  const content = renderWorkflow(assignments, options.branch);
+  const remote = options.remote ?? (await publishRemoteOf(options.dir));
+  const content = renderWorkflow(assignments, options.branch, "init", remote);
   const path = resolve(options.dir, options.file ?? DEFAULT_WORKFLOW_FILE);
   try {
     // Exclusive: an existing file is never replaced, and none appears between a check and the write.
@@ -298,5 +330,5 @@ export async function initWorkflow(options: InitOptions): Promise<InitResult> {
     if ((error as { code?: string }).code === "EEXIST") throw new InitRefusedError(`${path} already exists; ahp init does not replace a file`);
     throw error;
   }
-  return { path, assignments, report };
+  return { path, assignments, report, remote };
 }

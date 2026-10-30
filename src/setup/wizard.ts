@@ -8,7 +8,7 @@ import { open } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { DEFAULT_BRANCH, DEFAULT_WORKFLOW_FILE, ROLES, renderTaskWorkflow, renderWorkflow, type Role, type RoleAssignment } from "../doctor/init.ts";
-import { isBranchName, isRepoPath } from "../protocol/index.ts";
+import { DEFAULT_REMOTE, isBranchName, isRepoPath, THIS_REPOSITORY } from "../protocol/index.ts";
 import type { DoctorReport } from "../doctor/doctor.ts";
 import { TOOLS, type ToolId } from "../doctor/tools.ts";
 import { CONDITIONS, type ConditionId } from "../evaluation/events.ts";
@@ -41,6 +41,19 @@ export interface SetupOptions {
   report: DoctorReport;
   /** The models to offer for a tool (`modelsFor`, or a fixed list in tests). */
   models: (tool: ToolId) => Promise<ModelList>;
+  /** Where a workflow publishes after approval: a remote, or `.` for a branch in this repository. Default `origin`. */
+  remote?: string;
+}
+
+/** The question for the branch, and what is said once the file is written, for where the workflow publishes. */
+function publishWords(options: SetupOptions): { branch: string; after: string } {
+  const remote = options.remote ?? DEFAULT_REMOTE;
+  return remote === THIS_REPOSITORY
+    ? {
+        branch: "Branch AHP makes in this repository after your approval (it has no remote named origin):",
+        after: "it stops at the approval gate; once you approve, the work goes on that branch, for you to merge",
+      }
+    : { branch: `Branch AHP pushes to ${remote} after your approval:`, after: "it stops at the approval gate; nothing is pushed until you approve" };
 }
 
 export type SetupResult =
@@ -157,11 +170,12 @@ async function setupWorkflow(options: SetupOptions): Promise<SetupResult> {
   prompter.say("The workflow is the password-reset reference scenario: each step is verified, a review asking for changes sends implement back, and nothing is pushed until you approve.");
   const assignments: RoleAssignment[] = [];
   for (const role of ROLES) assignments.push(await castRole(options, role, true));
-  const branch = await prompter.input({ message: "Branch AHP pushes after your approval:", default: DEFAULT_BRANCH });
+  const words = publishWords(options);
+  const branch = await prompter.input({ message: words.branch, default: DEFAULT_BRANCH });
   const path = await newFile(options, "Workflow file:", DEFAULT_WORKFLOW_FILE);
-  await writeNew(path, renderWorkflow(assignments, branch.trim() || DEFAULT_BRANCH, "setup"));
-  prompter.say(`Wrote ${path}. It needs a git repository with a commit and a remote named origin; it stops at the approval gate for \`ahp approve\`.`);
-  const start = await prompter.confirm({ message: "Start `ahp run` now, in this directory?", default: false });
+  await writeNew(path, renderWorkflow(assignments, branch.trim() || DEFAULT_BRANCH, "setup", options.remote ?? DEFAULT_REMOTE));
+  prompter.say(`Wrote ${path}: ${words.after}.`);
+  const start = await prompter.confirm({ message: "Start it now?", default: true });
   return { kind: "workflow", path, start };
 }
 
@@ -191,11 +205,12 @@ async function setupOwnTask(options: SetupOptions): Promise<SetupResult> {
   const name = (await prompter.input({ message: "A short name for the task:", default: slugOf(goal), validate: (value) => (TASK_NAME.test(value.trim()) ? true : "letters, digits, \"-\" and \"_\", starting with a letter or digit") })).trim();
   const assignments: RoleAssignment[] = [];
   for (const role of ROLES) assignments.push(await castRole(options, role, false));
-  const branch = (await prompter.input({ message: "Branch AHP pushes after your approval:", default: `ahp/${name}`, validate: (value) => (isBranchName(value.trim()) ? true : "a git branch name, such as ahp/my-task") })).trim();
+  const words = publishWords(options);
+  const branch = (await prompter.input({ message: words.branch, default: `ahp/${name}`, validate: (value) => (isBranchName(value.trim()) ? true : "a git branch name, such as ahp/my-task") })).trim();
   const path = await newFile(options, "Workflow file:", DEFAULT_WORKFLOW_FILE);
-  await writeNew(path, renderTaskWorkflow(assignments, { name, goal, command, install: install || null, paths }, branch, "setup"));
-  prompter.say(`Wrote ${path}. It needs a commit and a remote named origin; it stops at the approval gate for \`ahp approve\`.`);
-  const start = await prompter.confirm({ message: "Start `ahp run` now, in this directory?", default: false });
+  await writeNew(path, renderTaskWorkflow(assignments, { name, goal, command, install: install || null, paths }, branch, "setup", options.remote ?? DEFAULT_REMOTE));
+  prompter.say(`Wrote ${path}: ${words.after}.`);
+  const start = await prompter.confirm({ message: "Start it now?", default: true });
   return { kind: "workflow", path, start };
 }
 

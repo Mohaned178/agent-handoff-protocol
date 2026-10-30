@@ -45,6 +45,11 @@ export function evaluationsRoot(): string {
   return join(ahpHome(), "evaluations");
 }
 
+/** Where `ahp demo` makes its sample projects: AHP's per-user directory, outside every repository. */
+export function demosRoot(): string {
+  return join(ahpHome(), "demos");
+}
+
 /** Creates the directory that holds every AHP worktree and returns its canonical path. */
 export async function prepareWorktreeRoot(): Promise<string> {
   const root = join(ahpHome(), "worktrees");

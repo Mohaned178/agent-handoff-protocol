@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { RECOVERY_ACTIONS, type LedgerEvent, type RecoveryAction, type RunView } from "../protocol/index.ts";
+import { DEFAULT_REMOTE, RECOVERY_ACTIONS, THIS_REPOSITORY, type LedgerEvent, type RecoveryAction, type RunView } from "../protocol/index.ts";
 import {
   approveStep,
   DISCARD_AND_RETRY_DEFERRED,
@@ -18,25 +18,29 @@ import {
   runWorkflow,
   validateWorkflow,
 } from "../sdk/index.ts";
-import { diagnose, initWorkflow } from "../doctor/index.ts";
+import { assignRoles, diagnose, initWorkflow, publishRemoteOf } from "../doctor/index.ts";
 import { API_KEY_NOTICE, formatReport, isSeed, runEvaluation, SuiteInvalidError, TaskInvalidError, type EvaluationEvent, type EvaluationSuite, type EvaluationView } from "../evaluation/index.ts";
-import { evaluationsRoot, locateRepo, toolCallLogPath, transcriptPaths } from "../runtime/index.ts";
+import { demosRoot, evaluationsRoot, git, locateRepo, toolCallLogPath, transcriptPaths } from "../runtime/index.ts";
 import { changesBetween, describeChanges, diffBetween, formatDiff } from "./diff.ts";
 import { watchProgress } from "./progress.ts";
 import { describeApprovalChoices, formatEvent, formatRun, formatRunUsage, formatRuns, formatUnresumed, MOCK_NOTE } from "./format.ts";
 import { LiveView, type Terminal } from "./live.ts";
 import { formatDoctor, formatInit } from "./format-doctor.ts";
 import { formatEvaluationEvent } from "./format-evaluation.ts";
-import { modelsFor, runSetup, terminalPrompter } from "../setup/index.ts";
+import { modelsFor, prepareDemo, runSetup, terminalPrompter, type Prompter } from "../setup/index.ts";
 
 const USAGE = `Usage: ahp <command> [options]
 
 Commands:
+  (no command)          In a terminal, the same as setup; otherwise how to get started
+  demo                  Try AHP in a sample project it makes, with nothing to set up: scripted agents, free;
+                        --real casts your own installed tools instead (their usage counts)
   doctor                Report this machine and which coding agent tools AHP can use (--json for data)
   init [file]           Write the password-reset example workflow (default ahp.workflow.mjs), cast from
                         the tools doctor found, the mock adapter standing in for any it did not
   setup                 Choose, in menus, a workflow or an evaluation and the tool and model of each
-                        step; writes the file (never replacing one) and offers to start it
+                        step; writes the file (never replacing one) and offers to start it. A folder that
+                        is not a git repository, or has no commit yet, is offered one first
   run <workflow-file>   Run the workflow exported by default from <workflow-file>
   eval <suite-file>     Run the evaluation suite exported by default from <suite-file>: its tasks are frozen,
                         then each runs under conditions C0-C3 and the matched-budget baseline, repeated, in a
@@ -66,6 +70,7 @@ Options:
                         always shows which files it changed; an approval gate always shows its diff)
   --verbose             run, recover, approve, reject: print every event of the run, as when the output is
                         not a terminal, instead of one line per step
+  --real                demo: use your own installed coding agent tools instead of the scripted mock
   -h, --help            Show this help
   -v, --version         Show the version
 
@@ -80,13 +85,12 @@ Exit codes: 0 the run succeeded (eval: the evaluation completed, whatever its tr
 
 /** What `ahp` alone prints: the three commands a new user needs, not the whole reference. */
 const GETTING_STARTED = `AHP runs AI coding agents one after another (plan, implement, review), checks each step's
-work with your tests, and pushes only what you approve.
+work with your tests, and keeps only what you approve.
 
-Get started, in your project's folder (a git repository with a remote named origin):
-  1. ahp doctor   which coding agent tools are installed and logged in
-  2. ahp setup    say what to build and which agent does each step; it writes the workflow
-  3. ahp run ahp.workflow.mjs
-                  run it; it stops for your approval, showing the code, before anything is pushed
+  Try it, with nothing to set up:   ahp demo
+                                    (free: scripted agents; \`ahp demo --real\` uses your own tools)
+  Use it on your project:           cd your-project, then ahp
+                                    (in a terminal it asks what to build and who builds it, then runs it)
 
 Every command and option: ahp --help`;
 
@@ -143,6 +147,7 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
         diff: { type: "boolean" },
         verbose: { type: "boolean" },
         all: { type: "boolean" },
+        real: { type: "boolean" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean", short: "v" },
       },
@@ -160,8 +165,13 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
       return 0;
     }
     if (command === undefined) {
-      io.stdout(GETTING_STARTED);
-      return 0;
+      // Someone at a terminal is asked what to run; a pipe or a script gets the guide.
+      if (!io.terminal?.prompter) {
+        io.stdout(GETTING_STARTED);
+        return 0;
+      }
+      io.stdout("ahp: setting up a run for this folder (`ahp --help` lists every command; `ahp demo` tries AHP with nothing to set up)");
+      return await setupCommand(repo, io);
     }
     const deciding = command === "approve" || command === "reject";
     // Only a decision takes a second argument, the gate's step ID.
@@ -175,6 +185,9 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
       case "setup":
         if (target) throw new UsageError(`unexpected argument: ${target}`);
         return await setupCommand(repo, io);
+      case "demo":
+        if (target) throw new UsageError(`unexpected argument: ${target}`);
+        return await demoCommand(values.real ?? false, io);
       case "run":
         if (!target) throw new UsageError("run needs a workflow file");
         return await runCommand(target, repo, values.repo !== undefined, io, values.diff ?? false);
@@ -466,10 +479,15 @@ async function initCommand(file: string | undefined, repo: string, io: Io): Prom
  * runs exactly as the file would by hand. Ctrl+C at a question ends it with nothing started.
  */
 async function setupCommand(repo: string, io: Io): Promise<number> {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) throw new UsageError("setup asks questions: run it in an interactive terminal (or write the file by hand, or use `ahp init`)");
-  io.stdout("Looking at the tools on this machine (as ahp doctor does)...");
+  const prompter = io.terminal?.prompter;
+  if (!prompter) throw new UsageError("setup asks questions: run it in an interactive terminal (or write the file by hand, or use `ahp init`)");
   try {
-    const result = await runSetup({ prompter: terminalPrompter(io.stdout), dir: repo, report: await diagnose(), models: (tool) => modelsFor(tool) });
+    if (!(await readyRepository(repo, prompter))) {
+      io.stdout("setup stopped: AHP works on a git repository with a commit, and nothing was changed");
+      return 0;
+    }
+    io.stdout("Looking at the tools on this machine (as ahp doctor does)...");
+    const result = await runSetup({ prompter, dir: repo, report: await diagnose(), models: (tool) => modelsFor(tool), remote: await publishRemoteOf(repo) });
     const command = result.kind === "workflow" ? `ahp run ${result.path}` : `ahp eval ${result.path}`;
     if (!result.start) {
       io.stdout(`Start it when you are ready: ${command}`);
@@ -486,6 +504,87 @@ async function setupCommand(repo: string, io: Io): Promise<number> {
   }
 }
 
+/** Whether `path` is the user's home folder, which is rarely the project they mean. */
+async function isHomeFolder(path: string): Promise<boolean> {
+  const home = await realpath(homedir()).catch(() => homedir());
+  const real = await realpath(path).catch(() => path);
+  return process.platform === "win32" ? real.toLowerCase() === home.toLowerCase() : real === home;
+}
+
+/**
+ * Makes `dir` something a run can start from, asking first: a folder that is not in a git repository is offered `git
+ * init`, and a repository with no commit yet a first commit of what is in it (AHP's runs start from a commit, and agents
+ * see only what is committed). False when the person said no; nothing is changed then. The home folder is never made one.
+ */
+async function readyRepository(dir: string, prompter: Prompter): Promise<boolean> {
+  if (await isHomeFolder(dir)) {
+    throw new UsageError(`${dir} is your home folder, not a project: run ahp in your project's folder, or \`ahp demo\` to try AHP with nothing to set up`);
+  }
+  let top: string | null = await locateRepo(dir).then((found) => found.repo, () => null);
+  // A home folder kept under git holds every folder below it: that repository is not the project meant here.
+  if (top !== null && (await isHomeFolder(top))) top = null;
+  if (top === null) {
+    const yes = await prompter.confirm({ message: `${dir} is not a git repository, which AHP needs. Make it one (git init) and commit what is in it?`, default: true });
+    if (!yes) return false;
+    await git(dir, ["init", "--quiet"]);
+    await firstCommit(dir);
+    return true;
+  }
+  try {
+    await git(top, ["rev-parse", "--verify", "--quiet", "HEAD"]);
+    return true;
+  } catch {
+    const yes = await prompter.confirm({ message: `${top} has no commit yet, and a run starts from one. Commit what is in it now?`, default: true });
+    if (!yes) return false;
+    await firstCommit(top);
+    return true;
+  }
+}
+
+/** Commits everything in the repository not ignored, as the user (an empty commit when there is nothing). */
+async function firstCommit(repo: string): Promise<void> {
+  try {
+    await git(repo, ["add", "--all"]);
+    await git(repo, ["commit", "--quiet", "--allow-empty", "--message", "First commit"]);
+  } catch (error) {
+    throw new UsageError(
+      `could not make the first commit: ${(error as Error).message}. If git does not know who you are, \`git config --global user.name "Your Name"\` and \`git config --global user.email you@example.com\` tell it`,
+    );
+  }
+}
+
+/**
+ * `ahp demo`: the reference scenario in a sample project made for it, run as `ahp run` would. Scripted mock agents unless
+ * `--real`, which casts the installed tools as `ahp init` does (and spends their usage).
+ */
+async function demoCommand(real: boolean, io: Io): Promise<number> {
+  const usable = real ? (await diagnose()).tools.filter((tool) => tool.usable).map((tool) => tool.id) : [];
+  const assignments = assignRoles(usable);
+  const demo = await prepareDemo({ root: demosRoot(), assignments });
+  const cast = assignments.map(({ role, adapter }) => `${role} ${adapter}`).join(", ");
+  io.stdout(
+    [
+      "AHP demo: three coding agents build a small password-reset module in a sample project; each step is checked before the next starts, and nothing is pushed until you approve.",
+      real
+        ? usable.length > 0
+          ? `  agents: ${cast} (your own tools: their usage counts)`
+          : "  agents: none of your tools is usable here (`ahp doctor` says why), so the scripted mock plays every step"
+        : "  agents: scripted mock agents, free and instant; their output is no evidence (`ahp demo --real` uses your own tools)",
+      `  project: ${demo.project}`,
+      "",
+    ].join("\n"),
+  );
+  const code = await runCommand(demo.workflow, demo.project, true, io);
+  io.stdout(
+    [
+      "",
+      `The demo is kept in ${demo.dir}: \`cd ${demo.project}\`, then \`ahp runs\` or \`ahp inspect\` to look at what happened${code === 4 ? ", and `ahp approve` to finish it" : ""}.`,
+      "To use AHP on your own code: cd your-project, then ahp",
+    ].join("\n"),
+  );
+  return code;
+}
+
 /**
  * The repository a run will use, said before anything starts. git finds a repository by walking up from `dir`, so a
  * folder that is not one can be inside one the user did not mean, a home folder kept under git most often: that one is
@@ -498,9 +597,7 @@ async function repositoryOf(dir: string, named: boolean, io: Io): Promise<void> 
   } catch {
     throw new UsageError(`${dir} is not in a git repository: run ahp in your project's folder, or pass --repo <dir> (a folder becomes one with \`git init\` and a first commit)`);
   }
-  const home = await realpath(homedir()).catch(() => homedir());
-  const same = (a: string, b: string) => (process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b);
-  if (!named && same(top, home)) {
+  if (!named && (await isHomeFolder(top))) {
     throw new UsageError(`the git repository around ${dir} is your home folder (${top}), which is rarely the project you mean: run ahp in your project's folder, or pass --repo "${top}" if it is`);
   }
   // The compact view names it in its heading.
@@ -520,8 +617,28 @@ async function runCommand(file: string, repo: string, repoNamed: boolean, io: Io
     throw new UsageError(`invalid workflow in ${path}:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
   }
   await repositoryOf(repo, repoNamed, io);
+  await remotesOf(workflow as { steps: { id: string; action?: { remote?: string } }[] }, repo);
   const { state } = await followRun(io, repo, (following) => runWorkflow(workflow as Parameters<typeof runWorkflow>[0], { repo, ...following }), { diff });
   return await decideHere(io, repo, state, diff);
+}
+
+/**
+ * Refuses, before any agent starts, a workflow that publishes to a remote the repository does not have: it would fail
+ * only at its last step, after every agent's work. `.` is the repository itself and always there.
+ */
+async function remotesOf(workflow: { steps: { id: string; action?: { remote?: string } }[] }, repo: string): Promise<void> {
+  for (const step of workflow.steps) {
+    if (!step.action) continue;
+    const remote = step.action.remote ?? DEFAULT_REMOTE;
+    if (remote === THIS_REPOSITORY) continue;
+    try {
+      await git(repo, ["remote", "get-url", remote]);
+    } catch {
+      throw new UsageError(
+        `step "${step.id}" publishes to the remote "${remote}", which this repository does not have: add it (\`git remote add ${remote} <url>\`), or set the step's \`action.remote\` to "." to put the approved work on a branch in this repository`,
+      );
+    }
+  }
 }
 
 /** The `--seed` given, as a number: decimal digits naming an unsigned 32-bit integer. */
