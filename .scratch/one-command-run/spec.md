@@ -1,6 +1,6 @@
 # Spec: one command to run a task
 
-**Status:** planned (2026-10-30), decisions D1 to D6 waiting on the maintainer
+**Status:** planned (2026-10-30); decisions D1 to D6 decided 2026-10-30 (the maintainer adopted every recommendation)
 
 Asked for by the maintainer on 2026-10-30, after trying to update this repository's README with AHP: "why should a
 developer do all these steps when he can go to Claude Code and write 'improve my readme' and that is it".
@@ -56,7 +56,7 @@ and model) when it is issued and the ledger records it, so a change mid-run woul
 went badly is run again with other choices; `ahp again <run> --review opencode` (the same task, other choices) is a
 possible later ticket.
 
-## Decisions (each with a recommendation; "do recommendation" adopts them all)
+## Decisions (decided 2026-10-30: every recommendation below is adopted)
 
 - **D1. How a task is given.** `ahp "<task>"` (the first argument, when it is not a command) or `ahp do "<task>"`.
   *Recommendation:* `ahp "<task>"`. A misspelt command must not start agents: a single word that is not a command is
