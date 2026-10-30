@@ -7,7 +7,7 @@ import type { MockAttemptScript } from "../adapters/index.ts";
 import { type Role, type RoleAssignment } from "../doctor/init.ts";
 import { TOOLS } from "../doctor/tools.ts";
 import { THIS_REPOSITORY, type AgentRef, type WorkflowDefinition, type WorkflowStepDefinition } from "../protocol/index.ts";
-import type { Inferred } from "./infer.ts";
+import { YOUR_DEFAULT, type Inferred } from "./infer.ts";
 import { slugOf } from "./wizard.ts";
 
 /** Where a check came from when it was not found in a file: `--check`, or typed at the question. */
@@ -125,7 +125,9 @@ function sourceOf(found: Inferred): string {
 function castLine(assignment: RoleAssignment): string {
   if (assignment.tool === null) return "no real agent: its output is no evidence";
   const model = assignment.model ?? "its default model";
-  return `${model}${assignment.effort ? `, effort ${assignment.effort}` : ""}${assignment.reason === "your default" ? "  (your default)" : ""}`;
+  // A default set aside says why up to the casting's own reason: "your default, OpenCode, is not usable here".
+  const mine = assignment.reason === YOUR_DEFAULT ? "  (your default)" : assignment.reason.startsWith(`${YOUR_DEFAULT}, `) ? `  (${assignment.reason.split(";")[0]})` : "";
+  return `${model}${assignment.effort ? `, effort ${assignment.effort}` : ""}${mine}`;
 }
 
 /**

@@ -26,11 +26,14 @@ export interface ProjectCommands {
 
 /** A role's tool, model and effort as the person chose them for next time (ticket 03 keeps them). */
 export interface RoleDefault {
-  adapter: ToolId;
+  tool: ToolId;
   model?: string;
   effort?: string;
 }
 export type RoleDefaults = Partial<Record<Role, RoleDefault>>;
+
+/** The reason of an assignment that is the person's saved default; one whose default was set aside starts with it. */
+export const YOUR_DEFAULT = "your default";
 
 /** npm init's `test` script, which only fails: not a check. */
 const NPM_PLACEHOLDER = "Error: no test specified";
@@ -116,12 +119,12 @@ export function castRoles(report: DoctorReport, defaults: RoleDefaults = {}): Ro
   return assignRoles(usable).map((assignment): RoleAssignment => {
     const chosen = defaults[assignment.role];
     if (!chosen) return assignment;
-    if (!usable.includes(chosen.adapter)) {
-      const name = TOOLS.find((tool) => tool.id === chosen.adapter)?.name ?? chosen.adapter;
-      return { ...assignment, reason: `your default, ${name}, is not usable here; ${assignment.reason}` };
+    if (!usable.includes(chosen.tool)) {
+      const name = TOOLS.find((tool) => tool.id === chosen.tool)?.name ?? chosen.tool;
+      return { ...assignment, reason: `${YOUR_DEFAULT}, ${name}, is not usable here; ${assignment.reason}` };
     }
     const { role } = assignment;
-    return { role, adapter: chosen.adapter, tool: chosen.adapter, reason: "your default", ...(chosen.model ? { model: chosen.model } : {}), ...(chosen.effort ? { effort: chosen.effort } : {}) };
+    return { role, adapter: chosen.tool, tool: chosen.tool, reason: YOUR_DEFAULT, ...(chosen.model ? { model: chosen.model } : {}), ...(chosen.effort ? { effort: chosen.effort } : {}) };
   });
 }
 

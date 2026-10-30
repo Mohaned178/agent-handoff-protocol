@@ -84,14 +84,14 @@ describe("castRoles", () => {
   });
 
   it("puts the person's defaults on top, with their model and effort, and says they are theirs", () => {
-    const assignments = castRoles(report("claude-code", "codex", "opencode"), { review: { adapter: "claude-code", model: "opus", effort: "high" } });
+    const assignments = castRoles(report("claude-code", "codex", "opencode"), { review: { tool: "claude-code", model: "opus", effort: "high" } });
 
     expect(cast(assignments)).toEqual(["plan=claude-code", "implement=codex", "review=claude-code/opus"]);
     expect(assignments[2]).toMatchObject({ tool: "claude-code", effort: "high", reason: "your default" });
   });
 
   it("keeps its own casting for a role whose default tool is not usable here, and says why", () => {
-    const [, , review] = castRoles(report("codex"), { review: { adapter: "claude-code", model: "opus" } });
+    const [, , review] = castRoles(report("codex"), { review: { tool: "claude-code", model: "opus" } });
 
     expect(review).toMatchObject({ adapter: "codex", tool: "codex" });
     expect(review!.model).toBeUndefined();

@@ -45,6 +45,11 @@ export function evaluationsRoot(): string {
   return join(ahpHome(), "evaluations");
 }
 
+/** The per-user settings `ahp "<task>"` reads (the defaults a person chose for each step): never read by `ahp eval` or `ahp run`. */
+export function settingsPath(): string {
+  return join(ahpHome(), "settings.json");
+}
+
 /** Where `ahp demo` makes its sample projects: AHP's per-user directory, outside every repository. */
 export function demosRoot(): string {
   return join(ahpHome(), "demos");

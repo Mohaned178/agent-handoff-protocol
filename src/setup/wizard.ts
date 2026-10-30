@@ -90,7 +90,7 @@ export async function runSetup(options: SetupOptions): Promise<SetupResult> {
 }
 
 /** The tool and model of one role. `mock` is offered only where a script exists for it (the workflow). */
-async function castRole(options: SetupOptions, role: Role, allowMock: boolean): Promise<RoleAssignment> {
+export async function castRole(options: SetupOptions, role: Role, allowMock: boolean): Promise<RoleAssignment> {
   const { prompter, report } = options;
   const choices: Choice<string>[] = TOOLS.map((tool) => {
     const found = report.tools.find((candidate) => candidate.id === tool.id);

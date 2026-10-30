@@ -18,9 +18,9 @@ import {
   runWorkflow,
   validateWorkflow,
 } from "../sdk/index.ts";
-import { assignRoles, diagnose, initWorkflow, publishRemoteOf, type RoleAssignment } from "../doctor/index.ts";
+import { assignRoles, diagnose, initWorkflow, publishRemoteOf, ROLES, TOOL_IDS, TOOLS, type DoctorReport, type Role, type RoleAssignment, type ToolId } from "../doctor/index.ts";
 import { API_KEY_NOTICE, formatReport, isSeed, runEvaluation, SuiteInvalidError, TaskInvalidError, type EvaluationEvent, type EvaluationSuite, type EvaluationView } from "../evaluation/index.ts";
-import { demosRoot, evaluationsRoot, git, locateRepo, toolCallLogPath, transcriptPaths } from "../runtime/index.ts";
+import { demosRoot, evaluationsRoot, git, locateRepo, settingsPath, toolCallLogPath, transcriptPaths } from "../runtime/index.ts";
 import { changesBetween, describeChanges, diffBetween, formatDiff } from "./diff.ts";
 import { watchProgress } from "./progress.ts";
 import { describeApprovalChoices, formatEvent, formatRun, formatRunUsage, formatRuns, formatUnresumed, MOCK_NOTE } from "./format.ts";
@@ -30,7 +30,16 @@ import { formatEvaluationEvent } from "./format-evaluation.ts";
 import {
   branchFor,
   buildTaskRun,
+  castRole,
   castRoles,
+  clearSettings,
+  effortsFor,
+  formatSettings,
+  readSettings,
+  saveStepDefault,
+  YOUR_DEFAULT,
+  type RoleDefault,
+  type SetupOptions,
   CHECK_FROM_FLAG,
   CHECK_TYPED,
   formatTaskSummary,
@@ -49,7 +58,7 @@ import {
 } from "../setup/index.ts";
 
 const USAGE = `Usage: ahp <command> [options]
-       ahp "<task>" [--plan] [--check <command>] [--push [<remote>]] [--yes]
+       ahp "<task>" [--plan [<tool>]] [--<step> <tool>] [--check <command>] [--push [<remote>]] [--yes]
 
 Commands:
   "<task>"              Do a task, in words (in quotes, more than one word): AHP works out the check
@@ -69,6 +78,8 @@ Commands:
   eval <suite-file>     Run the evaluation suite exported by default from <suite-file>: its tasks are frozen,
                         then each runs under conditions C0-C3 and the matched-budget baseline, repeated, in a
                         shuffled order, each trial scored by independent validators, conditions compared by task
+  settings              Print the tool, model and effort you chose to keep for each step of a task, and
+                        where they are kept; --clear removes them
   runs                  List this repository's runs, newest first, with what to do next for any that waits
   inspect [run-id]      Show a run's state, derived from its ledger, and who is writing it (default: the newest run)
   recover <run-id>      Resume a run whose process stopped; an attempt it left with no
@@ -95,7 +106,13 @@ Options:
   --verbose             run, recover, approve, reject: print every event of the run, as when the output is
                         not a terminal, instead of one line per step
   --real                demo: use your own installed coding agent tools instead of the scripted mock
-  --plan                task: a plan step (read-only) before implement
+  --plan [<tool>]       task: a plan step (read-only) before implement, by <tool> if named
+  --implement <tool>, --review <tool>
+                        task: who does the step: claude-code, codex or opencode (for this run only)
+  --<step>-model <name>, --<step>-effort <level>
+                        task: the step's model and effort, for plan, implement or review (this run only;
+                        "Change something" in the summary can keep a choice for next time)
+  --clear               settings: remove the saved defaults
   --check <command>     task: the command that checks the work, instead of the one AHP finds (needed
                         without a terminal when the project names none)
   --push [<remote>]     task: push the approved branch to origin, or to <remote>, instead of making a
@@ -164,7 +181,7 @@ class UsageError extends Error {
   }
 }
 
-const COMMANDS = ["doctor", "init", "setup", "demo", "run", "eval", "runs", "inspect", "recover", "approve", "reject"];
+const COMMANDS = ["doctor", "init", "setup", "demo", "run", "eval", "runs", "inspect", "recover", "approve", "reject", "settings"];
 
 /**
  * Whether the first argument is a task rather than a command (spec D1): not a command, and more than one word. A single
@@ -173,14 +190,77 @@ const COMMANDS = ["doctor", "init", "setup", "demo", "run", "eval", "runs", "ins
 const isTask = (argument: string) => !COMMANDS.includes(argument) && argument.trim().split(/\s+/).length > 1;
 
 /**
- * `--push` alone means origin, and `--push <remote>` that remote: `parseArgs` has no optional values, so a bare `--push`
- * becomes `--push=origin` first. What follows is its remote only when it is a remote's name: a task has spaces in it.
+ * The two options whose value may be left out, which `parseArgs` cannot express, written with their value: `--push`
+ * alone means origin and `--push <remote>` that remote; `--plan` alone adds the plan step and `--plan <tool>` casts it
+ * too. What follows is the value only when it could be one: a task has spaces in it.
  */
-function withPushRemote(argv: readonly string[]): string[] {
+function withOptionalValues(argv: readonly string[]): string[] {
   return argv.map((arg, index) => {
-    if (arg !== "--push") return arg;
     const next = argv[index + 1];
-    return next !== undefined && !next.startsWith("-") && isRemoteName(next) && next !== THIS_REPOSITORY ? arg : `--push=${DEFAULT_REMOTE}`;
+    const value = next !== undefined && !next.startsWith("-") && !/\s/.test(next) ? next : null;
+    if (arg === "--push") return value !== null && isRemoteName(value) && value !== THIS_REPOSITORY ? arg : `--push=${DEFAULT_REMOTE}`;
+    if (arg === "--plan") return value !== null ? arg : "--plan=";
+    return arg;
+  });
+}
+
+/** `--<step>`, `--<step>-model` and `--<step>-effort`: a step's tool, model and effort for one run, never saved. */
+type StepFlags = Partial<Record<Role, { tool?: string; model?: string; effort?: string }>>;
+
+function stepFlagsOf(values: Record<string, string | boolean | undefined>): StepFlags {
+  const flags: StepFlags = {};
+  for (const role of ROLES) {
+    const tool = role === "plan" ? values.plan || undefined : values[role];
+    const [model, effort] = [values[`${role}-model`], values[`${role}-effort`]];
+    if (tool === undefined && model === undefined && effort === undefined) continue;
+    flags[role] = { ...(typeof tool === "string" ? { tool } : {}), ...(typeof model === "string" ? { model } : {}), ...(typeof effort === "string" ? { effort } : {}) };
+  }
+  return flags;
+}
+
+/** Refuses step flags that are wrong whatever is installed, before anything runs; whether a tool is usable is checked later. */
+function checkStepFlags(flags: StepFlags, mock: boolean): void {
+  const given = Object.keys(flags);
+  if (mock && given.length > 0) throw new UsageError(`--mock casts every step: leave out --mock, or the flags for ${given.join(", ")}`);
+  for (const [role, change] of Object.entries(flags)) {
+    if (change.tool !== undefined && !TOOL_IDS.includes(change.tool as ToolId)) {
+      throw new UsageError(`--${role} must name ${TOOL_IDS.slice(0, -1).join(", ")} or ${TOOL_IDS.at(-1)}, not ${change.tool}`);
+    }
+    if (change.model !== undefined && change.model.trim() === "") throw new UsageError(`--${role}-model needs a model's name`);
+  }
+}
+
+/** Why a tool cannot be cast here, as `ahp setup`'s menu says it, or null when it can. */
+function unusableBecause(report: DoctorReport, tool: ToolId): string | null {
+  const found = report.tools.find((candidate) => candidate.id === tool);
+  if (found?.usable) return null;
+  return !found?.installed ? "not installed" : !found.adapter ? "no adapter in this build" : found.login.state === "not_logged_in" ? "not logged in" : "not usable";
+}
+
+const toolNameOf = (tool: ToolId) => TOOLS.find((definition) => definition.id === tool)!.name;
+
+/** The casting with the step flags applied: a new tool drops the model and effort cast for the old one. */
+function withStepFlags(assignments: RoleAssignment[], flags: StepFlags, report: DoctorReport): RoleAssignment[] {
+  return assignments.map((assignment) => {
+    const change = flags[assignment.role];
+    if (!change) return assignment;
+    let changed = assignment;
+    if (change.tool !== undefined && change.tool !== assignment.tool) {
+      const tool = change.tool as ToolId;
+      const why = unusableBecause(report, tool);
+      if (why !== null) throw new UsageError(`--${assignment.role} ${tool}: ${toolNameOf(tool)} is not usable here (${why}; \`ahp doctor\` says more)`);
+      changed = { role: assignment.role, adapter: tool, tool, reason: `--${assignment.role}` };
+    }
+    if (change.model !== undefined) changed = { ...changed, model: change.model.trim(), reason: `--${assignment.role}-model` };
+    if (change.effort !== undefined) {
+      const efforts = changed.tool === null ? [] : effortsFor(changed.tool);
+      const name = changed.tool === null ? "the mock" : toolNameOf(changed.tool);
+      if (!efforts.includes(change.effort)) {
+        throw new UsageError(`--${assignment.role}-effort ${change.effort}: ${efforts.length > 0 ? `${name}'s efforts are ${efforts.join(", ")}` : `${name} has no effort setting`}`);
+      }
+      changed = { ...changed, effort: change.effort, reason: `--${assignment.role}-effort` };
+    }
+    return changed;
   });
 }
 
@@ -189,11 +269,20 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
   let io = given;
   try {
     const { values, positionals } = parseArgs({
-      args: withPushRemote(argv),
+      args: withOptionalValues(argv),
       allowPositionals: true,
       options: {
         yes: { type: "boolean", short: "y" },
-        plan: { type: "boolean" },
+        plan: { type: "string" },
+        implement: { type: "string" },
+        review: { type: "string" },
+        "plan-model": { type: "string" },
+        "implement-model": { type: "string" },
+        "review-model": { type: "string" },
+        "plan-effort": { type: "string" },
+        "implement-effort": { type: "string" },
+        "review-effort": { type: "string" },
+        clear: { type: "boolean" },
         push: { type: "string" },
         check: { type: "string" },
         save: { type: "string" },
@@ -235,8 +324,11 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
     }
     if (isTask(command)) {
       if (target !== undefined) throw new UsageError(`unexpected argument: ${target} (a task is one argument, in quotes)`);
-      const { yes = false, plan = false, push, check, save, mock = false } = values;
-      return await taskCommand(command.trim(), { yes, plan, push: push ?? null, check: check?.trim() || null, save: save ?? null, mock }, repo, values.repo !== undefined, io, values.diff ?? false);
+      const { yes = false, push, check, save, mock = false } = values;
+      const steps = stepFlagsOf(values);
+      // Any plan flag asks for the plan step: naming its tool, model or effort means wanting it.
+      const plan = values.plan !== undefined || steps.plan !== undefined;
+      return await taskCommand(command.trim(), { yes, plan, push: push ?? null, check: check?.trim() || null, save: save ?? null, mock, steps }, repo, values.repo !== undefined, io, values.diff ?? false);
     }
     if (!COMMANDS.includes(command) && target !== undefined) {
       // Words given unquoted arrive one by one: the first is not a command, and must never be read as a task's start.
@@ -257,6 +349,9 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
       case "demo":
         if (target) throw new UsageError(`unexpected argument: ${target}`);
         return await demoCommand(values.real ?? false, io);
+      case "settings":
+        if (target) throw new UsageError(`unexpected argument: ${target}`);
+        return await settingsCommand(values.clear ?? false, io);
       case "run":
         if (!target) throw new UsageError("run needs a workflow file");
         return await runCommand(target, repo, values.repo !== undefined, io, values.diff ?? false);
@@ -700,6 +795,7 @@ interface TaskFlags {
   /** `--save`'s file, relative to the repository directory given. */
   save: string | null;
   mock: boolean;
+  steps: StepFlags;
 }
 
 /**
@@ -711,6 +807,7 @@ interface TaskFlags {
 async function taskCommand(task: string, flags: TaskFlags, dir: string, repoNamed: boolean, io: Io, diff: boolean): Promise<number> {
   const prompter = io.terminal?.prompter ?? null;
   if (!prompter && !flags.yes) throw new UsageError("a task runs only once you say so: in a terminal ahp shows what it will do and asks; elsewhere pass --yes");
+  checkStepFlags(flags.steps, flags.mock);
   const save = flags.save === null ? null : resolve(dir, flags.save);
   if (save !== null && existsSync(save)) throw new UsageError(`${save} already exists; --save never replaces a file`);
   let run: TaskRun;
@@ -725,11 +822,16 @@ async function taskCommand(task: string, flags: TaskFlags, dir: string, repoName
     repo = (await locateRepo(dir)).repo;
     const roles = stepsOf(flags.plan);
     let assignments: RoleAssignment[];
+    let report: DoctorReport | null = null;
     if (flags.mock) {
       assignments = mockCasting(roles);
     } else {
-      const cast = castRoles(await diagnose());
-      assignments = roles.map((role) => cast.find((assignment) => assignment.role === role)!);
+      report = await diagnose();
+      // The person's saved defaults (ticket 03), never read by `ahp run` or `ahp eval`.
+      const saved = await readSettings(settingsPath());
+      if (saved.problem) io.stdout(`your saved defaults were not used: ${saved.problem}`);
+      const cast = castRoles(report, saved.settings.steps);
+      assignments = withStepFlags(roles.map((role) => cast.find((assignment) => assignment.role === role)!), flags.steps, report);
       if (assignments.some((assignment) => assignment.tool === null)) {
         throw new UsageError(
           "no coding agent tool is usable here (`ahp doctor` says why): AHP runs Claude Code, Codex CLI or OpenCode, logged in with your own account. `--mock` runs scripted agents that show the flow and do none of the work",
@@ -746,19 +848,28 @@ async function taskCommand(task: string, flags: TaskFlags, dir: string, repoName
     run = { task, check, install: check === null ? null : found.install, assignments, branch: branchFor(task, await branchesOf(repo, remote)), remote };
     workflow = buildTaskRun(run);
     await remotesOf(workflow, repo);
-    io.stdout(formatTaskSummary(run, (await git(repo, ["status", "--porcelain"])).split("\n").filter(Boolean).length));
-    if (!flags.yes) {
+    const uncommitted = (await git(repo, ["status", "--porcelain"])).split("\n").filter(Boolean).length;
+    io.stdout(formatTaskSummary(run, uncommitted));
+    // One setup per command, so OpenCode's access is asked at most once however often a step is changed.
+    const changing: (Omit<SetupOptions, "report"> & { report: DoctorReport | null }) | null = prompter ? { prompter, dir: repo, report, models: (tool: ToolId) => modelsFor(tool) } : null;
+    while (!flags.yes) {
       const choice = await prompter!.select({
         message: "Run it?",
         choices: [
           { name: "Run", value: "run" as const, description: "the agents start; nothing lands before you approve the diff" },
+          { name: "Change something", value: "change" as const, description: "a step's tool, model or effort" },
           { name: "Cancel", value: "cancel" as const },
         ],
       });
+      if (choice === "run") break;
       if (choice === "cancel") {
         io.stdout("cancelled: nothing was started");
         return 0;
       }
+      changing!.report ??= await diagnose();
+      run = { ...run, assignments: await changeStep(run.assignments, changing as SetupOptions) };
+      workflow = buildTaskRun(run);
+      io.stdout(formatTaskSummary(run, uncommitted));
     }
   } catch (error) {
     if ((error as Error).name === "ExitPromptError") {
@@ -778,6 +889,34 @@ async function taskCommand(task: string, flags: TaskFlags, dir: string, repoName
   }
   const { state } = await followRun(io, repo, (following) => runWorkflow(workflow, { repo, ...following }), { diff });
   return await decideHere(io, repo, state, diff);
+}
+
+/**
+ * The summary's "Change something": a step, then its tool, model and effort in `ahp setup`'s menus, then whether to keep
+ * the choice for next time (spec D5: written only on yes). Returns the casting with the change.
+ */
+async function changeStep(assignments: RoleAssignment[], options: SetupOptions): Promise<RoleAssignment[]> {
+  const { prompter } = options;
+  const role = await prompter.select({
+    message: "Which step?",
+    choices: assignments.map((assignment) => ({ name: `${assignment.role.padEnd(10)} ${assignment.tool === null ? "Mock (scripted)" : toolNameOf(assignment.tool)}`, value: assignment.role })),
+  });
+  const cast = await castRole(options, role, false);
+  const chosen: RoleDefault = { tool: cast.tool!, ...(cast.model ? { model: cast.model } : {}), ...(cast.effort ? { effort: cast.effort } : {}) };
+  const keep = await prompter.confirm({ message: `Use ${toolNameOf(chosen.tool)} (${[chosen.model ?? "its default model", ...(chosen.effort ? [`effort ${chosen.effort}`] : [])].join(", ")}) for ${role} next time?`, default: false });
+  if (keep) await saveStepDefault(settingsPath(), role, chosen);
+  return assignments.map((assignment) => (assignment.role === role ? { ...cast, reason: keep ? YOUR_DEFAULT : "changed in the summary" } : assignment));
+}
+
+/** `ahp settings`: the saved defaults and where they are kept; with --clear, removes them. */
+async function settingsCommand(clear: boolean, io: Io): Promise<number> {
+  const path = settingsPath();
+  if (clear) {
+    io.stdout((await clearSettings(path)) ? `removed the saved defaults (${path})` : `no saved defaults to remove (${path})`);
+    return 0;
+  }
+  io.stdout(formatSettings(path, await readSettings(path)));
+  return 0;
 }
 
 /** The check for a project that names none (spec D3): a command typed in, or none, the work then being reviewed only. */
