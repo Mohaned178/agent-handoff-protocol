@@ -1,6 +1,6 @@
 # Spec: usable and easy for developers
 
-**Status:** planned (2026-10-31); decisions D1 to D7 open, each with a recommendation
+**Status:** planned (2026-10-31); decisions D1 to D7 adopted 2026-10-31 ("do recommendation")
 
 Asked for by the maintainer on 2026-10-31: "i want the app is being useable for developer and easy to use, then make a
 plan for all", after finding the CLI's output "so bad" and asking whether people could use AHP now.
@@ -69,3 +69,24 @@ blocker; one real receipt in the README.
 6. `06-docs.md`: a three-command quickstart, troubleshooting, one real receipt
 7. `07-package-and-release.md`: publish 0.1.0 to npm, prebuilt, from a tagged CI job
 8. `08-platform-coverage.md`: Codex and OpenCode conformance on Linux (WSL2); how a Mac user records macOS
+9. `09-production-basics.md`: what a tool developers depend on needs beyond working: versioning and upgrade policy,
+   security policy, issue templates, a support statement, no data loss on upgrade
+10. `10-outside-developers.md`: five developers who are not the maintainer use it on their own work; what they hit
+    decides 1.0
+
+## After 0.1.0: production (added 2026-10-31)
+
+The maintainer asked that the app "be a production after that and developer will use it". Two things are different and
+the plan treats them apart:
+
+- **Production quality** is in AHP's hands: tickets 01 to 09. 0.1.0 is the first version others install; 1.0 is
+  promised when ticket 10's developers have used it without a blocker and the protocol's shapes have held for a release.
+- **Developers using it** cannot be guaranteed by any ticket; it can only be earned and measured. Ticket 10 measures it
+  with real outside users, and the pilot (one-command run, ticket 06) gives the evidence the README needs to say why
+  a developer should use AHP rather than an agent alone. A negative pilot result is reported as it is, and would change
+  what AHP is offered for (spec of the one-command run: "on some tasks AHP should lose").
+
+## Comments
+
+- 2026-10-31: the maintainer adopted D1 to D7 ("do recommendation") and asked that the app reach production and be
+  used by developers after this plan; tickets 09 (production basics) and 10 (outside developers) were added for that.
