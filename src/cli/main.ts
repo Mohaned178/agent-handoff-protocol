@@ -23,7 +23,7 @@ import { API_KEY_NOTICE, formatReport, isSeed, runEvaluation, SuiteInvalidError,
 import { demosRoot, evaluationsRoot, git, locateRepo, settingsPath, toolCallLogPath, transcriptPaths } from "../runtime/index.ts";
 import { changesBetween, describeChanges, diffBetween, formatDiff } from "./diff.ts";
 import { watchProgress } from "./progress.ts";
-import { describeApprovalChoices, formatEvent, formatRun, formatRunUsage, formatRuns, formatUnresumed, MOCK_NOTE } from "./format.ts";
+import { describeApprovalChoices, formatEvent, formatReceipt, formatRun, formatRuns, formatUnresumed, MOCK_NOTE } from "./format.ts";
 import { LiveView, type Terminal } from "./live.ts";
 import { formatDoctor, formatInit } from "./format-doctor.ts";
 import { formatEvaluationEvent } from "./format-evaluation.ts";
@@ -540,8 +540,8 @@ async function followRun<R>(io: Io, repo: string, execute: (following: Following
     live?.stop();
     interrupt.release();
     // Once the run stops here, not at a gate the person decides in place: the run goes on then, and says it at its end.
-    const usage = last && !waitsHere ? formatRunUsage(last) : null;
-    if (usage) io.stdout(usage);
+    // What the checks found, and the usage (`receipt.ts`).
+    if (last && !waitsHere) io.stdout(formatReceipt(last));
     if (usedMock && !waitsHere) io.stdout(MOCK_NOTE);
   }
 }
@@ -587,9 +587,8 @@ async function decideHere(io: Io, repo: string, state: Readonly<RunView>, diff: 
     const reason = choice === "reject" ? await ask(() => prompter.input({ message: "Why? (the agent is given this)", validate: (value) => (value.trim() === "" ? "a reason is needed" : true) })) : undefined;
     if (choice === null || choice === "later" || reason === null) {
       io.stdout(`  ${describeApprovalChoices(runId, gate.id)}`);
-      // The run stops here after all: what it used so far, as `followRun` would have said.
-      const usage = formatRunUsage(current);
-      if (usage) io.stdout(usage);
+      // The run stops here after all: its receipt so far, as `followRun` would have said.
+      io.stdout(formatReceipt(current));
       break;
     }
     ({ state: current } = await followRun(io, repo, (following) =>

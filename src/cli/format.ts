@@ -31,7 +31,9 @@ import {
   type RunInspection,
   type RunListing,
 } from "../sdk/index.ts";
-import { summarizeUsage, usageLines } from "../runtime/index.ts";
+import { formatReceipt, formatRunUsage } from "./receipt.ts";
+
+export { formatReceipt, formatRunUsage };
 
 export const MOCK_NOTE = "note: this run used the mock adapter; its results are labelled [mock] and are not evidence.";
 
@@ -642,13 +644,6 @@ export function formatUnresumed({ state, takenOverFrom }: ResumeResult): string 
   return lines.join("\n");
 }
 
-const RUN_USAGE_HEADING = "usage, as each tool reported it (per adapter, not summed across adapters; nothing is estimated):";
-
-/** What a run's attempts reported using, summed per adapter; null before any attempt. */
-export function formatRunUsage(state: Readonly<RunView>, indent = ""): string | null {
-  const lines = usageLines(summarizeUsage(state.steps.flatMap((step) => step.attempts)), RUN_USAGE_HEADING, indent);
-  return lines.length > 0 ? lines.join("\n") : null;
-}
 
 /** How many runs `ahp runs` shows without `--all`. */
 export const RUNS_SHOWN = 20;
@@ -704,6 +699,9 @@ export function formatRun(inspection: RunInspection): string {
   const { state } = inspection;
   const lines = [
     `run ${state.runId}: ${state.state}${mockTag(state.mock)}`,
+    // What the checks found comes first: the reason to use AHP, before the record it is read from.
+    ...formatReceipt(state).split("\n").map((line) => `  ${line}`),
+    "",
     `  workflow: ${state.workflowName}`,
     `  repo: ${state.repo}`,
     `  base commit: ${state.baseCommit}`,
@@ -712,8 +710,6 @@ export function formatRun(inspection: RunInspection): string {
     `  ended: ${state.endedAt ?? "-"}`,
     ...describeLedger(inspection),
   ];
-  const usage = formatRunUsage(state, "  ");
-  if (usage) lines.push(usage);
   if (state.mock) lines.push(`  ${MOCK_NOTE}`);
   const agentActions = describeAgentExternalActions(state);
   if (agentActions) lines.push(`  ${agentActions}`);
