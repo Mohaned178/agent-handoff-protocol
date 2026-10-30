@@ -37,7 +37,7 @@ run run_mvsqau7ae78f374b
 ```
 
 > [!NOTE]
-> AHP is in early development. Workflows run end to end with Claude Code, Codex CLI and OpenCode on Windows, and with Claude Code on Linux too. Gemini CLI's adapter has never run a real turn, and macOS is untested. See the [support matrix](docs/support-matrix.md).
+> AHP is in early development. Workflows run end to end with Claude Code, Codex CLI and OpenCode on Windows, and with Claude Code on Linux too. macOS is untested. See the [support matrix](docs/support-matrix.md).
 
 ## Features
 
@@ -158,7 +158,7 @@ export default {
 
 | Field | Purpose |
 |---|---|
-| `agent` | The tool that runs the step (`claude-code`, `codex`, `opencode`, `gemini-cli`), with an optional `model` and `options.effort` |
+| `agent` | The tool that runs the step (`claude-code`, `codex`, `opencode`), with an optional `model` and `options.effort` |
 | `verification.command` | Must exit 0 in a fresh worktree for the step to pass |
 | `verification.requiredOutputFields` | Fields the agent must report (`summary`, `decisions`, ...), handed on to the next step |
 | `retry` | `{ budget }`: how many more attempts a failed step gets (default 2) |
@@ -199,7 +199,6 @@ Exit codes:
 | Claude Code | `claude-code` | Windows, Linux (WSL2) |
 | Codex CLI | `codex` | Windows |
 | OpenCode | `opencode` (over ACP) | Windows |
-| Gemini CLI | `gemini-cli` (over ACP) | Not run yet |
 
 AHP reports a model and token usage only when the tool itself reports them. The [support matrix](docs/support-matrix.md) has the details.
 
@@ -235,7 +234,7 @@ The code is TypeScript on Node 24. You can run it from source without building: 
 ## Learn more
 
 - [How AHP works](docs/how-it-works.md): handoffs, verification, the ledger, crash recovery and cancelling
-- Adapters: [Claude Code](docs/adapters/claude-code.md), [Codex](docs/adapters/codex.md), [OpenCode](docs/adapters/opencode.md), [Gemini CLI](docs/adapters/gemini-cli.md)
+- Adapters: [Claude Code](docs/adapters/claude-code.md), [Codex](docs/adapters/codex.md), [OpenCode](docs/adapters/opencode.md)
 - [Support matrix](docs/support-matrix.md) and [limits](docs/limits.md)
 - [Design direction](docs/design/ahp-v2-direction.md), [architecture decisions](docs/adr/) and [glossary](GLOSSARY.md)
 - [A2A mapping](docs/a2a-mapping.md): how AHP's data shapes map to the Agent2Agent protocol

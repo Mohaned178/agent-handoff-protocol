@@ -13,8 +13,8 @@ afterEach(removeTempRepos);
 
 const SECRETS_ON_STDOUT = `console.log(JSON.stringify({ loggedIn: true, email: ${JSON.stringify(FAKE_SECRETS[0])}, token: ${JSON.stringify(FAKE_SECRETS[1])} }));`;
 
-/** Fake versions of the four tools, each as a tool would answer, with credentials in what its status command prints. */
-function installAll(dir: string, log: string, overrides: Partial<Record<"claude" | "codex" | "opencode" | "gemini", string>> = {}) {
+/** Fake versions of the three tools, each as a tool would answer, with credentials in what its status command prints. */
+function installAll(dir: string, log: string, overrides: Partial<Record<"claude" | "codex" | "opencode", string>> = {}) {
   installFakeTool(
     dir,
     log,
@@ -45,25 +45,21 @@ describe("diagnose: the tools", () => {
 
     const report = await diagnose({ env: await pathWithFakes(dir) });
 
-    expect(toolOf(report, "claude-code")).toMatchObject({ installed: true, version: "2.0.1 (Claude Code)", login: { state: "logged_in" }, paidAccess: null });
+    expect(toolOf(report, "claude-code")).toMatchObject({ installed: true, version: "2.0.1 (Claude Code)", login: { state: "logged_in" } });
     expect(toolOf(report, "codex")).toMatchObject({ installed: true, version: "codex-cli 0.9.0", login: { state: "not_logged_in" } });
     // OpenCode's only status command prints credentials as free text, so it is never run.
     expect(toolOf(report, "opencode")).toMatchObject({ installed: true, version: "1.2.3", login: { state: "unknown" } });
-    expect(toolOf(report, "gemini-cli")).toMatchObject({ installed: false, version: null, login: { state: "unknown" } });
-    expect(toolOf(report, "gemini-cli").problem).toMatch(/"gemini" is not on PATH/);
     expect(invocations().filter((call) => call.tool === "opencode").map((call) => call.argv)).toEqual([["--version"]]);
   });
 
-  it("flags Gemini CLI as needing paid access, whether or not it is installed, and no other tool", async () => {
+  it("reports a tool that is not on PATH as not installed, with no version", async () => {
     const { dir, log } = fakeToolsDir();
-    installAll(dir, log);
-    installFakeTool(dir, log, "gemini", `console.log("0.1.0");`);
+    installFakeTool(dir, log, "claude", `console.log("2.0.1 (Claude Code)");`);
 
     const report = await diagnose({ env: await pathWithFakes(dir) });
 
-    expect(toolOf(report, "gemini-cli")).toMatchObject({ installed: true, version: "0.1.0" });
-    expect(report.tools.filter((tool) => tool.paidAccess !== null).map((tool) => tool.id)).toEqual(["gemini-cli"]);
-    expect(formatDoctor(report)).toMatch(/Gemini CLI[^]*paid access: needs paid Gemini access/);
+    expect(toolOf(report, "opencode")).toMatchObject({ installed: false, version: null, login: { state: "unknown" }, usable: false });
+    expect(toolOf(report, "opencode").problem).toMatch(/"opencode" is not on PATH/);
   });
 
   it("never prints or returns a credential a tool's status command printed", async () => {
@@ -80,7 +76,6 @@ describe("diagnose: the tools", () => {
   it("only ever runs version and login-status commands, with nothing on stdin and never a prompt", async () => {
     const { dir, log, invocations } = fakeToolsDir();
     installAll(dir, log);
-    installFakeTool(dir, log, "gemini", `console.log("0.1.0");`);
 
     await diagnose({ env: await pathWithFakes(dir) });
 
@@ -157,23 +152,10 @@ describe("diagnose: capabilities", () => {
     expect(formatDoctor(onLinux)).toContain("none in this build yet");
   });
 
-  it("shows Gemini CLI's registered adapter with its declared levels, and still says it needs paid access", async () => {
-    const { dir, log } = fakeToolsDir();
-    installAll(dir, log);
-
-    const report = await diagnose({ env: await pathWithFakes(dir), platform: "win32" });
-    const gemini = toolOf(report, "gemini-cli");
-
-    expect(gemini.adapter).toMatchObject({ name: "gemini-cli", transport: "acp" });
-    expect(gemini.adapter?.capabilities).toContainEqual({ kind: "read_only", level: "cooperative" });
-    expect(gemini.paidAccess).toMatch(/paid Gemini access/);
-    expect(formatDoctor(report)).toMatch(/Gemini CLI[^]*paid access: needs paid Gemini access/);
-  });
-
   it("counts a tool as usable only when it is installed, has an adapter, and is not known to be logged out", async () => {
     const { dir, log } = fakeToolsDir();
     installAll(dir, log);
-    const adapters = new Map(["claude", "codex", "opencode", "gemini"].map((name) => [{ claude: "claude-code", gemini: "gemini-cli" }[name] ?? name, withDeclaration(name)] as const));
+    const adapters = new Map(["claude", "codex", "opencode"].map((name) => [{ claude: "claude-code" }[name] ?? name, withDeclaration(name)] as const));
 
     const report = await diagnose({ env: await pathWithFakes(dir), adapters });
 
@@ -181,7 +163,6 @@ describe("diagnose: capabilities", () => {
       ["claude-code", true],
       ["codex", false], // logged out
       ["opencode", true], // login unknown
-      ["gemini-cli", false], // not installed
     ]);
   });
 });

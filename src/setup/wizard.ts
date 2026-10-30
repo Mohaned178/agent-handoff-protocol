@@ -82,7 +82,7 @@ async function castRole(options: SetupOptions, role: Role, allowMock: boolean): 
   const choices: Choice<string>[] = TOOLS.map((tool) => {
     const found = report.tools.find((candidate) => candidate.id === tool.id);
     const why = !found?.installed ? "not installed" : !found.adapter ? "no adapter in this build" : found.login.state === "not_logged_in" ? "not logged in" : undefined;
-    return { name: tool.name, value: tool.id, ...(why ? { disabled: why } : {}), ...(found?.paidAccess ? { description: found.paidAccess } : {}) };
+    return { name: tool.name, value: tool.id, ...(why ? { disabled: why } : {}) };
   });
   if (allowMock) choices.push({ name: "Mock (scripted, no real agent: its output is no evidence)", value: "mock" });
   const adapter = await prompter.select({ message: `Who ${ROLE_WORDS[role]}? (${role})`, choices });

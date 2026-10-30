@@ -10,7 +10,6 @@ function formatTool(tool: ToolReport): string[] {
     lines.push(`  version: ${tool.version ?? `unknown${tool.problem ? ` (${tool.problem})` : ""}`}`);
     lines.push(`  logged in: ${tool.login.state === "logged_in" ? "yes" : tool.login.state === "not_logged_in" ? "no" : "unknown"} (${tool.login.detail})`);
   }
-  if (tool.paidAccess) lines.push(`  paid access: ${tool.paidAccess}`);
   if (!tool.adapter) {
     lines.push("  adapter: none in this build yet, so AHP cannot apply any capability through this tool");
   } else {

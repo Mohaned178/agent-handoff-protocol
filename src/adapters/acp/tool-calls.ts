@@ -1,4 +1,4 @@
-// What the ACP adapters (OpenCode, Gemini CLI) share about tool calls: a call as the agent has described it so far, the
+// What an ACP adapter (OpenCode) needs about tool calls: a call as the agent has described it so far, the
 // log of calls the runtime reads into a recovery report, and the redaction of an error message. Nothing here is about
 // which agent speaks: what a call's fields mean is ACP's (`tool_call`, `tool_call_update`).
 

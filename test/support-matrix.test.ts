@@ -24,7 +24,6 @@ describe("the published support matrix", () => {
   it("marks macOS untested for every adapter, and an adapter without a result untested everywhere", () => {
     const rows = published.split("\n").filter((line) => RELEASE_ADAPTERS.some((a) => line.startsWith(`| ${a} |`)));
     for (const row of rows) expect(row.split(" | ").at(-1)).toMatch(/^untested \|?$/);
-    expect(rows.find((row) => row.startsWith("| gemini-cli |"))).toBe("| gemini-cli | untested | untested | untested | untested |");
   });
 
   it("does not render a recorded result as passed unless the suite says so", () => {

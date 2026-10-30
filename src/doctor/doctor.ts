@@ -67,8 +67,6 @@ export interface ToolReport {
   /** Why the tool counts as not installed, or why its version is unknown; null when neither. */
   problem: string | null;
   login: { state: LoginState; detail: string };
-  /** Why the tool needs paid access, or null. */
-  paidAccess: string | null;
   /** The adapter this build has for the tool, or null: then no capability can be applied through it yet. */
   adapter: AdapterReport | null;
   /** Installed, with an adapter in this build, and not known to be logged out: what `ahp init` may use. */
@@ -134,7 +132,7 @@ type Probing = Parameters<typeof probe>[2];
 
 async function reportTool(tool: ToolDefinition, registry: ReadonlyMap<string, Adapter>, platform: string, probing: Probing): Promise<ToolReport> {
   const adapter = registry.get(tool.adapter);
-  const base = { id: tool.id, name: tool.name, command: tool.command, paidAccess: tool.paidAccess, adapter: adapter ? adapterReport(adapter, platform) : null };
+  const base = { id: tool.id, name: tool.name, command: tool.command, adapter: adapter ? adapterReport(adapter, platform) : null };
   const found = await probe(tool.command, tool.versionArgs, probing);
   if (found.outcome === "not_found") {
     return { ...base, installed: false, path: null, version: null, problem: found.message, login: { state: "unknown", detail: "not installed" }, usable: false };

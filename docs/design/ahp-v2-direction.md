@@ -24,7 +24,7 @@ AHP (Agent Handoff Protocol and LLM Evaluation) makes handoffs between AI coding
 | CLI (`ahp`) | doctor, init, run, inspect, eval | A web platform (later) |
 
 ### Release 1 targets
-Claude Code, OpenAI Codex CLI, Gemini CLI, OpenCode, combinable in one workflow (e.g. Claude Code plans → Codex implements → OpenCode reviews → tests verify). Users connect only the tools they have. AHP never stores credentials. OS targets: Windows, macOS, Linux, with a published support matrix that separates core OS support from adapter × OS cells actually tested.
+Claude Code, OpenAI Codex CLI, OpenCode, combinable in one workflow (e.g. Claude Code plans → Codex implements → OpenCode reviews → tests verify). Users connect only the tools they have. AHP never stores credentials. OS targets: Windows, macOS, Linux, with a published support matrix that separates core OS support from adapter × OS cells actually tested.
 
 ### Out of scope for release 1
 Web platform, visual editor, hosting/serving/downloading models, Ollama/vLLM/SGLang/TensorRT-LLM benchmarking, reflection/simulation engine, direct model-provider connections.
@@ -140,19 +140,22 @@ Append-only, event-sourced; run/step/attempt state derived by replay. Intent bef
 - **Pilot first:** 5–8 tasks, 2 agent combinations, 3 repeats per cell. Goals: validator determinism, test discrimination, variance, quota cost per cell, harness bugs. It does not test the hypothesis; the full suite is sized from its numbers.
 - Mock adapter results are labelled and never count as evidence.
 
-## 8. Incremental rollout (all four ship in release 1)
+## 8. Incremental rollout (all three ship in release 1)
+
+*Gemini CLI was dropped from release 1 on 2026-10-30 at the maintainer's decision: its adapter had never run a turn (no paid access) and was removed from the code. Release 1 targets three tools.*
+
 1. Protocol 0.x, SDK, runtime, ledger, mock adapter.
 2. Transport spike: each tool via ACP and via native headless on one OS (cancellation, permission requests, model and usage reporting, output stability).
 3. Claude Code and Codex adapters; A2A mapping document.
-4. Gemini CLI and OpenCode adapters.
+4. OpenCode adapter (Gemini CLI was planned here and dropped, 2026-10-30).
 5. Evaluation pilot.
-6. Support matrix. Public release requires all four adapters passing their integration suite on at least one OS each; other cells labelled untested.
+6. Support matrix. Public release requires all three adapters passing their integration suite on at least one OS each; other cells labelled untested.
 
 ## 9. Decisions to settle before implementation
 
 Grilling sessions of 2026-10-24 settled most of these. Where this section conflicts with §1–§8, this section and `docs/adr/` win; terms are defined in `GLOSSARY.md`.
 
-1. **Adapter transport — settled (ADR 0001).** Vendor-maintained interface (native ACP, vendor SDK, or vendor app-server protocol) where one exists, else headless; the spike picks per tool, on native Windows first. No third-party ACP bridges in release 1. One attempt = one fresh process; an ACP stop reason is outcome detail, not proof of exit. Known constraints: Claude Code via the unmodified `claude` binary headless, never the Agent SDK; Codex via SDK or `exec`, not app-server; Gemini CLI kept but needs paid access, built last.
+1. **Adapter transport — settled (ADR 0001).** Vendor-maintained interface (native ACP, vendor SDK, or vendor app-server protocol) where one exists, else headless; the spike picks per tool, on native Windows first. No third-party ACP bridges in release 1. One attempt = one fresh process; an ACP stop reason is outcome detail, not proof of exit. Known constraints: Claude Code via the unmodified `claude` binary headless, never the Agent SDK; Codex via SDK or `exec`, not app-server; Gemini CLI was kept here, then dropped on 2026-10-30 (see §8).
 2. **A2A alignment depth — settled.** Align the data model and define the extension profile now, via the §8 step 3 mapping document; wire binding later. Where semantics differ, AHP's own schema wins over A2A field names.
 3. **Recovery for `unknown` — settled.** Policies `manual` (default), `adopt`, `abort`. `discard_and_retry` is deferred: its only safety check (shared-repo ref diff) cannot see pushes made outside the local remote. In `ahp eval`, `unknown` forces `abort` and the trial is a harness incident, reported per condition; a cell whose incident rate exceeds a threshold set from the pilot is invalid.
 4. **External actions and network stance — settled (ADR 0003).** Only AHP performs push/PR/merge; no deploy in release 1; `forbidden_external_action_detected` evidence, with detection labelled partial. Network stance covers the agent's tool use only, default `deny`, implement may opt in to package registries, identical across C0–C3.

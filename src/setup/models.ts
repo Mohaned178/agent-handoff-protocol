@@ -30,12 +30,11 @@ export interface ModelList {
 
 /**
  * Names AHP knows for the tools that cannot list their models. Claude Code takes aliases, which it resolves itself; the
- * Codex and Gemini names are ones this project's own runs used (2026-10), not a catalogue.
+ * Codex names are ones this project's own runs used (2026-10), not a catalogue.
  */
 export const KNOWN_MODELS: Record<Exclude<ToolId, "opencode">, readonly string[]> = {
   "claude-code": ["sonnet", "opus", "haiku"],
   codex: ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-6-luna"],
-  "gemini-cli": ["gemini-2.5-flash", "gemini-2.5-pro"],
 };
 
 /** The lines of `opencode models` that name a model: `provider/model`, one per line. */

@@ -6,7 +6,9 @@ Sources: `docs/design/ahp-v2-direction.md` (§9 is authoritative where it differ
 
 ## Problem Statement
 
-A developer who combines several coding agents (Claude Code, Codex CLI, Gemini CLI, OpenCode) on one task today passes work between them as raw chat text. Decisions and constraints made early get lost, nobody can say which coding agent owns the work, agents claim success that no one checked, a crash leaves the developer unsure what already happened (including whether something was pushed), and there is no evidence that splitting work across agents beats using one. The developer has no record they can trust, no safe way to recover, and no honest measurement.
+> **2026-10-30:** Gemini CLI was dropped from release 1 on 2026-10-30 at the maintainer's decision: its adapter had never run a turn (no paid access) and was removed from the code. Release 1 targets three tools. Stories that name Gemini CLI or "four" tools below are kept as written and no longer apply to it.
+
+A developer who combines several coding agents (Claude Code, Codex CLI, OpenCode) on one task today passes work between them as raw chat text. Decisions and constraints made early get lost, nobody can say which coding agent owns the work, agents claim success that no one checked, a crash leaves the developer unsure what already happened (including whether something was pushed), and there is no evidence that splitting work across agents beats using one. The developer has no record they can trust, no safe way to recover, and no honest measurement.
 
 ## Solution
 

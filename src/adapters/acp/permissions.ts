@@ -1,8 +1,8 @@
 // How AHP answers an ACP agent's `session/request_permission`, for the capabilities a step lists. All of it is
 // `cooperative` and none of it is enforcement: an ACP permission request is a question the client may answer either way,
 // the agent's own rules guard only its own tool calls, and an agent with a shell reaches files and refs around both
-// (observed for Claude Code on Windows, ticket 14, F3; not tested for OpenCode or Gemini CLI). Shared by the OpenCode
-// and Gemini CLI adapters.
+// (observed for Claude Code on Windows, ticket 14, F3; not tested for OpenCode). Kept apart from the OpenCode
+// adapter because none of it is particular to one ACP agent.
 
 import { isAbsolute, relative, resolve } from "node:path";
 import type { AppliedCapabilities } from "../../protocol/index.ts";
@@ -88,20 +88,12 @@ export function isExternalAction(command: string): boolean {
   return EXTERNAL_ACTION_COMMANDS.some((prefix) => start === prefix || start.startsWith(`${prefix} `));
 }
 
-export interface AnswerOptions {
-  /**
-   * The agent states no shell command beside the call's title (Gemini CLI's title for a shell call is the command
-   * itself): read an `execute` call's title as its command.
-   */
-  commandIsTitle?: boolean;
-}
-
 /**
  * Answers a `session/request_permission` by the policy: one option of the kind chosen, `allow_once` or `reject_once`,
  * never `allow_always` (it would outlive the attempt in the user's own rules). What the agent knew of the call from
  * earlier updates fills in what the request leaves out.
  */
-export function answerPermission(params: unknown, policy: PermissionPolicy, known: (toolCallId: string) => ToolCall | undefined, log: ToolCallLogger, options: AnswerOptions = {}): { outcome: { outcome: "selected"; optionId: string } | { outcome: "cancelled" } } {
+export function answerPermission(params: unknown, policy: PermissionPolicy, known: (toolCallId: string) => ToolCall | undefined, log: ToolCallLogger): { outcome: { outcome: "selected"; optionId: string } | { outcome: "cancelled" } } {
   const request = (typeof params === "object" && params !== null ? params : {}) as { toolCall?: unknown; options?: { optionId?: string; kind?: string }[] };
   const tool = (typeof request.toolCall === "object" && request.toolCall !== null ? request.toolCall : {}) as Record<string, unknown>;
   const earlier: ToolCall | undefined = typeof tool.toolCallId === "string" ? known(tool.toolCallId) : undefined;
@@ -115,7 +107,7 @@ export function answerPermission(params: unknown, policy: PermissionPolicy, know
     kind,
     title,
     paths: locations.length > 0 ? locations : (earlier?.paths ?? []),
-    command: typeof rawInput.command === "string" ? rawInput.command : (options.commandIsTitle && kind === "execute" ? title : (earlier?.command ?? null)),
+    command: typeof rawInput.command === "string" ? rawInput.command : (earlier?.command ?? null),
   };
   const decision = decide(policy, call);
   const wanted = decision.allow ? "allow_once" : "reject_once";

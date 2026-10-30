@@ -16,12 +16,10 @@ const cast = (usable: ToolId[]) => assignRoles(usable).map(({ role, adapter }) =
 
 describe("assignRoles", () => {
   it.each<[string, ToolId[], string[]]>([
-    ["every tool usable: the reference casting", ["claude-code", "codex", "opencode", "gemini-cli"], ["plan=claude-code", "implement=codex", "review=opencode"]],
+    ["every tool usable: the reference casting", ["claude-code", "codex", "opencode"], ["plan=claude-code", "implement=codex", "review=opencode"]],
     ["no tool usable: the mock plays every role", [], ["plan=mock", "implement=mock", "review=mock"]],
     ["one tool: it plays every role", ["codex"], ["plan=codex", "implement=codex", "review=codex"]],
     ["the preferred tool where usable, another for the rest", ["opencode", "codex"], ["plan=codex", "implement=codex", "review=opencode"]],
-    ["Gemini CLI only when nothing else is usable", ["gemini-cli", "opencode"], ["plan=opencode", "implement=opencode", "review=opencode"]],
-    ["Gemini CLI alone", ["gemini-cli"], ["plan=gemini-cli", "implement=gemini-cli", "review=gemini-cli"]],
   ])("%s", (_name, usable, expected) => {
     expect(cast(usable)).toEqual(expected);
   });
@@ -41,7 +39,7 @@ describe("the generated workflow", () => {
   });
 
   it("refuses to be written for an adapter the build does not have, rather than produce a workflow `ahp run` would reject", () => {
-    // All four tools have an adapter now, so the casting is made by hand with a name the build has not got.
+    // Every tool has an adapter, so the casting is made by hand with a name the build has not got.
     const casting = assignRoles([]).map((assignment) => (assignment.role === "plan" ? { ...assignment, adapter: "future-tool" } : assignment));
 
     expect(() => renderWorkflow(casting)).toThrow(/the generated workflow is invalid[^]*unknown adapter "future-tool"/);
@@ -119,7 +117,6 @@ describe("ahp doctor", () => {
       ["claude-code", true],
       ["codex", false],
       ["opencode", false],
-      ["gemini-cli", false],
     ]);
     expect(report.tools[0]!.login.state).toBe("logged_in");
     for (const secret of FAKE_SECRETS) expect(result.stdout + result.stderr).not.toContain(secret);

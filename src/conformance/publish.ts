@@ -5,7 +5,7 @@ import { matrixOf, renderMatrix } from "./matrix.ts";
 import { OS_LABELS, SUITE_VERSION, type ConformanceResult } from "./result.ts";
 
 /** The adapters of release 1, listed even when no result is recorded for one. */
-export const RELEASE_ADAPTERS = ["claude-code", "codex", "gemini-cli", "opencode"] as const;
+export const RELEASE_ADAPTERS = ["claude-code", "codex", "opencode"] as const;
 
 /** The systems core CI runs on (`.github/workflows/ci.yml`, the mock adapter only), by the label the matrix uses. */
 export const CORE_CI_SYSTEMS = [

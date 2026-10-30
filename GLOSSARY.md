@@ -5,7 +5,7 @@ AHP makes handoffs between AI coding agents explicit, verifiable and measurable,
 ## Agents and adapters
 
 **Coding agent**:
-An external coding CLI (Claude Code, Codex CLI, Gemini CLI, OpenCode) with its own model, tools, loop and login.
+An external coding CLI (Claude Code, Codex CLI, OpenCode) with its own model, tools, loop and login.
 _Avoid_: Model, backend, inference engine
 
 **Adapter**:

@@ -1,9 +1,9 @@
-// The four coding-agent tools release 1 targets, and the only commands `ahp doctor` ever runs on them: a version
+// The three coding-agent tools release 1 targets, and the only commands `ahp doctor` ever runs on them: a version
 // command and, where the tool has one, its own login-status command. Never a prompt (it would spend the user's usage),
 // and no credential or token file is opened, parsed or printed.
 
-/** The tools doctor looks for; also the names of the adapters tickets 15 to 19 register for them. A closed list. */
-export const TOOL_IDS = ["claude-code", "codex", "opencode", "gemini-cli"] as const;
+/** The tools doctor looks for; also the names of the adapters tickets 15, 16 and 18 register for them. A closed list. */
+export const TOOL_IDS = ["claude-code", "codex", "opencode"] as const;
 export type ToolId = (typeof TOOL_IDS)[number];
 
 /**
@@ -27,8 +27,6 @@ export interface ToolDefinition {
   login: LoginProbe;
   /** The name its adapter registers under in `adapters`; doctor reports capabilities only for a tool whose adapter does. */
   adapter: string;
-  /** Why using it needs paid access, or null. */
-  paidAccess: string | null;
 }
 
 export const TOOLS: readonly ToolDefinition[] = [
@@ -39,7 +37,6 @@ export const TOOLS: readonly ToolDefinition[] = [
     versionArgs: ["--version"],
     login: { kind: "json_logged_in", args: ["auth", "status", "--json"] },
     adapter: "claude-code",
-    paidAccess: null,
   },
   {
     id: "codex",
@@ -48,7 +45,6 @@ export const TOOLS: readonly ToolDefinition[] = [
     versionArgs: ["--version"],
     login: { kind: "exit_code", args: ["login", "status"], loggedOut: 1 },
     adapter: "codex",
-    paidAccess: null,
   },
   {
     id: "opencode",
@@ -58,15 +54,5 @@ export const TOOLS: readonly ToolDefinition[] = [
     // `opencode auth list` prints the stored providers and credentials as free text; AHP reads none of it.
     login: { kind: "none", why: "its only status command, `auth list`, prints stored credentials as free text, which AHP does not read" },
     adapter: "opencode",
-    paidAccess: null,
-  },
-  {
-    id: "gemini-cli",
-    name: "Gemini CLI",
-    command: "gemini",
-    versionArgs: ["--version"],
-    login: { kind: "none", why: "it has no login-status command" },
-    adapter: "gemini-cli",
-    paidAccess: "needs paid Gemini access (an API key or a Code Assist licence); AHP cannot tell whether yours qualifies",
   },
 ];

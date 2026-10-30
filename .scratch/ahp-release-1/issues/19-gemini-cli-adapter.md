@@ -4,7 +4,7 @@
 
 **Blocked by:** 12, 14
 
-**Status:** implemented and committed; waiting on the maintainer for paid Gemini access, to run the conformance suite on Windows and Linux (WSL2) and record the two cells
+**Status:** dropped (2026-10-30). The maintainer removed Gemini CLI from release 1; the adapter, its tests, fixture and user doc were deleted from the code. This file is kept as the record of what was built and why it was never run.
 
 **Model:** Sonnet 5.5 · high
 

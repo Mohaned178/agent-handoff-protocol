@@ -56,7 +56,6 @@ const tool = (id: ToolReport["id"], changes: Partial<ToolReport> = {}): ToolRepo
     version: "1.0.0",
     problem: null,
     login: { state: "logged_in", detail: "" },
-    paidAccess: null,
     adapter: { name: id, levels: {} },
     usable: true,
     ...changes,
@@ -64,7 +63,7 @@ const tool = (id: ToolReport["id"], changes: Partial<ToolReport> = {}): ToolRepo
 
 const report = (tools: ToolReport[]): DoctorReport => ({ tools }) as unknown as DoctorReport;
 
-const everyTool = report([tool("claude-code"), tool("codex"), tool("opencode"), tool("gemini-cli", { installed: false, usable: false })]);
+const everyTool = report([tool("claude-code"), tool("codex"), tool("opencode")]);
 
 const models = async (id: string): Promise<ModelList> => ({
   choices: [{ value: null, label: "default" }, { value: `${id}-model`, label: `${id}-model` }],
@@ -101,8 +100,15 @@ describe("ahp setup: a workflow", () => {
     expect(readFileSync(result.path, "utf8")).toContain("plan      claude-code, model claude-code-model, effort high");
     // OpenCode's adapter has no effort option, so none is asked for it.
     expect(asked.filter((question) => question.message.startsWith("Which effort")).map((question) => question.message.split(" ")[3])).toEqual(["plan?", "implement?"]);
-    // A tool that cannot be used is shown with the reason and cannot be picked.
-    expect(asked[2]!.choices!.find((choice) => choice.value === "gemini-cli")).toMatchObject({ disabled: "not installed" });
+  });
+
+  it("shows a tool that cannot be used with the reason, so it cannot be picked", async () => {
+    const { prompter, asked } = scripted(["workflow", "example"]);
+    const noCodex = report([tool("claude-code"), tool("codex", { installed: false, usable: false }), tool("opencode")]);
+
+    await expect(runSetup({ prompter, dir: tempDir(), report: noCodex, models })).rejects.toThrow(/no scripted answer/);
+
+    expect(asked[2]!.choices!.find((choice) => choice.value === "codex")).toMatchObject({ disabled: "not installed" });
   });
 
   it("never replaces a file: it asks for another name", async () => {

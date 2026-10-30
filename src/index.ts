@@ -6,7 +6,6 @@ export { mock, MOCK_USAGE_SOURCE, type MockAttemptScript, type MockEdit, type Mo
 export { claudeCode, type ClaudeCodeOptions } from "./adapters/index.ts";
 export { codex, type CodexOptions } from "./adapters/index.ts";
 export { opencode, type OpenCodeOptions } from "./adapters/index.ts";
-export { geminiCli, type GeminiCliOptions } from "./adapters/index.ts";
 export {
   classifyAttempt,
   decideAfterFailure,
