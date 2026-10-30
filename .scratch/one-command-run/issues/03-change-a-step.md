@@ -45,3 +45,7 @@ menu (`changeStep`, which calls `ahp setup`'s `castRole`) and `ahp settings`. Te
 6. "Next time?" is asked after each change in the menu, default no; a kept change shows "(your default)" at once.
 7. Only `taskCommand` reads the settings file, so `ahp run`, `ahp eval`, `ahp init` and `ahp setup` never do; there is
    no test that something does not read it beyond that.
+
+## Comments
+
+- 2026-10-31: the maintainer adopted every choice in the implementation notes ("do recommendation"); they are settled.
