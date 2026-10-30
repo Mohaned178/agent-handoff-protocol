@@ -210,7 +210,7 @@ export interface RetryPolicy {
  * retried from the step's `retry.budget`). 0 turns a limit off.
  */
 export interface TimeoutDefinition {
-  /** The most an attempt may run, in milliseconds. Default 3600000 (an hour). */
+  /** The most an attempt may run, in milliseconds. Default 1200000 (20 minutes): a stuck agent costs at most that. */
   totalMs?: number;
   /**
    * The most an attempt may go without its tool printing anything (its raw transcript not growing), in milliseconds.

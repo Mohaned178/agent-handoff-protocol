@@ -8,7 +8,7 @@ export interface ResolvedTimeout {
   idleMs: number;
 }
 
-const DEFAULT_TIMEOUT: ResolvedTimeout = { totalMs: 60 * 60_000, idleMs: 10 * 60_000 };
+const DEFAULT_TIMEOUT: ResolvedTimeout = { totalMs: 20 * 60_000, idleMs: 10 * 60_000 };
 
 export function resolveTimeout(timeout: TimeoutDefinition = {}): ResolvedTimeout {
   return { totalMs: timeout.totalMs ?? DEFAULT_TIMEOUT.totalMs, idleMs: timeout.idleMs ?? DEFAULT_TIMEOUT.idleMs };
