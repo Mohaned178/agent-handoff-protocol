@@ -132,7 +132,8 @@ describe("ahp run and ahp inspect", () => {
 
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("Try it, with nothing to set up:   ahp demo");
-    expect(result.stdout).toContain("Use it on your project:           cd your-project, then ahp");
+    expect(result.stdout).toContain('Do a task in your project:        cd your-project, then ahp "fix the bug where the cart total ignores quantity"');
+    expect(result.stdout).toContain("Write a workflow to keep:         cd your-project, then ahp");
     expect(result.stdout).toContain("Every command and option: ahp --help");
   });
 

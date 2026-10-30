@@ -1,10 +1,10 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { DEFAULT_REMOTE, RECOVERY_ACTIONS, THIS_REPOSITORY, type LedgerEvent, type RecoveryAction, type RunView } from "../protocol/index.ts";
+import { DEFAULT_REMOTE, isRemoteName, RECOVERY_ACTIONS, THIS_REPOSITORY, type LedgerEvent, type RecoveryAction, type RunView } from "../protocol/index.ts";
 import {
   approveStep,
   DISCARD_AND_RETRY_DEFERRED,
@@ -18,7 +18,7 @@ import {
   runWorkflow,
   validateWorkflow,
 } from "../sdk/index.ts";
-import { assignRoles, diagnose, initWorkflow, publishRemoteOf } from "../doctor/index.ts";
+import { assignRoles, diagnose, initWorkflow, publishRemoteOf, type RoleAssignment } from "../doctor/index.ts";
 import { API_KEY_NOTICE, formatReport, isSeed, runEvaluation, SuiteInvalidError, TaskInvalidError, type EvaluationEvent, type EvaluationSuite, type EvaluationView } from "../evaluation/index.ts";
 import { demosRoot, evaluationsRoot, git, locateRepo, toolCallLogPath, transcriptPaths } from "../runtime/index.ts";
 import { changesBetween, describeChanges, diffBetween, formatDiff } from "./diff.ts";
@@ -27,11 +27,35 @@ import { describeApprovalChoices, formatEvent, formatRun, formatRunUsage, format
 import { LiveView, type Terminal } from "./live.ts";
 import { formatDoctor, formatInit } from "./format-doctor.ts";
 import { formatEvaluationEvent } from "./format-evaluation.ts";
-import { modelsFor, prepareDemo, runSetup, terminalPrompter, type Prompter } from "../setup/index.ts";
+import {
+  branchFor,
+  buildTaskRun,
+  castRoles,
+  CHECK_FROM_FLAG,
+  CHECK_TYPED,
+  formatTaskSummary,
+  inferCommands,
+  mockCasting,
+  modelsFor,
+  prepareDemo,
+  renderTaskRun,
+  runSetup,
+  stepsOf,
+  terminalPrompter,
+  writeNew,
+  type Inferred,
+  type Prompter,
+  type TaskRun,
+} from "../setup/index.ts";
 
 const USAGE = `Usage: ahp <command> [options]
+       ahp "<task>" [--plan] [--check <command>] [--push [<remote>]] [--yes]
 
 Commands:
+  "<task>"              Do a task, in words (in quotes, more than one word): AHP works out the check
+                        command, the install command and who plays each step from the project and your
+                        tools, shows them, and runs implement → review → your approval once you say
+                        Run; the approved work goes on a local branch. Nothing runs before you say so
   (no command)          In a terminal, the same as setup; otherwise how to get started
   demo                  Try AHP in a sample project it makes, with nothing to set up: scripted agents, free;
                         --real casts your own installed tools instead (their usage counts)
@@ -71,7 +95,15 @@ Options:
   --verbose             run, recover, approve, reject: print every event of the run, as when the output is
                         not a terminal, instead of one line per step
   --real                demo: use your own installed coding agent tools instead of the scripted mock
-  -h, --help            Show this help
+  --plan                task: a plan step (read-only) before implement
+  --check <command>     task: the command that checks the work, instead of the one AHP finds (needed
+                        without a terminal when the project names none)
+  --push [<remote>]     task: push the approved branch to origin, or to <remote>, instead of making a
+                        local branch
+  -y, --yes             task: run without asking (needed without a terminal)
+  --save <file>         task: also write the workflow to <file>, for \`ahp run\` to run again
+  --mock                task: scripted agents that show the flow and do none of the work (no evidence)
+  -h, --help           Show this help
   -v, --version         Show the version
 
 Ctrl+C during run, recover, approve or reject cancels the run: the running agent and every
@@ -89,7 +121,9 @@ work with your tests, and keeps only what you approve.
 
   Try it, with nothing to set up:   ahp demo
                                     (free: scripted agents; \`ahp demo --real\` uses your own tools)
-  Use it on your project:           cd your-project, then ahp
+  Do a task in your project:        cd your-project, then ahp "fix the bug where the cart total ignores quantity"
+                                    (it works out the check and who builds it, shows them, and runs once you say so)
+  Write a workflow to keep:         cd your-project, then ahp
                                     (in a terminal it asks what to build and who builds it, then runs it)
 
 Every command and option: ahp --help`;
@@ -130,14 +164,40 @@ class UsageError extends Error {
   }
 }
 
+const COMMANDS = ["doctor", "init", "setup", "demo", "run", "eval", "runs", "inspect", "recover", "approve", "reject"];
+
+/**
+ * Whether the first argument is a task rather than a command (spec D1): not a command, and more than one word. A single
+ * word that is not a command stays an unknown command, so a misspelt one never starts agents.
+ */
+const isTask = (argument: string) => !COMMANDS.includes(argument) && argument.trim().split(/\s+/).length > 1;
+
+/**
+ * `--push` alone means origin, and `--push <remote>` that remote: `parseArgs` has no optional values, so a bare `--push`
+ * becomes `--push=origin` first. What follows is its remote only when it is a remote's name: a task has spaces in it.
+ */
+function withPushRemote(argv: readonly string[]): string[] {
+  return argv.map((arg, index) => {
+    if (arg !== "--push") return arg;
+    const next = argv[index + 1];
+    return next !== undefined && !next.startsWith("-") && isRemoteName(next) && next !== THIS_REPOSITORY ? arg : `--push=${DEFAULT_REMOTE}`;
+  });
+}
+
 /** Runs the `ahp` CLI and returns its exit code: see `USAGE`. */
 export async function main(argv: string[], given: Io = defaultIo): Promise<number> {
   let io = given;
   try {
     const { values, positionals } = parseArgs({
-      args: argv,
+      args: withPushRemote(argv),
       allowPositionals: true,
       options: {
+        yes: { type: "boolean", short: "y" },
+        plan: { type: "boolean" },
+        push: { type: "string" },
+        check: { type: "string" },
+        save: { type: "string" },
+        mock: { type: "boolean" },
         repo: { type: "string" },
         out: { type: "string" },
         seed: { type: "string" },
@@ -172,6 +232,15 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
       }
       io.stdout("ahp: setting up a run for this folder (`ahp --help` lists every command; `ahp demo` tries AHP with nothing to set up)");
       return await setupCommand(repo, io);
+    }
+    if (isTask(command)) {
+      if (target !== undefined) throw new UsageError(`unexpected argument: ${target} (a task is one argument, in quotes)`);
+      const { yes = false, plan = false, push, check, save, mock = false } = values;
+      return await taskCommand(command.trim(), { yes, plan, push: push ?? null, check: check?.trim() || null, save: save ?? null, mock }, repo, values.repo !== undefined, io, values.diff ?? false);
+    }
+    if (!COMMANDS.includes(command) && target !== undefined) {
+      // Words given unquoted arrive one by one: the first is not a command, and must never be read as a task's start.
+      throw new UsageError(`unknown command: ${command} (a task is one argument, in quotes: ahp "${positionals.join(" ")}")`);
     }
     const deciding = command === "approve" || command === "reject";
     // Only a decision takes a second argument, the gate's step ID.
@@ -620,6 +689,116 @@ async function runCommand(file: string, repo: string, repoNamed: boolean, io: Io
   await remotesOf(workflow as { steps: { id: string; action?: { remote?: string } }[] }, repo);
   const { state } = await followRun(io, repo, (following) => runWorkflow(workflow as Parameters<typeof runWorkflow>[0], { repo, ...following }), { diff });
   return await decideHere(io, repo, state, diff);
+}
+
+interface TaskFlags {
+  yes: boolean;
+  plan: boolean;
+  /** The remote `--push` names (origin for a bare `--push`), or null for a local branch (spec D2). */
+  push: string | null;
+  check: string | null;
+  /** `--save`'s file, relative to the repository directory given. */
+  save: string | null;
+  mock: boolean;
+}
+
+/**
+ * `ahp "<task>"`: the workflow is worked out from the project (`inferCommands`) and this machine's tools (`castRoles`),
+ * shown with where each answer came from, and run like any other once the person says Run (or `--yes`). Only what cannot
+ * be worked out is asked: the check, when the project names none. Nothing is written but the run's ledger, and `--save`'s
+ * file when asked for.
+ */
+async function taskCommand(task: string, flags: TaskFlags, dir: string, repoNamed: boolean, io: Io, diff: boolean): Promise<number> {
+  const prompter = io.terminal?.prompter ?? null;
+  if (!prompter && !flags.yes) throw new UsageError("a task runs only once you say so: in a terminal ahp shows what it will do and asks; elsewhere pass --yes");
+  const save = flags.save === null ? null : resolve(dir, flags.save);
+  if (save !== null && existsSync(save)) throw new UsageError(`${save} already exists; --save never replaces a file`);
+  let run: TaskRun;
+  let workflow: ReturnType<typeof buildTaskRun>;
+  let repo: string;
+  try {
+    if (prompter && !(await readyRepository(dir, prompter))) {
+      io.stdout("nothing was started: AHP works on a git repository with a commit, and nothing was changed");
+      return 0;
+    }
+    await repositoryOf(dir, repoNamed, io);
+    repo = (await locateRepo(dir)).repo;
+    const roles = stepsOf(flags.plan);
+    let assignments: RoleAssignment[];
+    if (flags.mock) {
+      assignments = mockCasting(roles);
+    } else {
+      const cast = castRoles(await diagnose());
+      assignments = roles.map((role) => cast.find((assignment) => assignment.role === role)!);
+      if (assignments.some((assignment) => assignment.tool === null)) {
+        throw new UsageError(
+          "no coding agent tool is usable here (`ahp doctor` says why): AHP runs Claude Code, Codex CLI or OpenCode, logged in with your own account. `--mock` runs scripted agents that show the flow and do none of the work",
+        );
+      }
+    }
+    const found = inferCommands(repo);
+    let check: Inferred | null = flags.check === null ? found.check : { command: flags.check, source: CHECK_FROM_FLAG };
+    if (check === null) {
+      if (!prompter) throw new UsageError("this project names no command that checks the work (no test script, pytest, cargo, go or make test target): pass --check <command>");
+      check = await askCheck(prompter);
+    }
+    const remote = flags.push ?? THIS_REPOSITORY;
+    run = { task, check, install: check === null ? null : found.install, assignments, branch: branchFor(task, await branchesOf(repo, remote)), remote };
+    workflow = buildTaskRun(run);
+    await remotesOf(workflow, repo);
+    io.stdout(formatTaskSummary(run, (await git(repo, ["status", "--porcelain"])).split("\n").filter(Boolean).length));
+    if (!flags.yes) {
+      const choice = await prompter!.select({
+        message: "Run it?",
+        choices: [
+          { name: "Run", value: "run" as const, description: "the agents start; nothing lands before you approve the diff" },
+          { name: "Cancel", value: "cancel" as const },
+        ],
+      });
+      if (choice === "cancel") {
+        io.stdout("cancelled: nothing was started");
+        return 0;
+      }
+    }
+  } catch (error) {
+    if ((error as Error).name === "ExitPromptError") {
+      io.stdout("cancelled: nothing was started");
+      return 130;
+    }
+    throw error;
+  }
+  if (save !== null) {
+    try {
+      await writeNew(save, renderTaskRun(run));
+    } catch (error) {
+      if ((error as { code?: string }).code === "EEXIST") throw new UsageError(`${save} already exists; --save never replaces a file`);
+      throw error;
+    }
+    io.stdout(`saved the workflow to ${save}: \`ahp run\` runs it again`);
+  }
+  const { state } = await followRun(io, repo, (following) => runWorkflow(workflow, { repo, ...following }), { diff });
+  return await decideHere(io, repo, state, diff);
+}
+
+/** The check for a project that names none (spec D3): a command typed in, or none, the work then being reviewed only. */
+async function askCheck(prompter: Prompter): Promise<Inferred | null> {
+  const how = await prompter.select({
+    message: "This project has no command that checks the work that AHP can find (no test script, pytest, cargo, go or make test target). What checks it?",
+    choices: [
+      { name: "A command I type", value: "type" as const, description: "the work is done when it exits 0 in a fresh copy of the repository" },
+      { name: "None: review only", value: "none" as const, description: "a reviewing agent reads the work; it is labelled not verified" },
+    ],
+  });
+  if (how === "none") return null;
+  const command = await prompter.input({ message: "Command that checks the work (exit code 0 means done):", validate: (value) => (value.trim() ? true : "a command, such as npm test or pytest") });
+  return { command: command.trim(), source: CHECK_TYPED };
+}
+
+/** The branch names a new branch must not take: this repository's, and the remote's it is pushed to. */
+async function branchesOf(repo: string, remote: string): Promise<string[]> {
+  const local = await git(repo, ["for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads"]);
+  const remoteRefs = remote === THIS_REPOSITORY ? "" : await git(repo, ["for-each-ref", "--format=%(refname:lstrip=3)", `refs/remotes/${remote}`]);
+  return [...local.split("\n"), ...remoteRefs.split("\n")].filter(Boolean);
 }
 
 /**

@@ -147,7 +147,7 @@ async function newFile(options: SetupOptions, message: string, fallback: string)
   return resolve(options.dir, name);
 }
 
-async function writeNew(path: string, content: string): Promise<void> {
+export async function writeNew(path: string, content: string): Promise<void> {
   // Exclusive, as `ahp init`: an existing file is never replaced, even one that appeared after the question.
   const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL);
   try {
