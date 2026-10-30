@@ -102,6 +102,20 @@ describe("ahp demo", () => {
 });
 
 describe("ahp with no command", () => {
+  // The first commit is made as the person, whose git identity a CI machine does not have: the tests give one.
+  const IDENTITY = { GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@localhost", GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@localhost" };
+  let savedIdentity: Record<string, string | undefined>;
+  beforeEach(() => {
+    savedIdentity = Object.fromEntries(Object.keys(IDENTITY).map((key) => [key, process.env[key]]));
+    Object.assign(process.env, IDENTITY);
+  });
+  afterEach(() => {
+    for (const [key, value] of Object.entries(savedIdentity)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
   it("prints the guide when no one is at a terminal", async () => {
     const guide = await ahpHere([], null);
 
