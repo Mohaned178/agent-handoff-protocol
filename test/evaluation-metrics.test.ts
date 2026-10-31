@@ -128,6 +128,9 @@ describe("the report's display of usage", () => {
     const b = "result event (usage); cache writes (11508 reported, not included); apiKeySource none";
     expect(sourcesText([a, b])).toBe("result event (usage); cache writes (… reported, not included); apiKeySource none");
     expect(sourcesText([a, "another source"])).toBe(`${a}; another source`);
+    // OpenCode adds a clause when an attempt reported thought tokens: the longer label says all the shorter one does.
+    const plain = "opencode acp session/prompt result (usage); no cost reported";
+    expect(sourcesText([plain, `${plain}; thoughtTokens were reported`, plain])).toBe(`${plain}; thoughtTokens were reported`);
     expect(money(0.7613190000000001)).toBe("0.761319");
     expect(money(12)).toBe("12");
   });

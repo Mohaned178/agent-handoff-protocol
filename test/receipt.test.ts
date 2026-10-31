@@ -62,7 +62,7 @@ describe("the run receipt", () => {
       [
         HEADING,
         "  implement: not verified: `node verify.mjs` failed",
-        "  implement: the agent reported done 1 time; its check never passed:",
+        "  implement: the agent reported done once; its check never passed:",
         "    attempt 1: greeting missing or wrong",
       ].join("\n"),
     );
@@ -133,7 +133,7 @@ describe("the receipt in the CLI", () => {
     const run = await ahpHere(["run", join(dir, "workflow.mjs")]);
 
     expect(run.code, run.stdout).toBe(0);
-    const receipt = `${HEADING}\n  implement: verified: \`node verify.mjs\` passed in a clean copy\n  implement: the agent reported done 1 time before its check passed:\n    attempt 1: greeting missing or wrong`;
+    const receipt = `${HEADING}\n  implement: verified: \`node verify.mjs\` passed in a clean copy\n  implement: the agent reported done once before its check passed:\n    attempt 1: greeting missing or wrong`;
     expect(run.stdout.indexOf(receipt)).toBeGreaterThan(run.stdout.search(/run run_[a-z0-9]+: succeeded/));
     const runId = /run (run_[a-z0-9]+): succeeded/.exec(run.stdout)![1]!;
 

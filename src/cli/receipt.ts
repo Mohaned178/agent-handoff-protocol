@@ -16,7 +16,7 @@ export function formatRunUsage(state: Readonly<RunView>, indent = ""): string | 
 
 const HEADING = "what the checks found (from the run's ledger: an agent's report is a claim, a check decides):";
 
-const times = (count: number) => `${count} ${count === 1 ? "time" : "times"}`;
+const times = (count: number) => (count === 1 ? "once" : `${count} times`);
 const changesOf = (changed: readonly ChangedPath[]) => changed.map(({ change, path }) => `${change} ${path}`).join(", ");
 
 /** The line of a failed check's output that says what failed: the first that looks like a failure, else the last. */
@@ -32,7 +32,7 @@ function whyFailed(evidence: readonly EvidenceItem[]): string {
   for (const item of evidence) {
     if (item.kind === "protected_paths" && item.violations.length > 0) return `refused: it changed a protected path (${changesOf(item.violations)}), so its check was not run`;
     if (item.kind === "forbidden_external_action_detected") {
-      return `refused: a shared ref moved while it ran (${item.changed.map((change) => change.name).join(", ")}); only AHP pushes, so its check was not run`;
+      return `refused: a shared ref moved while it ran (${item.changed.map((change) => change.name).join(", ")}); only AHP may move one, so its check was not run (the agent, or someone working in this repository meanwhile, moved it)`;
     }
   }
   for (const item of evidence) {

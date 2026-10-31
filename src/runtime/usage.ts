@@ -59,11 +59,13 @@ export const money = (amount: number): string => String(Number(amount.toFixed(6)
 
 /**
  * Source labels that differ only in their numbers (an adapter names per-attempt counts in its label) shown once, with
- * each number that varies between them replaced by "…".
+ * each number that varies between them replaced by "…". A label that another one begins with is left out: an adapter
+ * adds a clause when an attempt reported more (OpenCode's thought tokens), and the longer label says all the shorter does.
  */
 export function sourcesText(sources: readonly string[]): string {
   const groups = new Map<string, string[][]>();
-  for (const source of sources) {
+  const distinct = [...new Set(sources)];
+  for (const source of distinct.filter((label) => !distinct.some((other) => other !== label && other.startsWith(label)))) {
     const shape = source.replace(/\d+(\.\d+)?/g, "#");
     groups.set(shape, [...(groups.get(shape) ?? []), source.match(/\d+(\.\d+)?/g) ?? []]);
   }
