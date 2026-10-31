@@ -32,3 +32,5 @@ README only (docs/how-it-works.md keeps the details). Choices made:
 3. Workflow files moved under "Keeping a workflow", with `--save` as the way to keep a one-command run.
 4. Fixed while there: the attempt timeout default (20 minutes, not an hour) and the evaluation's conditions (C0, C0V,
    C1, C2, C3min, C3 and the baseline, not "four conditions").
+- 2026-10-31: first green CI run with this ticket: 41146259771 (Linux 899 passed, 1 skipped; macOS 899 passed, 1
+  skipped; Windows 896 passed, 4 skipped).

@@ -49,3 +49,5 @@ menu (`changeStep`, which calls `ahp setup`'s `castRole`) and `ahp settings`. Te
 ## Comments
 
 - 2026-10-31: the maintainer adopted every choice in the implementation notes ("do recommendation"); they are settled.
+- 2026-10-31: first green CI run with this ticket: 41146259771 (Linux 899 passed, 1 skipped; macOS 899 passed, 1
+  skipped; Windows 896 passed, 4 skipped).

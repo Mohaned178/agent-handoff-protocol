@@ -42,3 +42,5 @@ Choices made:
    does: it is withheld from agents, not from the person.
 5. **Whether a revision fixed the findings** is the review's next attempt: approved, asked for changes again, did not
    reach a verdict, or not reviewed again. A rejection at a gate reads the gate's next decision the same way.
+- 2026-10-31: first green CI run with this ticket: 41146259771 (Linux 899 passed, 1 skipped; macOS 899 passed, 1
+  skipped; Windows 896 passed, 4 skipped).
