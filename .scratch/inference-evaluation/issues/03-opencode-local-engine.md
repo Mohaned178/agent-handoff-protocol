@@ -14,6 +14,8 @@ verified success on the pilot tasks.
   - `permission` stays exactly as the capabilities made it
   - the model is `ahp-local/<id>`
 - [ ] The engine (name, URL, version from `/v1/models` or `/version`) recorded per trial beside the tool versions
-- [ ] `pilot/local/`: one suite per engine with the same tasks, conditions and seed
+- [ ] `pilot/local/`: one suite per engine with the same tasks, conditions and seed. Conditions: C0, C0V, C3, and `C3c`
+      and `C3r` once tickets 05 and 06 land, so compression and reflection are measured on free local models too.
+      Repeats sized from the spike's time per attempt, so one engine's suite finishes overnight
 - [ ] `ahp bench report --eval <dir>...`: each engine's verified success beside its speed, compared task by task
 - [ ] Tests: provider block merged and permissions unchanged, against the fake `opencode`

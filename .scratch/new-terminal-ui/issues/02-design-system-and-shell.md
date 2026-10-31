@@ -12,6 +12,9 @@ only. No agent runs yet.
 
 - [ ] Dependencies pinned exactly: `ink` 8, `react` 19, `@types/react`; dev `ink-testing-library` 4;
       `npm audit --omit=dev` clean; `test/package.test.ts` updated for the tarball
+- [ ] First, a five-minute check that `ink-testing-library` 4.0.0 (published 2024, peer `@types/react >=18`) renders
+      an Ink 8 component. If it does not, the harness writes frames through Ink's own `render` to a fake stdout instead,
+      noted in the ticket
 - [ ] `src/tui/h.ts` (the `h` helper, spec D2); `node src/tui/dev.ts` starts the app from source
 - [ ] `src/tui/theme.ts`: the spec's palette tokens, truecolor with the 256-colour fallback (from `COLORTERM`), none
       under `NO_COLOR`/`TERM=dumb`/no TTY; components take tokens, never raw colours

@@ -15,3 +15,11 @@ as data.
   - reading the report
 - [ ] README and CLAUDE.md sections
 - [ ] The real run on the maintainer's machine. Nothing is claimed before it exists
+- [ ] The results write-up, the brief's deliverable, in `docs/results/inference-evaluation-<date>.md`:
+  - engines compared on latency, throughput, resources, quality and tool calls
+  - each engine's verified success on the pilot tasks
+  - handoff conditions compared, C3c and C3r included
+  - every number copied from a `report.json` that is named; charts made from the same numbers
+  - the limits stated: one GPU, one model, format differs by engine
+  - an engine that could not run listed with its error
+  - a negative result reported as found

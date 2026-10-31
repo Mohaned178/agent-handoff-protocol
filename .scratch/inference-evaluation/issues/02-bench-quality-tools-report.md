@@ -21,5 +21,9 @@ report everything per engine with counts and paired comparisons, and add the `ah
   - GPU peak and mean
   - quality and tool-call rates with counts
   - pairs of engines compared per prompt (`comparePaired`)
-- [ ] `ahp bench <bench-file> [--out <dir>] [--seed <n>] [--json]`, `runBench` in the SDK
+- [ ] `ahp bench <bench-file> [--engine <id>] [--out <dir>] [--seed <n>] [--json]`, `runBench` in the SDK
+- [ ] `ahp bench report <bench dir>...` combines the benches of several engines into one report, refusing two
+      different hardware fingerprints, prompt sets or settings (they would not be comparable). Ticket 03 adds `--eval`
+- [ ] `bench/local.mjs`: the bench file of the real run, listing all four engines with the ports and models of
+      `bench/engines/`, all four workloads and the defaults
 - [ ] Tests: scoring tables, report, CLI

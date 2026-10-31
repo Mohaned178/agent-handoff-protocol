@@ -20,3 +20,6 @@ what each engine can do with the chosen model.
   - whether usage is returned in a stream
   - whether OpenCode can drive it
 - [ ] Fallback, if any engine fails, decided with the maintainer (spec D8)
+- [ ] Model pinned by revision: the Hugging Face commit of `Qwen/Qwen2.5-Coder-7B-Instruct-AWQ` added to each Compose
+      file (`--revision`, or the engine's own flag), and the digest of Ollama's `qwen2.5-coder:7b-instruct-q4_K_M` and
+      Ollama's version written in `ollama.md`; the bench records both
