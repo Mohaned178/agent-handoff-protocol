@@ -89,7 +89,8 @@ describe("no git identity", () => {
   it("is named, with the two commands that set it, before the person is asked to make a repository", async () => {
     const empty = join(mkdtempSync(join(tmpdir(), "ahp-nogit-")), "gitconfig");
     dirs.push(join(empty, ".."));
-    writeFileSync(empty, "");
+    // macOS's git otherwise makes up an identity from the user and host names, so there is always one to commit as.
+    writeFileSync(empty, "[user]\n\tuseConfigOnly = true\n");
     setEnv({ GIT_CONFIG_GLOBAL: empty, GIT_AUTHOR_NAME: undefined, GIT_AUTHOR_EMAIL: undefined, GIT_COMMITTER_NAME: undefined, GIT_COMMITTER_EMAIL: undefined, EMAIL: undefined });
     const folder = mkdtempSync(join(tmpdir(), "ahp-plain-"));
     dirs.push(folder);
