@@ -28,3 +28,7 @@ a Mac user to record macOS, so the README's "tested on" is as wide as it can hon
   `test/support-matrix.test.ts` fails when it is stale. The column is now "Conformance suite passed on".
 - Left for the maintainer: `npm run conformance -- run codex|opencode` in WSL2, then `matrix --write`; one
   `ahp "<task>"` per tool in WSL2 (with ticket 04).
+
+## Comments
+
+- 2026-10-31: first green CI run with this work: 41154144315 (commit `13d3cb8`), all three systems.

@@ -43,3 +43,7 @@ green commit, with a changelog.
   of "Releasing" in CONTRIBUTING.md), so the README never names a package that does not exist yet.
 - Left for the maintainer: create the npm token as the `NPM_TOKEN` secret, tag `v0.1.0` once 05 has no blocker, and
   the installed-package check on Windows and WSL2 (CONTRIBUTING.md, "Releasing", step 4).
+
+## Comments
+
+- 2026-10-31: first green CI run with this work: 41154144315 (commit `13d3cb8`), all three systems.

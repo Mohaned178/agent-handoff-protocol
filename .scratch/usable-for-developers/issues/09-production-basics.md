@@ -42,3 +42,7 @@ report a security problem, a way to report a bug that gets the facts, and no los
 - Decision (recommendation taken): `CODE_OF_CONDUCT.md` adopts the Contributor Covenant 2.1 by reference (its text
   is linked, not copied); reports by email to the address on the maintainer's GitHub profile. CONTRIBUTING.md has
   setup, tests, the ticket flow and releasing.
+
+## Comments
+
+- 2026-10-31: first green CI run with this work: 41154144315 (commit `13d3cb8`), all three systems.

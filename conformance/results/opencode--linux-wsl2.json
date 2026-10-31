@@ -4,8 +4,8 @@
   "mock": false,
   "platform": "linux",
   "osLabel": "Linux (WSL2)",
-  "toolVersion": "1.19.4",
-  "ranAt": "2026-10-28T01:01:02.663Z",
+  "toolVersion": "1.19.5",
+  "ranAt": "2026-10-31T01:28:13.342Z",
   "checks": [
     {
       "id": "declaration:complete",
@@ -15,31 +15,31 @@
     {
       "id": "spawn_and_exit",
       "status": "passed",
-      "detail": "started as process 27154, exited 0, reported its summary, and its file is in the workspace"
+      "detail": "started as process 611, exited 0, reported its summary, and its file is in the workspace"
     },
     {
       "id": "failure:agent_error",
-      "status": "skipped",
+      "status": "unprovokable",
       "detail": "the subject cannot make its agent do \"fails\""
     },
     {
       "id": "failure:config_auth",
-      "status": "skipped",
+      "status": "unprovokable",
       "detail": "the subject cannot make its agent do \"login_problem\""
     },
     {
       "id": "failure:transient",
-      "status": "skipped",
+      "status": "unprovokable",
       "detail": "the subject cannot make its agent do \"rate_limited\""
     },
     {
       "id": "model:reported",
-      "status": "skipped",
-      "detail": "the adapter reported the requested model \"opencode/deepseek-v4.1-flash-free\", and the subject cannot make the tool say another, so an echo of the request cannot be told from a report"
+      "status": "passed",
+      "detail": "reported \"opencode/deepseek-v4.1-flash-free\", which is what the tool said (no model was requested)"
     },
     {
       "id": "model:not_reported",
-      "status": "skipped",
+      "status": "unprovokable",
       "detail": "the subject cannot make its agent do \"no_model_report\""
     },
     {
@@ -49,7 +49,7 @@
     },
     {
       "id": "usage:not_reported",
-      "status": "skipped",
+      "status": "unprovokable",
       "detail": "the subject cannot make its agent do \"no_usage_report\""
     },
     {

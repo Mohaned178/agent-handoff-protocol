@@ -53,3 +53,7 @@ a flag to pass. And every stop says what to do next.
 - Moved to ticket 06: the Windows answers (long paths, `EBUSY`, PowerShell quoting of a task) as troubleshooting
   entries; nothing here changed how AHP handles them.
 - Tests: `test/cli-first-run.test.ts` (fake tools, empty `GIT_CONFIG_GLOBAL`, failing and missing checks).
+
+## Comments
+
+- 2026-10-31: CI run 41149970148 (commit `079862c`) failed on macOS only: its git makes up an identity, so the no-identity test set up nothing (fixed in the test by `user.useConfigOnly`, `5375339`). First green CI run with this ticket: 41154144315 (commit `13d3cb8`): macOS 927 passed / 1 skipped, Ubuntu 927 / 1, Windows 924 / 4.

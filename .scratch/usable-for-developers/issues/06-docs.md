@@ -42,3 +42,7 @@ troubleshooting page for what ticket 03 cannot fix in the message alone, and one
   send-back, so its 2 retries are for the whole run.
 - Claims checked: the support note and table match `docs/support-matrix.md`; the receipt and run output stay labelled
   illustrative until ticket 04 gives a real one.
+
+## Comments
+
+- 2026-10-31: first green CI run with this work: 41154144315 (commit `13d3cb8`), all three systems.

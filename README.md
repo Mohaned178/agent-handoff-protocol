@@ -56,7 +56,7 @@ Each step gets one line while it runs, and the run ends with what the checks cau
 `ahp inspect` shows the full record: every attempt, its check's output, the review's findings and each tool's reported usage with its source.
 
 > [!NOTE]
-> AHP is an **alpha** (0.1.0): it has not yet been run on real projects (real tools have run only in its conformance suites). Workflows run end to end with Claude Code, Codex CLI and OpenCode on Windows, and with Claude Code on Linux too. macOS is untested. See the [support matrix](docs/support-matrix.md).
+> AHP is an **alpha** (0.1.0): it has not yet been run on real projects (real tools have run only in its conformance suites). Workflows run end to end with Claude Code, Codex CLI and OpenCode on Windows, and with Claude Code and OpenCode on Linux (WSL2) too. macOS is untested. See the [support matrix](docs/support-matrix.md).
 
 ## When to use AHP
 
@@ -265,7 +265,7 @@ Exit codes:
 |---|---|---|
 | Claude Code | `claude-code` | Windows, Linux (WSL2) |
 | Codex CLI | `codex` | Windows |
-| OpenCode | `opencode` (over ACP) | Windows |
+| OpenCode | `opencode` (over ACP) | Windows, Linux (WSL2) |
 <!-- supported-tools:end -->
 
 A system that is not named is untested for that tool, not known to fail. macOS is untested for every tool: [CONTRIBUTING.md](CONTRIBUTING.md#recording-a-system-the-maintainer-cannot) says how someone with a Mac can record it.
