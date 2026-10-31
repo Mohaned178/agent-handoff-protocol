@@ -214,6 +214,27 @@ describe("ahp \"<task>\": refusals", () => {
 
     expect(run.code).toBe(2);
     expect(run.stdout).toContain("--check <command>");
+    expect(run.stdout).toContain("--no-check");
+  });
+
+  it("runs review only with --no-check and no terminal, labelled not verified", async () => {
+    const repo = plainProject();
+
+    const run = await ahpHere([TASK, "--mock", "--yes", "--no-check"], repo, null);
+
+    expect(run.code, run.stdout).toBe(4);
+    expect(run.stdout).toMatch(/check\s+none: review only\s+not verified/);
+    expect(run.stdout).toContain("ahp approve");
+  });
+
+  it("refuses --no-check together with --check", async () => {
+    const repo = plainProject();
+
+    const run = await ahpHere([TASK, "--mock", "--yes", "--no-check", "--check", "node check.mjs"], repo, null);
+
+    expect(run.code).toBe(2);
+    expect(run.stdout).toContain("--no-check and --check cannot be used together");
+    expect(await runsOf(repo)).toBe(0);
   });
 
   it("refuses --push to a remote the repository does not have, before any agent starts", async () => {

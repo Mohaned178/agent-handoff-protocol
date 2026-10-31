@@ -120,6 +120,8 @@ Options:
   --clear               settings: remove the saved defaults
   --check <command>     task: the command that checks the work, instead of the one AHP finds (needed
                         without a terminal when the project names none)
+  --no-check            task: no check command: a reviewing agent reads the work, labelled not verified
+                        (as "None: review only" at the check question does)
   --push [<remote>]     task: push the approved branch to origin, or to <remote>, instead of making a
                         local branch
   -y, --yes             task: run without asking (needed without a terminal)
@@ -162,6 +164,7 @@ Options for a task:
   --implement <tool>, --review <tool>
                         Who does the step: claude-code, codex or opencode (this run only)
   --check <command>     The command that checks the work, instead of the one AHP finds
+  --no-check            No check command: a reviewing agent reads the work, labelled not verified
   --push [<remote>]     Push the approved branch to origin, or <remote>, instead of a local branch
   -y, --yes             Run without asking (needed without a terminal)
   --mock                Scripted agents that show the flow and do none of the work
@@ -321,6 +324,7 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
         clear: { type: "boolean" },
         push: { type: "string" },
         check: { type: "string" },
+        "no-check": { type: "boolean" },
         save: { type: "string" },
         mock: { type: "boolean" },
         "no-precheck": { type: "boolean" },
@@ -362,10 +366,12 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
     if (isTask(command)) {
       if (target !== undefined) throw new UsageError(`unexpected argument: ${target} (a task is one argument, in quotes)`);
       const { yes = false, push, check, save, mock = false } = values;
+      const noCheck = values["no-check"] ?? false;
+      if (noCheck && check !== undefined) throw new UsageError("--no-check and --check cannot be used together: name a command, or ask for review only");
       const steps = stepFlagsOf(values);
       // Any plan flag asks for the plan step: naming its tool, model or effort means wanting it.
       const plan = values.plan !== undefined || steps.plan !== undefined;
-      return await taskCommand(command.trim(), { yes, plan, push: push ?? null, check: check?.trim() || null, save: save ?? null, mock, steps, noPrecheck: values["no-precheck"] ?? false }, repo, values.repo !== undefined, io, values.diff ?? false);
+      return await taskCommand(command.trim(), { yes, plan, push: push ?? null, check: check?.trim() || null, noCheck, save: save ?? null, mock, steps, noPrecheck: values["no-precheck"] ?? false }, repo, values.repo !== undefined, io, values.diff ?? false);
     }
     if (!COMMANDS.includes(command) && target !== undefined) {
       // Words given unquoted arrive one by one: the first is not a command, and must never be read as a task's start.
@@ -860,6 +866,8 @@ interface TaskFlags {
   /** The remote `--push` names (origin for a bare `--push`), or null for a local branch (spec D2). */
   push: string | null;
   check: string | null;
+  /** `--no-check`: no check command, the work reviewed only and labelled not verified (as "None: review only"). */
+  noCheck: boolean;
   /** `--save`'s file, relative to the repository directory given. */
   save: string | null;
   mock: boolean;
@@ -914,9 +922,9 @@ async function taskCommand(task: string, flags: TaskFlags, dir: string, repoName
       }
     }
     const found = inferCommands(repo);
-    let check: Inferred | null = flags.check === null ? found.check : { command: flags.check, source: CHECK_FROM_FLAG };
-    if (check === null) {
-      if (!prompter) throw new UsageError("this project names no command that checks the work (no test script, pytest, cargo, go or make test target): pass --check <command>");
+    let check: Inferred | null = flags.noCheck ? null : flags.check === null ? found.check : { command: flags.check, source: CHECK_FROM_FLAG };
+    if (check === null && !flags.noCheck) {
+      if (!prompter) throw new UsageError("this project names no command that checks the work (no test script, pytest, cargo, go or make test target): pass --check <command>, or --no-check for review only");
       check = await askCheck(prompter);
     }
     const remote = flags.push ?? THIS_REPOSITORY;
