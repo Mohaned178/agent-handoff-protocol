@@ -15,6 +15,14 @@
 
 AHP drives the coding agent CLIs you already use (Claude Code, Codex CLI and OpenCode). You give it a task; it works out from your project how to check the work and which of your tools does each step, shows you, and runs **implement → review → your approval** once you say so. A step passes only when its check passes: your test command, run in a fresh copy of the result. An agent saying "done" never counts.
 
+```sh
+npm install -g github:Mohaned178/agent-handoff-protocol   # Node 24+ and git
+ahp doctor                                                 # which of your agent tools AHP can use
+ahp "fix the bug where the cart total ignores quantity"    # in your project's folder
+```
+
+`ahp demo` tries it first in a sample project, with scripted agents: free, and nothing to set up. Something wrong? See [troubleshooting](docs/troubleshooting.md).
+
 ```
 $ ahp "fix the bug where the cart total ignores quantity"
 
@@ -124,7 +132,18 @@ AHP shows what it worked out, each answer with where it came from, and asks **Ru
 Without a terminal (a script, CI), `--yes` runs it without asking; the run then stops at the approval gate for `ahp approve`.
 
 > [!TIP]
-> `ahp doctor` shows which agent tools AHP found and whether they are logged in; `ahp --help` lists every command and option.
+> `ahp doctor` shows which agent tools AHP found and whether they are logged in; `ahp --help` lists the commands to start with, and `ahp --help --all` every command and option. When something fails, [troubleshooting](docs/troubleshooting.md) has the fix for each message.
+
+### What it costs
+
+AHP is free (Apache-2.0). Each step is a run of one of your agent tools under your own login, so it counts against your plan with that tool, and how much depends on the task and the model. AHP bounds how many runs a task can take. With the defaults:
+
+- **implement** gets at most 3 attempts: its first and 2 more, shared between a failed check, an agent error, a review that sends it back and a rejection at your approval. A rate limit or another passing error is retried apart, up to 5 times within 2 minutes.
+- **review** runs once for each implement result that passes its check, so at most 3 times, plus up to 2 retries in all if its agent errors.
+- **`--plan`** adds one read-only plan step with the same budget.
+- Every attempt is stopped after 20 minutes, or after 10 minutes in which its tool prints nothing.
+
+At the end of a run, and in `ahp inspect`, AHP prints the tokens and cost each tool reported, per tool and with where each number came from. Nothing is estimated, and a tool that reports no cost shows none.
 
 ## What a run looks like
 
@@ -281,6 +300,7 @@ The code is TypeScript on Node 24. You can run it from source without building: 
 ## Learn more
 
 - [How AHP works](docs/how-it-works.md): handoffs, verification, the ledger, crash recovery and cancelling
+- [Troubleshooting](docs/troubleshooting.md): each failure message, its cause and the command that fixes it
 - Adapters: [Claude Code](docs/adapters/claude-code.md), [Codex](docs/adapters/codex.md), [OpenCode](docs/adapters/opencode.md)
 - [Support matrix](docs/support-matrix.md) and [limits](docs/limits.md)
 - [Design direction](docs/design/ahp-v2-direction.md), [architecture decisions](docs/adr/) and [glossary](GLOSSARY.md)

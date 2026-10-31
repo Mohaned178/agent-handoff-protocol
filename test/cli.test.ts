@@ -134,7 +134,7 @@ describe("ahp run and ahp inspect", () => {
     expect(result.stdout).toContain("Try it, with nothing to set up:   ahp demo");
     expect(result.stdout).toContain('Do a task in your project:        cd your-project, then ahp "fix the bug where the cart total ignores quantity"');
     expect(result.stdout).toContain("Write a workflow to keep:         cd your-project, then ahp");
-    expect(result.stdout).toContain("Every command and option: ahp --help");
+    expect(result.stdout).toContain("More commands: ahp --help (every command and option: ahp --help --all)");
   });
 
   it("prints usage and exits 2 for an unknown command", () => {
@@ -142,6 +142,25 @@ describe("ahp run and ahp inspect", () => {
 
     expect(result.code).toBe(2);
     expect(result.stderr).toContain("Usage: ahp");
+  });
+
+  it("starts --help with the commands a new user needs, and keeps the rest for --help --all", () => {
+    const short = ahp(["--help"], process.cwd());
+    const all = ahp(["--help", "--all"], process.cwd());
+
+    expect(short.code).toBe(0);
+    for (const command of ['"<task>"', "demo", "doctor", "runs", "inspect [run-id]", "approve <run-id> <step-id>", "reject <run-id> <step-id>"]) {
+      expect(short.stdout).toContain(`  ${command}`);
+    }
+    expect(short.stdout).not.toContain("eval <suite-file>");
+    expect(short.stdout).not.toContain("recover <run-id>");
+    expect(short.stdout).toContain("ahp --help --all");
+    expect(short.stdout.split("\n").length).toBeLessThan(all.stdout.split("\n").length / 2);
+
+    expect(all.code).toBe(0);
+    for (const command of ["setup", "run <workflow-file>", "eval <suite-file>", "recover <run-id>", "settings", "Exit codes:"]) {
+      expect(all.stdout).toContain(command);
+    }
   });
 });
 

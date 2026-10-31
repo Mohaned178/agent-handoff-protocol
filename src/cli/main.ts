@@ -102,7 +102,7 @@ Options:
   --seed <n>            eval: the seed of the trial order and of the comparisons, 0 to 4294967295 (default: drawn)
   --json                inspect: print the derived state, the ledger check and the run's lock as JSON;
                         runs: every run as JSON; doctor: print the report as JSON; eval: print only the report, as JSON
-  --all                 runs: list every run, not only the newest 20
+  --all                 runs: list every run, not only the newest 20; --help: print this whole list
   --policy <decision>   recover: adopt or abort
   --reason <text>       reject: why the work is rejected (required)
   --diff                run, recover, approve, reject: print the whole diff of every attempt (each attempt
@@ -125,7 +125,7 @@ Options:
   --save <file>         task: also write the workflow to <file>, for \`ahp run\` to run again
   --mock                task: scripted agents that show the flow and do none of the work (no evidence)
   --no-precheck         task: start the agents without first running the check once on your last commit
-  -h, --help           Show this help
+  -h, --help            Show the commands to start with (--help --all: this whole list)
   -v, --version         Show the version
 
 Ctrl+C during run, recover, approve or reject cancels the run: the running agent and every
@@ -136,6 +136,35 @@ Exit codes: 0 the run succeeded (eval: the evaluation completed, whatever its tr
 1 it failed or ahp failed (eval: it stopped because a frozen task changed), 2 usage error,
 3 the run stopped for a recovery decision, 4 the run stopped at an approval gate,
 130 the run was cancelled`;
+
+/** What `ahp --help` prints: the commands a new user needs first; `USAGE` (`--help --all`) is the whole reference. */
+const SHORT_USAGE = `Usage: ahp "<task>" [options]
+       ahp <command> [options]
+
+Start here:
+  "<task>"              Do a task, in words (in quotes): AHP works out the check, the install and who does
+                        each step, shows them, and runs implement → review → your approval once you say Run
+  demo                  Try AHP in a sample project it makes: scripted agents, free (--real uses your tools)
+  doctor                Show which coding agent tools AHP can use here, and how to install or log in to the rest
+
+Follow a run:
+  runs                  This repository's runs, newest first, with what to do next for any that waits
+  inspect [run-id]      A run's receipt, then every attempt, check and handoff (default: the newest run)
+  approve <run-id> <step-id>
+                        Approve the gate a run is waiting at
+  reject <run-id> <step-id> --reason <text>
+                        Reject it: the step before the gate is sent back with your reason
+
+Options for a task:
+  --plan [<tool>]       Add a read-only plan step first
+  --implement <tool>, --review <tool>
+                        Who does the step: claude-code, codex or opencode (this run only)
+  --check <command>     The command that checks the work, instead of the one AHP finds
+  --push [<remote>]     Push the approved branch to origin, or <remote>, instead of a local branch
+  -y, --yes             Run without asking (needed without a terminal)
+  --mock                Scripted agents that show the flow and do none of the work
+
+Every command and option (setup, run, recover, eval, settings, models, efforts, exit codes): ahp --help --all`;
 
 /** What `ahp` alone prints: the three commands a new user needs, not the whole reference. */
 const GETTING_STARTED = `AHP runs AI coding agents one after another (plan, implement, review), checks each step's
@@ -148,7 +177,7 @@ work with your tests, and keeps only what you approve.
   Write a workflow to keep:         cd your-project, then ahp
                                     (in a terminal it asks what to build and who builds it, then runs it)
 
-Every command and option: ahp --help`;
+More commands: ahp --help (every command and option: ahp --help --all)`;
 
 export interface Io {
   stdout: (text: string) => void;
@@ -312,7 +341,7 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
     const [command, target, step, ...extra] = positionals;
 
     if (values.help) {
-      io.stdout(USAGE);
+      io.stdout(values.all ? USAGE : SHORT_USAGE);
       return 0;
     }
     if (values.version) {
@@ -325,7 +354,7 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
         io.stdout(GETTING_STARTED);
         return 0;
       }
-      io.stdout("ahp: setting up a run for this folder (`ahp --help` lists every command; `ahp demo` tries AHP with nothing to set up)");
+      io.stdout("ahp: setting up a run for this folder (`ahp --help` lists the commands; `ahp demo` tries AHP with nothing to set up)");
       return await setupCommand(repo, io);
     }
     if (isTask(command)) {
@@ -380,7 +409,7 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
     }
   } catch (error) {
     if (error instanceof UsageError || (error as { code?: string }).code?.startsWith("ERR_PARSE_ARGS")) {
-      const usage = error instanceof UsageError && !error.showUsage ? "(`ahp --help` lists the commands and options)" : USAGE;
+      const usage = error instanceof UsageError && !error.showUsage ? "(`ahp --help` lists the commands and options)" : SHORT_USAGE;
       io.stderr(`ahp: ${(error as Error).message}\n\n${usage}`);
       return 2;
     }

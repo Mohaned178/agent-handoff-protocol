@@ -97,7 +97,7 @@ describe("ahp eval", () => {
   });
 
   it("lists eval among the commands", () => {
-    expect(ahp(["--help"], writeTree({})).stdout).toContain("eval <suite-file>");
+    expect(ahp(["--help", "--all"], writeTree({})).stdout).toContain("eval <suite-file>");
   });
 
   it("shuffles the trials by the --seed given, says so, and refuses a seed that is not an unsigned 32-bit integer", () => {
