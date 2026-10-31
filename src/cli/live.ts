@@ -6,7 +6,8 @@
 import { THIS_REPOSITORY, type LedgerEvent, type RunView, type StepView } from "../protocol/index.ts";
 import { TOOLS } from "../doctor/index.ts";
 import type { Prompter } from "../setup/index.ts";
-import { describeLastFailure, describeStop, formatEvent } from "./format.ts";
+import { describeStop, formatEvent } from "./format.ts";
+import { failureLineOf } from "./receipt.ts";
 import { span } from "./progress.ts";
 
 /** The terminal ahp writes to, when stdout is one. */
@@ -29,10 +30,10 @@ const CODES = { green: "\u001b[32m", red: "\u001b[31m", yellow: "\u001b[33m", cy
 type Paint = keyof typeof CODES;
 
 const FAILURE_WORDS: Record<string, string> = {
-  verification_failed: "its check failed",
-  agent_error: "the agent stopped with an error",
-  transient: "a temporary error",
-  config_auth: "a login or configuration problem",
+  verification_failed: "check failed",
+  agent_error: "agent error",
+  transient: "temporary error",
+  config_auth: "login or configuration problem",
 };
 
 export interface LiveViewOptions {
@@ -103,18 +104,17 @@ export class LiveView {
         const step = state.steps.find((s) => s.id === event.stepId);
         const attempt = step?.attempts.find((a) => a.id === event.attemptId);
         this.phase.set(event.stepId, "trying again");
+        // One line: why, in a word, and the line of its output that says what failed; the rest is `ahp inspect`'s.
         const why = FAILURE_WORDS[event.failureClass] ?? event.failureClass;
-        out.push([
-          this.line("yellow", "↻", event.stepId, `attempt ${attempt?.number ?? "?"} failed: ${why}; trying again`),
-          ...this.details(attempt ? describeLastFailure(attempt).slice(0, 12).map((l) => l.replace(/^ {2}/, "")) : [], "dim"),
-        ].join("\n"));
+        const detail = attempt ? failureLineOf(attempt) : null;
+        out.push(this.fit(this.line("yellow", "↻", event.stepId, `${why}${detail ? `: ${detail}` : ""} · trying again`)));
         break;
       }
       case "step_sent_back": {
         const step = this.stepOfAttempt(event.attemptId);
         const attempt = step?.attempts.find((a) => a.id === event.attemptId);
         const findings = attempt?.sentBack?.kind === "review" ? attempt.sentBack.findings : [];
-        out.push([this.line("yellow", "↩", event.reviewStepId, `asked for changes; ${step?.id ?? "the step before it"} goes back`), ...this.details(findings.map((f) => `| ${f}`), "dim")].join("\n"));
+        out.push(this.fit(this.line("yellow", "↩", event.reviewStepId, `asked for changes${findings.length > 0 ? `: ${findings.join("; ")}` : ""}`)));
         break;
       }
       case "approval_sent_back": {
@@ -131,11 +131,18 @@ export class LiveView {
       case "run_resumed":
         if (event.takenOverFrom) out.push(this.paint("yellow", `! ${formatEvent(event, state)}`));
         break;
-      // What needs a person, or is rare enough that the plain line says it best.
-      case "handoff_rejected":
-      case "attempt_unknown":
+      case "attempt_unknown": {
+        const step = this.stepOfAttempt(event.attemptId);
+        const attempt = step?.attempts.find((a) => a.id === event.attemptId);
+        out.push(this.fit(this.paint("yellow", `! ${step?.id ?? "?"}: attempt ${attempt?.number ?? "?"}'s outcome is unknown (${event.reason}); it is never retried automatically`)));
+        break;
+      }
+      // Its report and the commands are `ahp inspect`'s and the run's "next" line.
       case "recovery_report_written":
       case "recovery_awaited":
+        break;
+      // What needs a person, or is rare enough that the plain line says it best.
+      case "handoff_rejected":
       case "recovery_decided":
       case "ledger_truncated":
       case "run_cancel_requested":
@@ -157,9 +164,9 @@ export class LiveView {
     this.redraw();
   }
 
-  /** The heading of an approval request. */
-  approvalHeading(): string {
-    return this.paint("bold", `${this.paint("cyan", "?")} waiting for your approval`);
+  /** The heading of an approval request, with what it would approve when that could be read. */
+  approvalHeading(changes: string | null = null): string {
+    return `${this.paint("bold", `${this.paint("cyan", "?")} waiting for your approval`)}${changes ? `: ${changes}` : ""}`;
   }
 
   /** Prints `text` above the redrawn list. */
@@ -181,7 +188,7 @@ export class LiveView {
       for (const step of state.steps) if (step.state === "succeeded") this.done.add(step.id);
       return [];
     }
-    const lines = [`${this.paint("bold", `ahp · ${state.workflowName}`)} ${this.paint("dim", `· ${this.options.repo}`)}`, this.paint("dim", `run ${state.runId}`), ""];
+    const lines = [`${this.paint("bold", `ahp · ${state.workflowName}`)} ${this.paint("dim", `· ${this.options.repo} · ${state.runId}`)}`, ""];
     // A run picked up by this process: what it had already done.
     for (const step of state.steps) {
       if (step.state !== "succeeded") continue;
@@ -196,32 +203,33 @@ export class LiveView {
     if (!step) return null;
     this.done.add(stepId);
     const took = this.startedAt.has(stepId) ? span(this.now() - this.startedAt.get(stepId)!) : "";
-    const label = [this.who(step), took].filter(Boolean).join("   ");
-    if (step.state === "failed") {
-      const stop = describeStop(step, state);
-      return [this.line("red", "✗", stepId, label), ...this.details(stop ? stop.split("\n").map((l) => l.trim()) : [], "red")].join("\n");
-    }
-    if (step.state !== "succeeded") return this.line("dim", "○", stepId, `${step.state}${label ? `   ${label}` : ""}`);
     const last = step.attempts.at(-1);
+    const verdict = step.kind === "review" && step.state === "succeeded" ? last?.reportedOutput.verdict : undefined;
+    const label = [this.who(step), took, typeof verdict === "string" ? verdict.replace("_", " ") : ""].filter(Boolean).join(" · ");
+    if (step.state === "failed") {
+      // Why it stopped, and the line of the last failure that says what went wrong: the rest is `ahp inspect`'s.
+      const stop = describeStop(step, state)?.split("\n")[0]?.trim() ?? "";
+      const why = last ? failureLineOf(last) : null;
+      return [this.line("red", "✗", stepId, label), ...this.details([[stop, why].filter(Boolean).join(": ")].filter(Boolean).map((line) => this.fitText(line, 6)), "red")].join("\n");
+    }
+    if (step.state !== "succeeded") return this.line("dim", "○", stepId, `${step.state}${label ? ` · ${label}` : ""}`);
     const commit = last?.snapshot?.commit;
-    const notes: string[] = [];
-    if (last && last.number > 1) notes.push(`passed on attempt ${last.number}`);
-    const verdict = last?.reportedOutput.verdict;
-    if (step.kind === "review" && typeof verdict === "string") notes.push(`verdict: ${verdict}`);
     const heading = this.line("green", "✓", stepId, label);
-    if (!commit) return [heading, ...this.details(notes, "dim")].join("\n");
+    // A review's snapshot is the work it read: what changed is said once, by the step that changed it.
+    if (!commit || step.kind === "review") return heading;
     return async () => {
       const changes = await this.options.changesOf(commit).catch(() => null);
-      const shown = changes && changes !== "changed nothing" ? [changes, ...notes] : notes;
-      return [heading, ...this.details(shown, "dim")].join("\n");
+      return changes && changes !== "changed nothing" ? [heading, ...this.details([changes], "dim")].join("\n") : heading;
     };
   }
 
   private ending(state: Readonly<RunView>): string {
-    const took = span(this.now() - this.began);
+    // A view that went on after a decision at a gate began after the run did: the run's own start says how long it took.
+    const since = this.options.heading === false ? Date.parse(state.createdAt) : this.began;
+    const took = span(this.now() - since);
     if (state.state === "succeeded") return `\n${this.paint("green", "✓")} ${this.paint("bold", `run succeeded in ${took}`)}`;
     if (state.state === "cancelled") return `\n${this.paint("dim", `○ run cancelled after ${took}`)}`;
-    return `\n${this.paint("red", "✗")} ${this.paint("bold", `run ${state.state}`)}\n  ${this.paint("dim", `every attempt, handoff and verification: ahp inspect ${state.runId}`)}`;
+    return `\n${this.paint("red", "✗")} ${this.paint("bold", `run ${state.state.replace("_", " ")}`)}`;
   }
 
   /** Who did a step: the tool and the model asked for; for a gate who decided it, for an action what it did. */
@@ -234,9 +242,7 @@ export class LiveView {
       const target = step.action?.target;
       if (!target || step.state !== "succeeded") return "";
       const already = step.action?.performed === null;
-      if (target.kind === "push_branch" && target.remote === THIS_REPOSITORY) {
-        return `${already ? "branch already here" : "made branch"} ${target.branch}: \`git merge ${target.branch}\` takes it into your branch`;
-      }
+      if (target.kind === "push_branch" && target.remote === THIS_REPOSITORY) return `${already ? "branch already here:" : "made branch"} ${target.branch}`;
       if (target.kind === "push_branch") return already ? `${target.branch} was already on ${target.remote}` : `pushed ${target.branch} to ${target.remote}`;
       return target.kind === "open_pr" ? "pull request open" : "pull request merged";
     }
@@ -256,6 +262,19 @@ export class LiveView {
 
   private line(color: Paint, symbol: string, stepId: string, text: string): string {
     return `  ${this.paint(color, symbol)} ${stepId.padEnd(this.width)}${text}`.trimEnd();
+  }
+
+  /** `text` cut to the terminal's width at `indent` columns in, with "…" where it was cut; never wrapped. */
+  private fitText(text: string, indent: number): string {
+    const room = Math.max(this.term.columns(), 20) - 1 - indent;
+    return text.length > room ? `${text.slice(0, room - 1)}…` : text;
+  }
+
+  /** A printed line cut to the terminal's width, its colour codes kept out of the count. */
+  private fit(line: string): string {
+    const plain = line.replace(/\u001b\[[0-9;]*m/g, "");
+    const room = Math.max(this.term.columns(), 20) - 1;
+    return plain.length > room ? `${plain.slice(0, room - 1)}…` : line;
   }
 
   private details(lines: readonly string[], color: Paint): string[] {

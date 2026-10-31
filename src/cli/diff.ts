@@ -42,11 +42,15 @@ export function describeChanges(changes: readonly FileChange[]): string {
 
 const COLORS = { add: "\u001b[32m", remove: "\u001b[31m", hunk: "\u001b[36m", file: "\u001b[1m", reset: "\u001b[0m" };
 
+/** git's lines about a file's metadata, which a person reading the change does not need: the `---`/`+++` lines name it. */
+const METADATA = /^(diff --git |index |new file mode |deleted file mode |old mode |new mode |similarity index )/;
+
 /**
  * A diff for the terminal, indented, colored when `color`, and cut at `maxLines` with `more` saying where the rest is.
+ * `brief` leaves out git's metadata lines (the compact view's gate).
  */
-export function formatDiff(diff: string, { color, maxLines = MAX_DIFF_LINES, more }: { color: boolean; maxLines?: number; more: string }): string {
-  const lines = diff.replace(/\n$/, "").split("\n");
+export function formatDiff(diff: string, { color, maxLines = MAX_DIFF_LINES, more, brief = false }: { color: boolean; maxLines?: number; more: string; brief?: boolean }): string {
+  const lines = diff.replace(/\n$/, "").split("\n").filter((line) => !brief || !METADATA.test(line));
   const paint = (line: string) => {
     if (!color) return line;
     const code = line.startsWith("diff --git") || line.startsWith("+++") || line.startsWith("---")

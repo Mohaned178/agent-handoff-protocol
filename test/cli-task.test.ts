@@ -47,12 +47,12 @@ describe("ahp \"<task>\": the summary", () => {
 
     expect(run.code).toBe(0);
     expect(run.stdout).toMatch(/task\s+fix the cart total/);
-    expect(run.stdout).toMatch(/check\s+npm test\s+\(from package\.json\)/);
-    expect(run.stdout).toMatch(/install\s+npm ci\s+\(from package-lock\.json\)/);
-    expect(run.stdout).toMatch(/implement\s+Mock \(scripted\)\s+no real agent: its output is no evidence/);
-    expect(run.stdout).toMatch(/review\s+Mock \(scripted\)/);
+    expect(run.stdout).toMatch(/check\s+npm test\s+package\.json\n/);
+    expect(run.stdout).toMatch(/install\s+npm ci\s+package-lock\.json\n/);
+    expect(run.stdout).toMatch(/implement\s+mock\s+scripted, not a real agent/);
+    expect(run.stdout).toMatch(/review\s+mock\s/);
     expect(run.stdout).not.toMatch(/^\s+plan\s/m);
-    expect(run.stdout).toMatch(/result\s+local branch ahp\/fix-the-cart-total\s+\(nothing is pushed\)/);
+    expect(run.stdout).toMatch(/result\s+branch ahp\/fix-the-cart-total, local only/);
     expect(prompter.asked).toEqual(["Run it?"]);
     expect(run.stdout).toContain("cancelled: nothing was started");
     expect(await runsOf(repo)).toBe(0);
@@ -65,7 +65,7 @@ describe("ahp \"<task>\": the summary", () => {
 
     const run = await ahpHere([TASK, "--mock", "--check", "node check.mjs"], repo, person(["cancel"]));
 
-    expect(run.stdout).toContain("agents work from your last commit; 2 changed files are not in it");
+    expect(run.stdout).toContain("2 files not committed: the agents will not see them");
   });
 
   it("adds the plan step with --plan, and numbers the branch when its name is taken", async () => {
@@ -74,9 +74,9 @@ describe("ahp \"<task>\": the summary", () => {
 
     const run = await ahpHere([TASK, "--mock", "--plan", "--check", "node check.mjs"], repo, person(["cancel"]));
 
-    expect(run.stdout).toMatch(/plan\s+Mock \(scripted\)/);
+    expect(run.stdout).toMatch(/plan\s+mock\s/);
     expect(run.stdout.indexOf("plan ")).toBeLessThan(run.stdout.indexOf("implement "));
-    expect(run.stdout).toContain("local branch ahp/fix-the-cart-total-2");
+    expect(run.stdout).toContain("branch ahp/fix-the-cart-total-2, local only");
   });
 });
 
@@ -89,7 +89,7 @@ describe("ahp \"<task>\": running it", () => {
 
     expect(run.code, run.stdout).toBe(0);
     expect(prompter.asked[0]).toMatch(/no command that checks the work/);
-    expect(run.stdout).toMatch(/check\s+node check\.mjs\s+\(you typed it\)/);
+    expect(run.stdout).toMatch(/check\s+node check\.mjs\s+typed by you/);
     expect(git(repo, "show", "ahp/fix-the-cart-total:AHP-MOCK.md")).toContain(TASK);
     // No file was written: the workflow is the run's, in its ledger.
     expect(git(repo, "status", "--porcelain")).toBe("");
@@ -104,7 +104,7 @@ describe("ahp \"<task>\": running it", () => {
     const run = await ahpHere([TASK, "--mock"], repo, person(["none", "run", "approve"]));
 
     expect(run.code, run.stdout).toBe(0);
-    expect(run.stdout).toMatch(/check\s+none: review only\s+\(not verified: no check command\)/);
+    expect(run.stdout).toMatch(/check\s+none: review only\s+not verified/);
     expect(git(repo, "show", "ahp/fix-the-cart-total:AHP-MOCK.md")).toContain(TASK);
   });
 
@@ -115,8 +115,20 @@ describe("ahp \"<task>\": running it", () => {
 
     // No one at a terminal decides the gate: the run waits there, its implement step verified by `npm test`.
     expect(run.code, run.stdout).toBe(4);
-    expect(run.stdout).toMatch(/install\s+npm install\s+\(from package\.json\)/);
+    expect(run.stdout).toMatch(/install\s+npm install\s+package\.json/);
     expect(run.stdout).toMatch(/step implement: verifying \[mock\]: npm test\n(.*\n)*step implement: verification pass /);
+  });
+
+  it("fails cleanly with --mock when the project's check fails, rather than leaving an attempt unknown", async () => {
+    const repo = plainProject({ "red.mjs": "process.exit(1);\n" });
+
+    const run = await ahpHere([TASK, "--mock", "--yes", "--check", "node red.mjs"], repo, null);
+
+    // The mock's scripts cover every attempt the retry budget allows, so the step fails as a step does.
+    expect(run.code, run.stdout).toBe(1);
+    expect(run.stdout).not.toContain("unknown");
+    const [listed] = await listRuns({ repo });
+    expect(listed?.state?.steps.find((step) => step.id === "implement")?.attempts).toHaveLength(3);
   });
 
   it("runs with --yes and no terminal, and stops at the gate for `ahp approve`", async () => {
@@ -125,7 +137,7 @@ describe("ahp \"<task>\": running it", () => {
     const run = await ahpHere([TASK, "--mock", "--yes", "--check", "node check.mjs"], repo, null);
 
     expect(run.code, run.stdout).toBe(4);
-    expect(run.stdout).toMatch(/check\s+node check\.mjs\s+\(--check\)/);
+    expect(run.stdout).toMatch(/check\s+node check\.mjs\s+--check/);
     expect(run.stdout).toContain("ahp approve");
   });
 
@@ -136,7 +148,7 @@ describe("ahp \"<task>\": running it", () => {
     const run = await ahpHere([TASK, "--mock", "--push", "--check", "node check.mjs"], repo, person(["run", "approve"]));
 
     expect(run.code, run.stdout).toBe(0);
-    expect(run.stdout).toMatch(/result\s+branch ahp\/fix-the-cart-total\s+\(pushed to origin once you approve\)/);
+    expect(run.stdout).toMatch(/result\s+branch ahp\/fix-the-cart-total, pushed to origin once you approve/);
     expect(remoteBranch(remote, "ahp/fix-the-cart-total")).not.toBeNull();
   });
 

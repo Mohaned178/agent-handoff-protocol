@@ -34,17 +34,22 @@ export function stepsOf(plan: boolean): Role[] {
   return plan ? ["plan", "implement", "review"] : ["implement", "review"];
 }
 
+/**
+ * Attempts the mock has a script for, per step: every attempt the default retry budget (2) allows. With fewer, an
+ * attempt after a failed check would have no script, could not start, and would be unknown instead of failing.
+ */
+const MOCK_ATTEMPTS = 3;
+
 /** What the mock plays for a task it knows nothing about: it shows the flow and does none of the work. */
 export function mockScripts(task: string): Record<Role, MockAttemptScript[]> {
+  const times = (script: MockAttemptScript) => Array.from({ length: MOCK_ATTEMPTS }, () => script);
   return {
-    plan: [{ outputFields: { summary: "Scripted plan: the mock does not read the task.", decisions: ["none: the mock decides nothing"] } }],
-    implement: [
-      {
-        edits: [{ path: "AHP-MOCK.md", content: `The scripted mock adapter stood in for a coding agent here. It did not do this task:\n\n${task}\n` }],
-        outputFields: { summary: "Scripted: wrote AHP-MOCK.md and nothing else." },
-      },
-    ],
-    review: [{ outputFields: { verdict: "approved", findings: "Scripted: the mock approves without reading." } }],
+    plan: times({ outputFields: { summary: "Scripted plan: the mock does not read the task.", decisions: ["none: the mock decides nothing"] } }),
+    implement: times({
+      edits: [{ path: "AHP-MOCK.md", content: `The scripted mock adapter stood in for a coding agent here. It did not do this task:\n\n${task}\n` }],
+      outputFields: { summary: "Scripted: wrote AHP-MOCK.md and nothing else." },
+    }),
+    review: times({ outputFields: { verdict: "approved", findings: "Scripted: the mock approves without reading." } }),
   };
 }
 
@@ -114,43 +119,39 @@ export function renderTaskRun(run: TaskRun): string {
 }
 
 const COLUMN = 26;
-const toolName = (assignment: RoleAssignment) => (assignment.tool === null ? "Mock (scripted)" : (TOOLS.find((tool) => tool.id === assignment.tool)?.name ?? assignment.adapter));
+const toolName = (assignment: RoleAssignment) => (assignment.tool === null ? "mock" : (TOOLS.find((tool) => tool.id === assignment.tool)?.name ?? assignment.adapter));
 
+/** Where a command came from, in a word or two: the file it was found in, `--check`, or typed at the question. */
 function sourceOf(found: Inferred): string {
-  if (found.source === CHECK_FROM_FLAG) return "(--check)";
-  if (found.source === CHECK_TYPED) return "(you typed it)";
-  return `(from ${found.source})`;
+  if (found.source === CHECK_TYPED) return "typed by you";
+  return found.source;
 }
 
 function castLine(assignment: RoleAssignment): string {
-  if (assignment.tool === null) return "no real agent: its output is no evidence";
-  const model = assignment.model ?? "its default model";
+  if (assignment.tool === null) return "scripted, not a real agent";
+  const model = `${assignment.model ?? "default model"}${assignment.effort ? `, effort ${assignment.effort}` : ""}`;
   // A default set aside says why up to the casting's own reason: "your default, OpenCode, is not usable here".
-  const mine = assignment.reason === YOUR_DEFAULT ? "  (your default)" : assignment.reason.startsWith(`${YOUR_DEFAULT}, `) ? `  (${assignment.reason.split(";")[0]})` : "";
-  return `${model}${assignment.effort ? `, effort ${assignment.effort}` : ""}${mine}`;
+  if (assignment.reason === YOUR_DEFAULT) return `${model} · your default`;
+  if (assignment.reason.startsWith(`${YOUR_DEFAULT}, `)) return `${model} · ${assignment.reason.split(";")[0]}`;
+  return model;
 }
 
 /**
  * What `ahp "<task>"` is about to do, every answer with where it came from: shown before anything runs, so a wrong guess
- * is seen. `uncommitted` is how many files differ from the last commit, which the agents never see.
+ * is seen, and short enough to read at a glance. `uncommitted` is how many files differ from the last commit, which the
+ * agents never see.
  */
 export function formatTaskSummary(run: TaskRun, uncommitted: number): string {
   const row = (label: string, value: string, note = "") => `  ${label.padEnd(10)} ${note ? value.padEnd(COLUMN) : value}${note ? ` ${note}` : ""}`;
   const lines = [row("task", run.task)];
   if (run.check) {
     lines.push(row("check", run.check.command, sourceOf(run.check)));
-    lines.push(run.install ? row("install", run.install.command, sourceOf(run.install)) : row("install", "none"));
+    if (run.install) lines.push(row("install", run.install.command, sourceOf(run.install)));
   } else {
-    lines.push(row("check", "none: review only", "(not verified: no check command)"));
+    lines.push(row("check", "none: review only", "not verified"));
   }
   for (const assignment of run.assignments) lines.push(row(assignment.role, toolName(assignment), castLine(assignment)));
-  lines.push(
-    run.remote === THIS_REPOSITORY
-      ? row("result", `local branch ${run.branch}`, "(nothing is pushed)")
-      : row("result", `branch ${run.branch}`, `(pushed to ${run.remote} once you approve)`),
-  );
-  if (uncommitted > 0) {
-    lines.push(row("note", `agents work from your last commit; ${uncommitted} changed ${uncommitted === 1 ? "file is" : "files are"} not in it`));
-  }
+  lines.push(row("result", run.remote === THIS_REPOSITORY ? `branch ${run.branch}, local only` : `branch ${run.branch}, pushed to ${run.remote} once you approve`));
+  if (uncommitted > 0) lines.push(row("note", `${uncommitted} ${uncommitted === 1 ? "file" : "files"} not committed: the agents will not see them`));
   return lines.join("\n");
 }

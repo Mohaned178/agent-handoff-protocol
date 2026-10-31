@@ -19,27 +19,33 @@ AHP drives the coding agent CLIs you already use (Claude Code, Codex CLI and Ope
 $ ahp "fix the bug where the cart total ignores quantity"
 
   task       fix the bug where the cart total ignores quantity
-  check      npm test                   (from package.json)
-  install    npm ci                     (from package-lock.json)
-  implement  Codex CLI                  its default model
-  review     Claude Code                opus  (your default)
-  result     local branch ahp/fix-the-bug-where-the (nothing is pushed)
+  check      npm test                   package.json
+  install    npm ci                     package-lock.json
+  implement  Codex CLI                  default model
+  review     Claude Code                opus · your default
+  result     branch ahp/fix-the-bug-where-the, local only
 ? Run it?  ❯ Run   Change something   Cancel
 ```
 
-Every run ends with a receipt of what the checks caught. The one below is **illustrative**: no receipt from a real run is published here yet.
+Each step gets one line while it runs, and the run ends with what the checks caught. The run below is **illustrative**: no output from a real run is published here yet.
 
 ```
-what the checks found (from the run's ledger: an agent's report is a claim, a check decides):
-  implement: verified: `npm test` passed in a clean copy
-  implement: the agent reported done 1 time before its check passed:
-    attempt 1: ✖ total() multiplies each price by its quantity
-  implement: sent back by review (attempt 2):
-    | total() still ignores quantity for discounted items
-    the next review approved the revision
-usage, as each tool reported it (per adapter, not summed across adapters; nothing is estimated):
+  ↻ implement   check failed: ✖ total() multiplies each price by its quantity · trying again
+  ✓ implement   Codex CLI · 2m 10s
+      changed src/cart.mjs (+11 -3)
+  ↩ review      asked for changes: total() still ignores quantity for discounted items
+  ✓ implement   Codex CLI · 1m 32s
+      changed src/cart.mjs (+14 -3)
+  ✓ review      Claude Code (opus) · 48s · approved
+? waiting for your approval: changed src/cart.mjs (+14 -3)
   ...
+✓ run succeeded in 6m 2s
+  ✓ implement: `npm test` passed · after one failed attempt · sent back once, approved after
+  usage: ... (as each tool reported it)
+  next: git merge ahp/fix-the-bug-where-the
 ```
+
+`ahp inspect` shows the full record: every attempt, its check's output, the review's findings and each tool's reported usage with its source.
 
 > [!NOTE]
 > AHP is in early development. Workflows run end to end with Claude Code, Codex CLI and OpenCode on Windows, and with Claude Code on Linux too. macOS is untested. See the [support matrix](docs/support-matrix.md).
@@ -122,19 +128,19 @@ Without a terminal (a script, CI), `--yes` runs it without asking; the run then 
 
 ## What a run looks like
 
-Each step gets one line. The step at work shows a spinner, its tool, the time so far and what the agent is doing. When a step ends, its result stays on screen with what it changed. Failures say why and what happens next:
+Each step gets one line. The step at work shows a spinner, its tool, the time so far and what the agent is doing. When a step ends, its result stays on screen with what it changed. A failure says why in one line, and the run's end names the command to run next:
 
 ```
-  ✓ plan        Claude Code (haiku)   18s
-  ↻ implement   attempt 1 failed: its check failed; trying again
-      last attempt att_mvsq8fqw2f8f8d80 failed verification: npm test
-      | SyntaxError: The requested module '../src/cart.mjs' does not provide an export named 'applyDiscount'
-  ↻ implement   attempt 2 failed: the agent stopped with an error; trying again
-  ✗ implement   Codex CLI   1m 13s
-      retry budget spent
+  ✓ plan        Claude Code (haiku) · 18s
+  ↻ implement   check failed: SyntaxError: The requested module '../src/cart.mjs' does not provide an export… · trying again
+  ↻ implement   agent error: the agent stopped with an error · trying again
+  ✗ implement   Codex CLI · 1m 13s
+      retry budget spent: SyntaxError: The requested module '../src/cart.mjs' does not provide an export named…
 
 ✗ run failed
-  every attempt, handoff and verification: ahp inspect run_mvsq81d8c54ae7cc
+  ✗ implement: `npm test` failed on 2 attempts
+  usage: codex ... (as each tool reported it)
+  next: ahp inspect run_mvsq81d8c54ae7cc shows every attempt and its evidence
 ```
 
 At the approval gate you choose one of these:

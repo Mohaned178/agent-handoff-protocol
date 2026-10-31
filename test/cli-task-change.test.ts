@@ -71,7 +71,7 @@ describe("changing a step in the summary's menu", () => {
       "Use Claude Code (opus, effort high) for review next time?",
       "Run it?",
     ]);
-    expect(lineOf(run.stdout, "review")).toMatch(/Claude Code\s+opus, effort high\s+\(your default\)/);
+    expect(lineOf(run.stdout, "review")).toMatch(/Claude Code\s+opus, effort high · your default/);
     expect(savedSettings()).toEqual({ steps: { review: { tool: "claude-code", model: "opus", effort: "high" } } });
     expect(await listRuns({ repo })).toEqual([]);
   });
@@ -79,7 +79,7 @@ describe("changing a step in the summary's menu", () => {
   it("saves nothing when the person says no to next time", async () => {
     const run = await ahpHere([TASK, ...CHECK], project(), person(["change", "implement", "claude-code", null, null, false, "cancel"]));
 
-    expect(lineOf(run.stdout, "implement")).toMatch(/Claude Code\s+its default model$/);
+    expect(lineOf(run.stdout, "implement")).toMatch(/Claude Code\s+default model$/);
     expect(existsSync(settingsPath())).toBe(false);
   });
 });
@@ -90,14 +90,14 @@ describe("changing a step with flags", () => {
 
     expect(run.code, run.stdout).toBe(0);
     expect(lineOf(run.stdout, "review")).toMatch(/Claude Code\s+opus$/);
-    expect(lineOf(run.stdout, "implement")).toMatch(/Codex CLI\s+its default model, effort low$/);
+    expect(lineOf(run.stdout, "implement")).toMatch(/Codex CLI\s+default model, effort low$/);
     expect(existsSync(settingsPath())).toBe(false);
   });
 
   it("adds the plan step when a plan flag names its tool", async () => {
     const run = await ahpHere([TASK, ...CHECK, "--plan", "codex"], project(), person(["cancel"]));
 
-    expect(lineOf(run.stdout, "plan")).toMatch(/Codex CLI\s+its default model$/);
+    expect(lineOf(run.stdout, "plan")).toMatch(/Codex CLI\s+default model$/);
   });
 
   it.each<[string, string[], string]>([
@@ -123,8 +123,8 @@ describe("saved defaults", () => {
 
     const run = await ahpHere([TASK, ...CHECK, "--implement", "codex"], project(), person(["cancel"]));
 
-    expect(lineOf(run.stdout, "review")).toMatch(/Claude Code\s+opus\s+\(your default\)/);
-    expect(lineOf(run.stdout, "implement")).toMatch(/Codex CLI\s+its default model$/);
+    expect(lineOf(run.stdout, "review")).toMatch(/Claude Code\s+opus · your default/);
+    expect(lineOf(run.stdout, "implement")).toMatch(/Codex CLI\s+default model$/);
   });
 
   it("fall back to AHP's casting when their tool is no longer usable, and the summary says so", async () => {
@@ -132,7 +132,7 @@ describe("saved defaults", () => {
 
     const run = await ahpHere([TASK, ...CHECK], project(), person(["cancel"]));
 
-    expect(lineOf(run.stdout, "review")).toMatch(/Claude Code\s+its default model\s+\(your default, OpenCode, is not usable here\)/);
+    expect(lineOf(run.stdout, "review")).toMatch(/Claude Code\s+default model · your default, OpenCode, is not usable here/);
   });
 
   it("are left out, and said to be, when the file cannot be read", async () => {

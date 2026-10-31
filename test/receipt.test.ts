@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { main } from "../src/cli/main.ts";
-import { formatReceipt } from "../src/cli/receipt.ts";
+import { formatBriefReceipt, formatReceipt, nextStepOf } from "../src/cli/receipt.ts";
 import { defineWorkflow, mock, runWorkflow, type MockAttemptScript, type StepDefinition } from "../src/index.ts";
 import { createTempRepo, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
 import { goodbye, hello, retryWorkflow } from "./helpers/retry.ts";
@@ -140,5 +140,38 @@ describe("the receipt in the CLI", () => {
     const inspect = await ahpHere(["inspect", runId]);
 
     expect(inspect.stdout.split("\n").slice(1, 5).join("\n")).toBe(receipt.split("\n").map((line) => `  ${line}`).join("\n"));
+  });
+});
+
+describe("the short receipt a terminal shows", () => {
+  it("says each check in one line, with its failed attempts and send-backs, then usage", async () => {
+    const { state } = await runWorkflow(reviewed([done(goodbye), done(hello), done(hello)], [changes, approve]), { repo: repo() });
+
+    expect(formatBriefReceipt(state)).toEqual([
+      "✓ implement: `node verify.mjs` passed · after one failed attempt · sent back once, approved after",
+      "usage: mock reported none",
+    ]);
+  });
+
+  it("says the work is not verified when no step ran a check, and names a refusal", async () => {
+    const unchecked = defineWorkflow({ name: "unchecked", steps: [{ id: "implement", agent: mock({ attempts: [done(hello)] }), verification: { requiredOutputFields: ["summary"] } }] });
+    expect(formatBriefReceipt((await runWorkflow(unchecked, { repo: repo() })).state)[0]).toBe("! not verified: no check command");
+
+    const tampered: MockAttemptScript = { edits: [{ path: "verify.mjs", content: "process.exit(0);\n" }] };
+    const { state } = await runWorkflow(retryWorkflow([tampered, hello], { verification: { command: "node verify.mjs", protectedPaths: ["verify.mjs"] } }), { repo: repo() });
+    expect(formatBriefReceipt(state)).toContain("! implement: attempt 1 changed a protected path (modified verify.mjs), so its check was not run");
+  });
+
+  it("shortens reported numbers and keeps their source", async () => {
+    const reported: MockAttemptScript = { ...hello, usage: { inputTokens: 18_240, outputTokens: 2_100, cost: { amount: 0.25, currency: "USD" } } };
+
+    const { state } = await runWorkflow(retryWorkflow([reported]), { repo: repo() });
+
+    expect(formatBriefReceipt(state).at(-1)).toMatch(/^usage: mock 18\.2k in · 2\.1k out · 0\.25 USD \(as reported; .+\)$/);
+  });
+
+  it("names the one command to run next, by how the run stopped", async () => {
+    expect(nextStepOf((await runWorkflow(retryWorkflow([goodbye], { retry: { budget: 0 } }), { repo: repo() })).state)).toMatch(/^ahp inspect run_[a-z0-9]+ shows every attempt and its evidence$/);
+    expect(nextStepOf((await runWorkflow(retryWorkflow([hello]), { repo: repo() })).state)).toBeNull();
   });
 });

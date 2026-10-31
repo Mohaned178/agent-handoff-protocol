@@ -24,6 +24,7 @@ import { demosRoot, evaluationsRoot, git, locateRepo, settingsPath, toolCallLogP
 import { changesBetween, describeChanges, diffBetween, formatDiff } from "./diff.ts";
 import { watchProgress } from "./progress.ts";
 import { describeApprovalChoices, formatEvent, formatReceipt, formatRun, formatRuns, formatUnresumed, MOCK_NOTE } from "./format.ts";
+import { formatBriefReceipt, nextStepOf } from "./receipt.ts";
 import { LiveView, type Terminal } from "./live.ts";
 import { formatDoctor, formatInit } from "./format-doctor.ts";
 import { formatEvaluationEvent } from "./format-evaluation.ts";
@@ -462,16 +463,18 @@ async function followRun<R>(io: Io, repo: string, execute: (following: Following
         if (live && event.type === "approval_requested") {
           print(async () => {
             const found = await location;
-            const lines = [live.approvalHeading()];
+            const lines: string[] = [];
+            let changes: string | null = null;
             if (found) {
               try {
-                lines.push(`  what you are approving: ${describeChanges(await changesBetween(found.repo, current.baseCommit, event.commit))}`);
+                changes = describeChanges(await changesBetween(found.repo, current.baseCommit, event.commit));
                 const diff = await diffBetween(found.repo, current.baseCommit, event.commit);
-                if (diff) lines.push(formatDiff(diff, { color, more: `ahp inspect ${current.runId}` }));
+                if (diff) lines.push(formatDiff(diff, { color, more: `ahp inspect ${current.runId}`, brief: true }));
               } catch {
                 // The diff is shown where it can be read; the decision does not depend on it.
               }
             }
+            lines.unshift(live.approvalHeading(changes));
             if (!io.terminal?.prompter) lines.push(`  ${describeApprovalChoices(current.runId, event.stepId)}`);
             return lines.join("\n");
           });
@@ -540,10 +543,19 @@ async function followRun<R>(io: Io, repo: string, execute: (following: Following
     live?.stop();
     interrupt.release();
     // Once the run stops here, not at a gate the person decides in place: the run goes on then, and says it at its end.
-    // What the checks found, and the usage (`receipt.ts`).
-    if (last && !waitsHere) io.stdout(formatReceipt(last));
-    if (usedMock && !waitsHere) io.stdout(MOCK_NOTE);
+    // What the checks found, and the usage (`receipt.ts`): briefly in the compact view, in full in the plain log.
+    if (last && !waitsHere) io.stdout(endOfRun(last, usedMock, live !== null));
   }
+}
+
+/**
+ * What a run's end says once it stops in this process: in a terminal, a line per check, a line of usage per tool, the
+ * one command to run next and a short mock note; elsewhere the full receipt and note, for logs and scripts.
+ */
+function endOfRun(state: Readonly<RunView>, usedMock: boolean, compact: boolean): string {
+  if (!compact) return [formatReceipt(state), ...(usedMock ? [MOCK_NOTE] : [])].join("\n");
+  const next = nextStepOf(state);
+  return [...formatBriefReceipt(state), ...(next ? [`next: ${next}`] : []), ...(usedMock ? ["scripted mock agents: their results are not evidence"] : [])].map((line) => `  ${line}`).join("\n");
 }
 
 /**
@@ -588,7 +600,7 @@ async function decideHere(io: Io, repo: string, state: Readonly<RunView>, diff: 
     if (choice === null || choice === "later" || reason === null) {
       io.stdout(`  ${describeApprovalChoices(runId, gate.id)}`);
       // The run stops here after all: its receipt so far, as `followRun` would have said.
-      io.stdout(formatReceipt(current));
+      io.stdout(endOfRun(current, current.mock, io.terminal?.compact === true));
       break;
     }
     ({ state: current } = await followRun(io, repo, (following) =>

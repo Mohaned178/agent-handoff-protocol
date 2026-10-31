@@ -144,7 +144,8 @@ describe("ahp with no command", () => {
     // What was in the folder is the first commit; the approved work is on a branch here, for the person to merge.
     expect(git(dir, "show", "HEAD:README.md")).toBe("my project");
     expect(git(dir, "show", "ahp/reset:src/password-reset.mjs")).toContain("export function resetPassword");
-    expect(run.stdout).toContain("made branch ahp/reset: `git merge ahp/reset` takes it into your branch");
+    expect(run.stdout).toContain("✓ publish     made branch ahp/reset");
+    expect(run.stdout).toContain("next: git merge ahp/reset");
   });
 
   it("changes nothing when the person says no", async () => {

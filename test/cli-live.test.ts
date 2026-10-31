@@ -67,34 +67,46 @@ describe("the compact run view in a terminal", () => {
     const run = await inTerminal(["run", join(repo, "workflow.mjs")], repo);
 
     expect(run.code).toBe(0);
-    expect(run.stdout).toContain(`ahp · greeting · ${repo}`);
-    expect(run.stdout).toMatch(/\n {2}✓ implement {3}mock {3}\d+s\n {6}changed greeting\.txt \(\+1 -0\)\n/);
-    expect(run.stdout).toMatch(/✓ run succeeded in \d+s/);
+    expect(run.stdout).toMatch(new RegExp(`ahp · greeting · ${repo.replaceAll("\\", "\\\\")} · run_[a-z0-9]+\\n`));
+    expect(run.stdout).toMatch(/\n {2}✓ implement {3}mock · \d+s\n {6}changed greeting\.txt \(\+1 -0\)\n/);
+    expect(run.stdout).toMatch(/✓ run succeeded in \d+s\n {2}✓ implement: `node verify\.mjs` passed\n {2}usage: mock reported none\n/);
     expect(run.stdout).not.toContain("handoff");
     expect(run.stdout).not.toContain("shared refs");
     expect(run.stdout).not.toContain("repository:");
   });
 
-  it("says why an attempt is retried, with what its check printed", async () => {
+  it("says in one line why an attempt is retried, with the line of its check's output that says what failed", async () => {
     const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING, "workflow.mjs": workflow([wrong, hello]) });
 
     const run = await inTerminal(["run", join(repo, "workflow.mjs")], repo);
 
     expect(run.code).toBe(0);
-    expect(run.stdout).toContain("↻ implement   attempt 1 failed: its check failed; trying again");
-    expect(run.stdout).toContain("| greeting missing or wrong");
-    expect(run.stdout).toContain("passed on attempt 2");
+    expect(run.stdout).toContain("\n  ↻ implement   check failed: greeting missing or wrong · trying again\n  ✓ implement");
+    expect(run.stdout).toContain("✓ implement: `node verify.mjs` passed · after one failed attempt");
   });
 
-  it("marks a failed step and says why it stopped", async () => {
+  it("marks a failed step, says why it stopped in one line, and names the command that shows the rest", async () => {
     const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING, "workflow.mjs": workflow([wrong], { budget: 0 }) });
 
     const run = await inTerminal(["run", join(repo, "workflow.mjs")], repo);
 
     expect(run.code).toBe(1);
-    expect(run.stdout).toMatch(/✗ implement {3}mock/);
-    expect(run.stdout).toContain("retry budget spent");
-    expect(run.stdout).toMatch(/✗ run failed\n {2}every attempt, handoff and verification: ahp inspect run_/);
+    expect(run.stdout).toMatch(/✗ implement {3}mock · \d+s\n {6}retry budget spent: greeting missing or wrong\n/);
+    expect(run.stdout).toMatch(/✗ run failed\n {2}✗ implement: `node verify\.mjs` failed on one attempt\n/);
+    expect(run.stdout).toMatch(/next: ahp inspect run_[a-z0-9]+ shows every attempt and its evidence/);
+  });
+
+  it("keeps to its text budget: no line wider than the terminal, and a short end", async () => {
+    const long = { edits: [{ path: "greeting.txt", content: "goodbye\n" }], outputFields: { summary: "x" } };
+    const repo = createTempRepo({ "verify.mjs": `console.log("${"a very long failing line ".repeat(10)}"); process.exit(1);\n`, "workflow.mjs": workflow([long, long, long]) });
+
+    const run = await inTerminal(["run", join(repo, "workflow.mjs")], repo);
+
+    // The terminal is 100 columns; a long repository path in the heading is the one line allowed to run on.
+    const lines = run.stdout.split("\n").filter((line) => !line.startsWith("ahp · "));
+    expect(lines.filter((line) => line.length > 100)).toEqual([]);
+    const end = run.stdout.slice(run.stdout.indexOf("✗ run failed")).split("\n").slice(1);
+    expect(end.length).toBeLessThanOrEqual(5);
   });
 
   it("prints the whole log with --verbose", async () => {
@@ -135,14 +147,13 @@ describe("deciding a gate in place", () => {
     expect(run.code).toBe(0);
     expect(prompter.asked).toEqual(["Approve this change?", "Approve this change?", "Why? (the agent is given this)", "Approve this change?"]);
     expect(run.stdout).toContain("↩ approve     rejected; implement goes back with your reason");
-    expect(run.stdout.match(/✓ implement/g)).toHaveLength(2); // the first attempt, then the revision
+    expect(run.stdout.match(/✓ implement {3}/g)).toHaveLength(2); // the first attempt, then the revision
     expect(run.stdout.match(/ahp · greeting/g)).toHaveLength(1);
-    expect(run.stdout.match(/note: this run used the mock adapter/g)).toHaveLength(1);
+    expect(run.stdout.match(/scripted mock agents: their results are not evidence/g)).toHaveLength(1);
     expect(run.stdout.match(/\? waiting for your approval/g)).toHaveLength(2);
-    // Usage is summed once, at the run's end, over both attempts: not at each gate the person decided.
-    expect(run.stdout.match(/usage, as each tool reported it/g)).toHaveLength(1);
-    expect(run.stdout.indexOf("usage, as each tool reported it")).toBeGreaterThan(run.stdout.search(/✓ run succeeded/));
-    expect(run.stdout).toContain("  mock: none reported by 2 attempts");
+    // Usage is said once, at the run's end, over both attempts: not at each gate the person decided.
+    expect(run.stdout.match(/usage: mock/g)).toHaveLength(1);
+    expect(run.stdout.indexOf("usage: mock reported none")).toBeGreaterThan(run.stdout.search(/✓ run succeeded/));
   });
 
   it("leaves the run waiting, with the commands to decide it, when the person decides later", async () => {
@@ -152,7 +163,7 @@ describe("deciding a gate in place", () => {
 
     expect(run.code).toBe(4);
     expect(run.stdout).toMatch(/`ahp approve run_[a-z0-9]+ approve` lets the run go on/);
-    expect(run.stdout.match(/usage, as each tool reported it/g)).toHaveLength(1);
+    expect(run.stdout.match(/usage: mock/g)).toHaveLength(1);
   });
 
   it("prints the commands instead of asking when no one can answer", async () => {
