@@ -162,6 +162,14 @@ describe("the short receipt a terminal shows", () => {
     expect(formatBriefReceipt(state)).toContain("! implement: attempt 1 changed a protected path (modified verify.mjs), so its check was not run");
   });
 
+  it("says a step ended before its check ran, never that there was no check (a usage limit, found dogfooding)", async () => {
+    const limited: MockAttemptScript = { exitCode: 1, error: { kind: "config_auth", message: "You've hit your usage limit." } };
+    const { state } = await runWorkflow(retryWorkflow([limited]), { repo: repo() });
+
+    expect(checks(state)).toBe([HEADING, "  implement: not verified: the step ended (config_auth) before `node verify.mjs` ran"].join("\n"));
+    expect(formatBriefReceipt(state)[0]).toBe("✗ implement: ended (config_auth) before `node verify.mjs` ran");
+  });
+
   it("shortens reported numbers and keeps their source", async () => {
     const reported: MockAttemptScript = { ...hello, usage: { inputTokens: 18_240, outputTokens: 2_100, cost: { amount: 0.25, currency: "USD" } } };
 

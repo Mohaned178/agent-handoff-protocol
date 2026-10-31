@@ -56,13 +56,19 @@ export function failureLineOf(attempt: AttemptView): string | null {
 }
 
 /** The check command of a step: the last one its verifications ran, or null for a step that has none. */
-const commandOf = (step: StepView) => step.attempts.map((attempt) => attempt.verification?.command ?? null).filter((command) => command !== null).at(-1) ?? null;
+/** The check a step ran last, or the one its workflow gave it when none ran (the step ended before its check). */
+const commandOf = (step: StepView) => step.attempts.map((attempt) => attempt.verification?.command ?? null).filter((command) => command !== null).at(-1) ?? step.check ?? null;
+
+/** Whether a step's check ever ran: a step can fail before it does (a login, a usage limit, an agent error). */
+const checkRan = (step: StepView) => step.attempts.some((attempt) => attempt.verification?.command != null);
 
 function checkLines(step: StepView): string[] {
   const command = commandOf(step);
   const lines: string[] = [];
   if (command !== null && step.state === "succeeded") lines.push(`  ${step.id}: verified: \`${command}\` passed in a clean copy`);
-  if (command !== null && step.state === "failed") lines.push(`  ${step.id}: not verified: \`${command}\` failed`);
+  if (command !== null && step.state === "failed") {
+    lines.push(checkRan(step) ? `  ${step.id}: not verified: \`${command}\` failed` : `  ${step.id}: not verified: the step ended (${step.failureClass ?? "failed"}) before \`${command}\` ran`);
+  }
   const failed = step.attempts.filter((attempt) => attempt.verification?.state === "fail");
   if (failed.length > 0) {
     const passed = step.attempts.some((attempt) => attempt.verification?.state === "pass");
@@ -115,6 +121,7 @@ const thousands = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1).replace(/
 function briefCheck(step: StepView, state: Readonly<RunView>): string | null {
   const command = commandOf(step);
   if (command === null || (step.state !== "succeeded" && step.state !== "failed")) return null;
+  if (step.state === "failed" && !checkRan(step)) return `✗ ${step.id}: ended (${step.failureClass ?? "failed"}) before \`${command}\` ran`;
   if (step.state === "failed") return `✗ ${step.id}: \`${command}\` failed on ${count(step.attempts.filter((attempt) => attempt.verification?.state === "fail").length, "attempt")}`;
   const parts = [`✓ ${step.id}: \`${command}\` passed`];
   const failed = step.attempts.filter((attempt) => attempt.verification?.state === "fail").length;

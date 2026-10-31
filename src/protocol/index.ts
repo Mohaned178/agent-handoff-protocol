@@ -1017,6 +1017,8 @@ export interface StepView {
   id: string;
   kind: StepKind;
   state: StepState;
+  /** The command the workflow gave the step's verification; null for a step without one, a gate or an action. */
+  check: string | null;
   failureClass: FailureClass | null;
   retryUsage: RetryUsage;
   /** True when any attempt of this step ran on the mock adapter. */

@@ -151,6 +151,7 @@ export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunV
         id: step.id,
         kind: isApprovalGate(step) ? "approval_gate" : isExternalAction(step) ? "external_action" : step.review ? "review" : "agent",
         state: "blocked",
+        check: isApprovalGate(step) || isExternalAction(step) ? null : (step.verification.command ?? null),
         failureClass: null,
         retryUsage: noRetriesSpent(),
         mock: false,
