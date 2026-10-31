@@ -91,6 +91,7 @@ Commands:
   recover <attempt-id> --policy adopt|abort
                         Decide an attempt that awaits recovery, then resume its run: adopt
                         verifies its workspace as its result, abort ends its step
+  help [all]            Print the commands to start with (all: this whole list), as --help does
   approve <run-id> <step-id>
                         Approve the gate a run is waiting at, then resume the run
   reject <run-id> <step-id> --reason <text>
@@ -146,6 +147,7 @@ Start here:
                         each step, shows them, and runs implement → review → your approval once you say Run
   demo                  Try AHP in a sample project it makes: scripted agents, free (--real uses your tools)
   doctor                Show which coding agent tools AHP can use here, and how to install or log in to the rest
+  help [all]            Print this list (all: every command and option), as --help does
 
 Follow a run:
   runs                  This repository's runs, newest first, with what to do next for any that waits
@@ -215,7 +217,7 @@ class UsageError extends Error {
   }
 }
 
-const COMMANDS = ["doctor", "init", "setup", "demo", "run", "eval", "runs", "inspect", "recover", "approve", "reject", "settings"];
+const COMMANDS = ["doctor", "init", "setup", "demo", "run", "eval", "runs", "inspect", "recover", "approve", "reject", "settings", "help"];
 
 /**
  * Whether the first argument is a task rather than a command (spec D1): not a command, and more than one word. A single
@@ -401,6 +403,10 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
       case "recover":
         if (!target) throw new UsageError("recover needs a run ID, or an attempt ID and --policy");
         return await recoverCommand(target, values.policy, repo, io, values.diff ?? false);
+      case "help":
+        if (target !== undefined && target !== "all") throw new UsageError(`unexpected argument: ${target} (help takes only "all")`);
+        io.stdout(target === "all" ? USAGE : SHORT_USAGE);
+        return 0;
       case "approve":
       case "reject":
         return await decideCommand(command, target, step, values.reason, repo, io, values.diff ?? false);
