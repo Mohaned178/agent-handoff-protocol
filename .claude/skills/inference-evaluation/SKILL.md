@@ -31,6 +31,10 @@ Stop and ask the maintainer, with a recommendation, whenever a choice is new and
 - **Older ledgers still replay.** Read every new event field with `?? null` or a default.
 - **A context budget is a check.** `C3c`'s limit fails verification (`context_over_budget`); a prompt alone is not enforcement.
 
+## Overlap with the new terminal app
+
+The new-terminal-ui feature's ticket 03 renames the tool-call log to the activity log (`activityLogPath`, `<runs>/<run>/activity/<attempt>.jsonl`, with `tool_call` entries). Ticket 04 here counts the `tool_call` entries of whichever log exists when it lands, and keeps reading the old `tool-calls/` path. The terminal app's ticket 09 deletes `src/setup/wizard.ts`, so once that ticket lands a new condition has no wizard list to update. Check `git log` for the other feature's commits before editing a shared file (CLAUDE.md, `src/protocol/`, adapters).
+
 ## Gotchas in this repo
 
 - ESM with Node ≥ 24 type stripping: import with `.ts` extensions, and use only erasable syntax (no enums, namespaces or parameter properties).
