@@ -1,5 +1,7 @@
 # 03: OpenCode on a local engine
 
+**Implement with:** Opus 5.5, effort high
+
 **What to build:** Let an OpenCode step use a local OpenAI-compatible engine, so `ahp eval` measures each engine's
 verified success on the pilot tasks.
 

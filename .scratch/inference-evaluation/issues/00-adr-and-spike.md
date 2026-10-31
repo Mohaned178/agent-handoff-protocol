@@ -1,5 +1,7 @@
 # 00: ADR, direction and the local-engine spike
 
+**Implement with:** Sonnet 5.5, effort medium
+
 **What to build:** Write down the scope change, give the person a launcher for each engine, and find out on this machine
 what each engine can do with the chosen model.
 

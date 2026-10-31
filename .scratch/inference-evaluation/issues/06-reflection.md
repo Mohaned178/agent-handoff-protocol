@@ -1,5 +1,7 @@
 # 06: Reflection
 
+**Implement with:** Sonnet 5.5, effort medium
+
 **What to build:** Condition `C3r`: plan → implement → reflect → review. In the reflect step, the implement agent
 critiques its own result against the task and constraints, and fixes it.
 

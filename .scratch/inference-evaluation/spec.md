@@ -43,6 +43,22 @@ the change.
 - **D8. Fallback.** If the spike (ticket 00) shows that an engine cannot serve the 7B int4 model in 8 GB, the
   maintainer decides the fallback. Nothing is swapped silently.
 
-## Tickets
+## Tickets and who implements them
 
 `issues/00` to `issues/07`. Order: 00 → 01 → 02 → 03; 04, 05 and 06 are independent of the bench; 07 comes last.
+
+How a model is chosen (as in `.scratch/new-terminal-ui/spec.md`):
+- **Opus 5.5** for a ticket that sets an architecture later tickets build on, crosses an adapter, or changes the protocol.
+- **Sonnet 5.5** for work on a settled base that follows an existing pattern.
+- **Haiku 5.5** for mechanical work with a clear list. None of these tickets qualifies.
+
+| # | Ticket | Model | Effort | Why this model |
+|---|---|---|---|---|
+| 00 | ADR, direction, spike | Sonnet 5.5 | medium | what is left is the spike checklist and recording the maintainer's findings; no code |
+| 01 | Bench core | Opus 5.5 | high | sets the bench's architecture: ledger events, replay, the timing client, GPU sampling through the process layer; 02 and 03 build on it, and the never-fabricate rules for timings and tokens live here |
+| 02 | Quality, tools, report, CLI | Sonnet 5.5 | high | scoring tables and a report over a settled ledger, reusing `comparePaired`; many small cases to get right |
+| 03 | OpenCode on a local engine | Opus 5.5 | high | crosses the OpenCode adapter's config and permission rule (a security-relevant invariant) and the evaluation's per-trial tool record |
+| 04 | Tool-call measures | Sonnet 5.5 | medium | one field plumbed through the trial, replay and report, as `work` already is |
+| 05 | Context compression | Opus 5.5 | high | a protocol change: a step field, a new evidence kind in verification, a version bump, schemas, and old ledgers that must still replay |
+| 06 | Reflection | Sonnet 5.5 | medium | a new condition built like C3, touching a known list of places, with no runtime change |
+| 07 | Docs and the real run | Sonnet 5.5 | medium | user docs and a reproducibility checklist; the run is the maintainer's |

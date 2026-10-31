@@ -1,5 +1,7 @@
 # 02: Bench quality, tool calls, report and `ahp bench`
 
+**Implement with:** Sonnet 5.5, effort high
+
 **What to build:** Score each engine's answers to small coding prompts by tests and its tool calls by an expected call,
 report everything per engine with counts and paired comparisons, and add the `ahp bench` command.
 

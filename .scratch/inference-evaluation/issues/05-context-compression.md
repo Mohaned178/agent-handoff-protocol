@@ -1,5 +1,7 @@
 # 05: Context compression
 
+**Implement with:** Opus 5.5, effort high
+
 **What to build:** Measure the size of every handoff in every trial, and add a condition whose handed-on context has a
 byte budget that verification checks.
 

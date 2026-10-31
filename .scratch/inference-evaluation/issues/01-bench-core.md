@@ -1,5 +1,7 @@
 # 01: Bench core: latency, throughput, resources
 
+**Implement with:** Opus 5.5, effort high
+
 **What to build:** `src/inference/`: a bench file, a streaming client that times each request, workloads at fixed
 concurrency, GPU sampling, a hash-chained bench ledger and replay.
 

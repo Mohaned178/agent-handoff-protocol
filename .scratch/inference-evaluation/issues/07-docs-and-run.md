@@ -1,5 +1,7 @@
 # 07: Docs and the real run
 
+**Implement with:** Sonnet 5.5, effort medium
+
 **What to build:** A user doc for the inference evaluation, then the maintainer's real run, whose results are committed
 as data.
 

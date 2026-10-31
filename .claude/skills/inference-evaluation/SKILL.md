@@ -9,7 +9,7 @@ The feature that makes AHP match its brief (ADR 0007). The spec is `.scratch/inf
 
 ## Steps
 
-1. **Pick the ticket.** Use the one named, else the lowest-numbered `Status: open` whose `Blocked by` tickets are `done`. Order: 00 → 01 → 02 → 03; 04, 05 and 06 are independent; 07 is last. Ticket 00's spike and 07's real run need the maintainer's GPU: prepare them and hand them over, and leave the results for the maintainer to fill in. Done when you can name the ticket and every checkbox it holds.
+1. **Pick the ticket.** Use the one named, else the lowest-numbered `Status: open` whose `Blocked by` tickets are `done`. Order: 00 → 01 → 02 → 03; 04, 05 and 06 are independent; 07 is last. Each ticket names the model and effort it was planned for (`Implement with:`, with the reasons in the spec's table). If you are a different model, say so in one line and go on. Ticket 00's spike and 07's real run need the maintainer's GPU: prepare them and hand them over, and leave the results for the maintainer to fill in. Done when you can name the ticket and every checkbox it holds.
 2. **Read its seams** in [`SEAMS.md`](SEAMS.md) under the ticket's number, then open each file named there before editing it. Done when every file you will change has been read in this session.
 3. **Test first.** Write the failing test at the seam the ticket names (fake engine, fake `nvidia-smi`, fake `opencode`, mock adapter), then the code. Run the file with `npx vitest run test/<file>.test.ts`. Done when it is green.
 4. **Whole check.** Run `npm run typecheck` and `npm test`, plus `npm run schemas` if any Zod schema in `src/protocol/` changed. Done when all are green. If a failure is unrelated to your change, quote it to the maintainer rather than skipping it.

@@ -1,5 +1,7 @@
 # 04: Tool-call measures in evaluation
 
+**Implement with:** Sonnet 5.5, effort medium
+
 **What to build:** Count each trial's tool calls from the attempts' tool-call logs and report them per condition and
 adapter.
 
