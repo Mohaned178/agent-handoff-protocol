@@ -95,7 +95,8 @@ AHP (Agent Handoff Protocol and LLM Evaluation) makes handoffs between AI **codi
 - Release 1 targets three coding-agent CLIs: **Claude Code, Codex CLI, OpenCode** (Gemini CLI dropped 2026-10-30), combinable in one workflow, each via a dedicated adapter. Core has no provider-specific logic.
 - **TypeScript + Node.js**, cross-platform (Windows, macOS, Linux). Publish a support matrix; never claim an adapter works on an OS it was not tested on.
 - Components: protocol (versioned spec), SDK, adapters, runtime, append-only event-sourced ledger, evaluation engine, `ahp` CLI.
-- Out of scope for release 1: web platform, visual editor, serving/downloading models, inference-engine benchmarking (Ollama/vLLM/SGLang/TensorRT-LLM), reflection/simulation, direct model-provider connections.
+- Out of scope for release 1: web platform, visual editor, serving/downloading models, simulation, direct model-provider connections in the runtime.
+- In scope since 2026-10-31 (ADR 0007, `.scratch/inference-evaluation/`): inference-engine evaluation of Ollama, vLLM, SGLang and TensorRT-LLM (`ahp bench` over each engine's local OpenAI-compatible API, and `ahp eval` through OpenCode on a local engine), reflection (`C3r`), checked context compression (`C3c`) and tool-call measures. The person starts each engine (`bench/engines/`); AHP never starts or serves a model.
 - Positioning: ACP is a candidate transport for driving agents; AHP data shapes map to A2A where semantics match, with AHP-specific semantics as an A2A extension profile. Do not invent a competing general-purpose protocol.
 
 ## Rules the design depends on

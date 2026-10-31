@@ -1,0 +1,32 @@
+# trtllm-serve with the PyTorch backend loads the AWQ checkpoint directly (no engine build step).
+# Whether it fits 8 GB, and whether tool calls are parsed for this model, is what ticket 00's spike records.
+services:
+  tensorrt-llm:
+    image: nvcr.io/nvidia/tensorrt-llm/release:1.2.1
+    ports:
+      - "8003:8000"
+    volumes:
+      - ahp-hf-cache:/root/.cache/huggingface
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command:
+      - trtllm-serve
+      - Qwen/Qwen2.5-Coder-7B-Instruct-AWQ
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --max_seq_len
+      - "16384"
+      - --kv_cache_free_gpu_memory_fraction
+      - "0.85"
+
+volumes:
+  ahp-hf-cache:
+    name: ahp-hf-cache

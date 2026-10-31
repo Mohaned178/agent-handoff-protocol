@@ -20,18 +20,21 @@ AHP (Agent Handoff Protocol and LLM Evaluation) makes handoffs between AI coding
 | Adapters | One per tool: invocation, input rendering, output parsing, error classification, capability declaration | A promise that an arbitrary CLI works |
 | Runtime | State machine, scheduling, retries, workspaces, verification, approval gates | In control of what an agent does inside its run |
 | Ledger | Durable append-only event record; state is derived by replay | An exactly-once guarantee for external side effects |
-| Evaluation engine | Suites, conditions, repeated runs, independent validators, reports | An inference-speed benchmark; never trusts agent self-reports |
+| Evaluation engine | Suites, conditions, repeated runs, independent validators, reports | Never trusts agent self-reports |
+| Inference bench (`ahp bench`, since 2026-10-31, ADR 0007) | Latency, throughput, resource use, code quality and tool-call validity of local engines (vLLM, SGLang, TensorRT-LLM, Ollama) over their OpenAI-compatible APIs | A model server; AHP never starts, downloads or serves a model |
 | CLI (`ahp`) | doctor, init, run, inspect, eval | A web platform (later) |
 
 ### Release 1 targets
 Claude Code, OpenAI Codex CLI, OpenCode, combinable in one workflow (e.g. Claude Code plans → Codex implements → OpenCode reviews → tests verify). Users connect only the tools they have. AHP never stores credentials. OS targets: Windows, macOS, Linux, with a published support matrix that separates core OS support from adapter × OS cells actually tested.
 
 ### Out of scope for release 1
-Web platform, visual editor, hosting/serving/downloading models, Ollama/vLLM/SGLang/TensorRT-LLM benchmarking, reflection/simulation engine, direct model-provider connections.
+Web platform, visual editor, hosting/serving/downloading models, simulation engine, direct model-provider connections in the runtime.
+
+Moved into scope on 2026-10-31 (ADR 0007, `.scratch/inference-evaluation/`): Ollama/vLLM/SGLang/TensorRT-LLM benchmarking (`ahp bench`, plus `ahp eval` through OpenCode on a local engine), reflection (condition `C3r`) and checked context compression (condition `C3c`).
 
 ### Changes from the deck
-- Evaluation targets end-to-end coding-agent workflows, not inference engines.
-- Agents are external coding CLIs, not model backends behind an inference adapter.
+- Evaluation targets end-to-end coding-agent workflows; since ADR 0007 a separate bench also measures local inference engines.
+- Agents are external coding CLIs, not model backends behind an inference adapter (a local engine is reached only as OpenCode's provider).
 - "Recipient accepts or rejects" becomes: the **runtime** validates on the recipient's behalf using adapter capabilities.
 - Per-tool-call policy enforcement is not generally possible; see enforcement levels (§4).
 - Resolved open decisions: SDK language = TypeScript; AHP does not serve models; editor depth and reflection/simulation postponed.

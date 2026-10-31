@@ -309,3 +309,33 @@ The hash-chained ledger of one `ahp eval` invocation, written by the same writer
 
 **Raw transcript**:
 What an attempt's agent process was sent on stdin and what it printed on stdout, byte for byte, kept by the process layer in files beside the run's ledger. Stderr is not kept. It holds whatever the tool printed, so a secret an agent printed is in it.
+
+**Compressed handoff (`C3c`)**:
+C3 with a byte budget on the fields a step hands on. Verification checks the budget, and context over it is a failed verification (`context_over_budget`), retried like any other. Every trial records each handoff's context size, whatever its condition.
+_Avoid_: Summary (a summary is one field; compression is a checked size)
+
+**Reflection step (`C3r`)**:
+A `reflect` step between implement and review, played by the implement agent, which critiques its own result against the task and constraints and fixes it. It is an ordinary agent step with the acceptance check, not a runtime feature.
+_Avoid_: Self-review (review is another agent's)
+
+**Tool-call counts**:
+Per trial, the tool calls its attempts' tool-call logs record, by each call's last status (completed, failed) and AHP's refusals. Null for an adapter that keeps no log, never 0.
+
+## Inference evaluation
+
+**Inference engine**:
+A server that runs a model and answers over an OpenAI-compatible API: Ollama, vLLM, SGLang or TensorRT-LLM. The person starts it from `bench/engines/`; AHP never starts, downloads or serves a model. Reached by the bench directly, and by the runtime only as OpenCode's provider.
+_Avoid_: Coding agent, adapter, backend
+
+**Bench**:
+One `ahp bench` invocation: every listed engine checked, then measured by its workloads in a seeded order, recorded in a hash-chained bench ledger with the hardware fingerprint, and reported per engine.
+_Avoid_: Evaluation (that scores coding-agent workflows), benchmark suite
+
+**Workload**:
+What the bench sends an engine: `latency` (one request at a time over the prompt set), `throughput` (the prompt set at a fixed concurrency), `quality` (coding prompts whose answer is tested) and `tools` (prompts whose expected tool call is checked).
+
+**Time to first token (TTFT)**:
+Time from sending a streaming request to the first chunk that carries content. With end-to-end latency and inter-token gaps, measured by AHP's clock; token counts come only from the engine's reported usage, else null, never counted from chunks.
+
+**Hardware fingerprint**:
+GPU, VRAM, driver, CPU, RAM and OS label recorded with every bench. Engines are compared only within one fingerprint.
