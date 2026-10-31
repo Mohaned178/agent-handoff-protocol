@@ -24,6 +24,7 @@ import { demosRoot, evaluationsRoot, git, locateRepo, settingsPath, toolCallLogP
 import { changesBetween, describeChanges, diffBetween, formatDiff } from "./diff.ts";
 import { watchProgress } from "./progress.ts";
 import { describeApprovalChoices, formatEvent, formatReceipt, formatRun, formatRuns, formatUnresumed, MOCK_NOTE } from "./format.ts";
+import { precheck } from "./precheck.ts";
 import { formatBriefReceipt, nextStepOf } from "./receipt.ts";
 import { LiveView, type Terminal } from "./live.ts";
 import { formatDoctor, formatInit } from "./format-doctor.ts";
@@ -36,11 +37,13 @@ import {
   clearSettings,
   effortsFor,
   formatSettings,
+  markRealAgentsNoticed,
   readSettings,
   saveStepDefault,
   YOUR_DEFAULT,
   type RoleDefault,
   type SetupOptions,
+  type SettingsRead,
   CHECK_FROM_FLAG,
   CHECK_TYPED,
   formatTaskSummary,
@@ -121,6 +124,7 @@ Options:
   -y, --yes             task: run without asking (needed without a terminal)
   --save <file>         task: also write the workflow to <file>, for \`ahp run\` to run again
   --mock                task: scripted agents that show the flow and do none of the work (no evidence)
+  --no-precheck         task: start the agents without first running the check once on your last commit
   -h, --help           Show this help
   -v, --version         Show the version
 
@@ -288,6 +292,7 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
         check: { type: "string" },
         save: { type: "string" },
         mock: { type: "boolean" },
+        "no-precheck": { type: "boolean" },
         repo: { type: "string" },
         out: { type: "string" },
         seed: { type: "string" },
@@ -329,7 +334,7 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
       const steps = stepFlagsOf(values);
       // Any plan flag asks for the plan step: naming its tool, model or effort means wanting it.
       const plan = values.plan !== undefined || steps.plan !== undefined;
-      return await taskCommand(command.trim(), { yes, plan, push: push ?? null, check: check?.trim() || null, save: save ?? null, mock, steps }, repo, values.repo !== undefined, io, values.diff ?? false);
+      return await taskCommand(command.trim(), { yes, plan, push: push ?? null, check: check?.trim() || null, save: save ?? null, mock, steps, noPrecheck: values["no-precheck"] ?? false }, repo, values.repo !== undefined, io, values.diff ?? false);
     }
     if (!COMMANDS.includes(command) && target !== undefined) {
       // Words given unquoted arrive one by one: the first is not a command, and must never be read as a task's start.
@@ -698,6 +703,9 @@ async function readyRepository(dir: string, prompter: Prompter): Promise<boolean
   let top: string | null = await locateRepo(dir).then((found) => found.repo, () => null);
   // A home folder kept under git holds every folder below it: that repository is not the project meant here.
   if (top !== null && (await isHomeFolder(top))) top = null;
+  // A first commit is the person's: without a git identity it would fail after they said yes, so it is said first.
+  const needsCommit = top === null || !(await git(top, ["rev-parse", "--verify", "--quiet", "HEAD"]).then(() => true, () => false));
+  if (needsCommit) await requireGitIdentity(top ?? dir);
   if (top === null) {
     const yes = await prompter.confirm({ message: `${dir} is not a git repository, which AHP needs. Make it one (git init) and commit what is in it?`, default: true });
     if (!yes) return false;
@@ -713,6 +721,18 @@ async function readyRepository(dir: string, prompter: Prompter): Promise<boolean
     if (!yes) return false;
     await firstCommit(top);
     return true;
+  }
+}
+
+/** Refuses, with the commands that fix it, when git knows no name and email to commit as (`git var` fails then). */
+async function requireGitIdentity(dir: string): Promise<void> {
+  try {
+    await git(dir, ["var", "GIT_AUTHOR_IDENT"]);
+    await git(dir, ["var", "GIT_COMMITTER_IDENT"]);
+  } catch {
+    throw new UsageError(
+      'git does not know who you are, and a first commit is made as you. Tell it, then run ahp again:\n  git config --global user.name "Your Name"\n  git config --global user.email you@example.com',
+    );
   }
 }
 
@@ -807,6 +827,8 @@ interface TaskFlags {
   save: string | null;
   mock: boolean;
   steps: StepFlags;
+  /** `--no-precheck`: start the agents without running the check on the last commit first. */
+  noPrecheck: boolean;
 }
 
 /**
@@ -834,18 +856,23 @@ async function taskCommand(task: string, flags: TaskFlags, dir: string, repoName
     const roles = stepsOf(flags.plan);
     let assignments: RoleAssignment[];
     let report: DoctorReport | null = null;
+    let saved: SettingsRead | null = null;
     if (flags.mock) {
       assignments = mockCasting(roles);
     } else {
       report = await diagnose();
       // The person's saved defaults (ticket 03), never read by `ahp run` or `ahp eval`.
-      const saved = await readSettings(settingsPath());
+      saved = await readSettings(settingsPath());
       if (saved.problem) io.stdout(`your saved defaults were not used: ${saved.problem}`);
       const cast = castRoles(report, saved.settings.steps);
       assignments = withStepFlags(roles.map((role) => cast.find((assignment) => assignment.role === role)!), flags.steps, report);
       if (assignments.some((assignment) => assignment.tool === null)) {
         throw new UsageError(
-          "no coding agent tool is usable here (`ahp doctor` says why): AHP runs Claude Code, Codex CLI or OpenCode, logged in with your own account. `--mock` runs scripted agents that show the flow and do none of the work",
+          [
+            "no coding agent tool is usable here (`ahp doctor` says why). Install one and log in with your own account:",
+            ...TOOLS.map((tool) => `  ${tool.name.padEnd(12)} ${tool.install}, then ${tool.logIn}`),
+            "`--mock` runs scripted agents that show the flow and do none of the work.",
+          ].join("\n"),
         );
       }
     }
@@ -861,6 +888,10 @@ async function taskCommand(task: string, flags: TaskFlags, dir: string, repoName
     await remotesOf(workflow, repo);
     const uncommitted = (await git(repo, ["status", "--porcelain"])).split("\n").filter(Boolean).length;
     io.stdout(formatTaskSummary(run, uncommitted));
+    if (!flags.mock && saved?.settings.realAgentsNoticed !== true) {
+      io.stdout("  ! first run with real agents: they run commands on this machine, and their usage counts against your own plans");
+      await markRealAgentsNoticed(settingsPath());
+    }
     // One setup per command, so OpenCode's access is asked at most once however often a step is changed.
     const changing: (Omit<SetupOptions, "report"> & { report: DoctorReport | null }) | null = prompter ? { prompter, dir: repo, report, models: (tool: ToolId) => modelsFor(tool) } : null;
     while (!flags.yes) {
@@ -881,6 +912,17 @@ async function taskCommand(task: string, flags: TaskFlags, dir: string, repoName
       run = { ...run, assignments: await changeStep(run.assignments, changing as SetupOptions) };
       workflow = buildTaskRun(run);
       io.stdout(formatTaskSummary(run, uncommitted));
+    }
+    if (run.check !== null && !flags.noPrecheck) {
+      if (io.terminal) io.stdout(`  checking \`${run.check.command}\` on your last commit…`);
+      const found = await precheck(repo, run.check.command, run.install?.command ?? null);
+      if (!found.passed) {
+        io.stdout(`  ! the check already fails on your last commit: ${found.line}`);
+        if (!flags.yes && !(await prompter!.confirm({ message: "Run it anyway? (the agents are asked to make it pass)", default: true }))) {
+          io.stdout("cancelled: nothing was started");
+          return 0;
+        }
+      }
     }
   } catch (error) {
     if ((error as Error).name === "ExitPromptError") {

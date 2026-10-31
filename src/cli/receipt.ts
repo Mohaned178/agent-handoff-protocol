@@ -3,6 +3,7 @@
 // "was done"; and it says only what the ledger records: no "would have", no estimate of time or money saved.
 
 import { reviewVerdictOf, THIS_REPOSITORY, type AttemptView, type ChangedPath, type EvidenceItem, type RunView, type StepView } from "../protocol/index.ts";
+import { TOOLS } from "../doctor/index.ts";
 import { money, sourcesText, summarizeUsage, usageLines } from "../runtime/index.ts";
 
 const RUN_USAGE_HEADING = "usage, as each tool reported it (per adapter, not summed across adapters; nothing is estimated):";
@@ -19,9 +20,11 @@ const times = (count: number) => `${count} ${count === 1 ? "time" : "times"}`;
 const changesOf = (changed: readonly ChangedPath[]) => changed.map(({ change, path }) => `${change} ${path}`).join(", ");
 
 /** The line of a failed check's output that says what failed: the first that looks like a failure, else the last. */
-function failingLine(output: string): string {
+export function failingLineOf(output: string): string {
   const lines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  return lines.find((line) => /fail|error|assert|wrong|missing|expected|not ok|✗|×/i.test(line)) ?? lines.at(-1) ?? "(no output)";
+  // A command that is not there says so first (cmd.exe over two lines: the first names it).
+  const missing = lines.find((line) => /not recognized as|command not found|not found|no such file/i.test(line));
+  return missing ?? lines.find((line) => /fail|error|assert|wrong|missing|expected|not ok|✗|×/i.test(line)) ?? lines.at(-1) ?? "(no output)";
 }
 
 /** Why an attempt's verification failed, in one line. */
@@ -33,7 +36,7 @@ function whyFailed(evidence: readonly EvidenceItem[]): string {
     }
   }
   for (const item of evidence) {
-    if (item.kind === "test_output" && item.exitCode !== 0) return failingLine(item.output);
+    if (item.kind === "test_output" && item.exitCode !== 0) return failingLineOf(item.output);
     if (item.kind === "required_output_fields" && item.missing.length > 0) return `it did not report ${item.missing.join(", ")}`;
     if (item.kind === "review_verdict" && item.verdict === null) return `its verdict was not understood (${JSON.stringify(item.reported)})`;
   }
@@ -42,7 +45,12 @@ function whyFailed(evidence: readonly EvidenceItem[]): string {
 
 /** Why an attempt failed, in one line: the tool's error, or what its verification found; null when it did not fail. */
 export function failureLineOf(attempt: AttemptView): string | null {
-  if (attempt.error) return attempt.error.message.split(/\r?\n/)[0]!;
+  if (attempt.error) {
+    const message = attempt.error.message.split(/\r?\n/)[0]!;
+    // A login or configuration problem is not retried: the fix is the person's, so it is named.
+    const tool = attempt.error.kind === "config_auth" ? TOOLS.find((candidate) => candidate.adapter === attempt.adapter) : undefined;
+    return tool ? `${message} · to log in: ${tool.logIn}` : message;
+  }
   if (attempt.verification?.state === "fail") return whyFailed(attempt.verification.evidence);
   return null;
 }

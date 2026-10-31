@@ -50,7 +50,8 @@ const project = () => createTempRepo({ "README.md": "# app\n", "check.mjs": "pro
 const TASK = "fix the cart total";
 const CHECK = ["--check", "node check.mjs"];
 const saveSettings = (settings: unknown) => writeFileSync(settingsPath(), JSON.stringify(settings));
-const savedSettings = () => JSON.parse(readFileSync(settingsPath(), "utf8")) as unknown;
+/** The step defaults saved so far: none when there is no settings file (the first real run also records its notice there). */
+const savedSteps = () => (existsSync(settingsPath()) ? (JSON.parse(readFileSync(settingsPath(), "utf8")) as { steps: unknown }).steps : {});
 /** The summary's last line for `step`. */
 const lineOf = (stdout: string, step: string) => stdout.split("\n").filter((line) => new RegExp(`^\\s+${step}\\s`).test(line)).at(-1) ?? "";
 
@@ -72,7 +73,7 @@ describe("changing a step in the summary's menu", () => {
       "Run it?",
     ]);
     expect(lineOf(run.stdout, "review")).toMatch(/Claude Code\s+opus, effort high · your default/);
-    expect(savedSettings()).toEqual({ steps: { review: { tool: "claude-code", model: "opus", effort: "high" } } });
+    expect(savedSteps()).toEqual({ review: { tool: "claude-code", model: "opus", effort: "high" } });
     expect(await listRuns({ repo })).toEqual([]);
   });
 
@@ -80,7 +81,7 @@ describe("changing a step in the summary's menu", () => {
     const run = await ahpHere([TASK, ...CHECK], project(), person(["change", "implement", "claude-code", null, null, false, "cancel"]));
 
     expect(lineOf(run.stdout, "implement")).toMatch(/Claude Code\s+default model$/);
-    expect(existsSync(settingsPath())).toBe(false);
+    expect(savedSteps()).toEqual({});
   });
 });
 
@@ -91,7 +92,7 @@ describe("changing a step with flags", () => {
     expect(run.code, run.stdout).toBe(0);
     expect(lineOf(run.stdout, "review")).toMatch(/Claude Code\s+opus$/);
     expect(lineOf(run.stdout, "implement")).toMatch(/Codex CLI\s+default model, effort low$/);
-    expect(existsSync(settingsPath())).toBe(false);
+    expect(savedSteps()).toEqual({});
   });
 
   it("adds the plan step when a plan flag names its tool", async () => {

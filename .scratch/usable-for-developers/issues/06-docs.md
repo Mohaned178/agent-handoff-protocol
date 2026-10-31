@@ -10,7 +10,9 @@ troubleshooting page for what ticket 03 cannot fix in the message alone, and one
 - [ ] Quickstart: `npm i -g <package>`, `ahp doctor`, `ahp "<task>"`; `ahp demo` as the free first look
 - [ ] The opening receipt replaced by a real one from ticket 04 (its run ID and date beside it), and the
       "illustrative" label removed
-- [ ] `docs/troubleshooting.md`: one entry per failure ticket 03 lists, each as symptom → cause → command
+- [ ] `docs/troubleshooting.md`: one entry per failure ticket 03 lists, each as symptom → cause → command, and the
+      Windows entries moved here from ticket 03: a path too long (AHP worktrees set `core.longpaths`), a locked file
+      (`EBUSY`), PowerShell quoting of a task that contains quotes
 - [ ] "What it costs": AHP is free; each step is an agent run on the person's own plan; how many attempts a run can
       take at most (the retry budgets), and that `ahp inspect` shows what each tool reported
 - [ ] `ahp --help` shortened to the commands a new user needs first, with "ahp help all" (or `--help --all`) for the

@@ -60,3 +60,7 @@ run's creation when the view goes on from a gate.
 
 Not done, on purpose: the summary is not coloured (it is printed before the live view, through `io.stdout`); colour
 stays as it was in the live view (green ✓, red ✗, yellow ↻ ↩ !, dim details).
+
+## Comments
+
+- 2026-10-31: first green CI run with this ticket: 41148100744 (commit `9b926d8`), all three systems.

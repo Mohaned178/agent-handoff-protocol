@@ -27,6 +27,10 @@ export interface ToolDefinition {
   login: LoginProbe;
   /** The name its adapter registers under in `adapters`; doctor reports capabilities only for a tool whose adapter does. */
   adapter: string;
+  /** How a person installs it, as its vendor documents (printed, never run by AHP). */
+  install: string;
+  /** How a person logs in with it, in the tool itself (printed, never run by AHP). */
+  logIn: string;
 }
 
 export const TOOLS: readonly ToolDefinition[] = [
@@ -37,6 +41,8 @@ export const TOOLS: readonly ToolDefinition[] = [
     versionArgs: ["--version"],
     login: { kind: "json_logged_in", args: ["auth", "status", "--json"] },
     adapter: "claude-code",
+    install: "npm install -g @anthropic-ai/claude-code",
+    logIn: "run `claude` and type /login",
   },
   {
     id: "codex",
@@ -45,6 +51,8 @@ export const TOOLS: readonly ToolDefinition[] = [
     versionArgs: ["--version"],
     login: { kind: "exit_code", args: ["login", "status"], loggedOut: 1 },
     adapter: "codex",
+    install: "npm install -g @openai/codex",
+    logIn: "codex login",
   },
   {
     id: "opencode",
@@ -54,5 +62,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     // `opencode auth list` prints the stored providers and credentials as free text; AHP reads none of it.
     login: { kind: "none", why: "its only status command, `auth list`, prints stored credentials as free text, which AHP does not read" },
     adapter: "opencode",
+    install: "npm install -g opencode-ai",
+    logIn: "opencode auth login",
   },
 ];

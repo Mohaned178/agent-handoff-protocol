@@ -11,6 +11,8 @@ import { effortsFor } from "./models.ts";
 
 export interface Settings {
   steps: RoleDefaults;
+  /** Set once the first run with real agents has said that they run commands here and their usage counts. */
+  realAgentsNoticed?: true;
 }
 
 export interface SettingsRead {
@@ -58,17 +60,29 @@ export async function readSettings(path: string): Promise<SettingsRead> {
     const { tool, model, effort } = value as RoleDefault;
     steps[role as Role] = { tool, ...(model ? { model: model.trim() } : {}), ...(effort ? { effort } : {}) };
   }
-  return { settings: { steps }, problem: problems.length > 0 ? `${path}: ${problems.join("; ")}` : null };
+  const noticed = isRecord(parsed) && parsed.realAgentsNoticed === true ? { realAgentsNoticed: true as const } : {};
+  return { settings: { steps, ...noticed }, problem: problems.length > 0 ? `${path}: ${problems.join("; ")}` : null };
 }
 
-/** Keeps `chosen` as `role`'s default, beside the others already saved. Written whole, then moved into place. */
-export async function saveStepDefault(path: string, role: Role, chosen: RoleDefault): Promise<void> {
-  const { settings } = await readSettings(path);
-  settings.steps[role] = chosen;
+/** Writes `settings` whole to a temporary name, then moves it into place, so a reader never sees half a file. */
+async function writeSettings(path: string, settings: Settings): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.${process.pid}.tmp`;
   await writeFile(temporary, `${JSON.stringify(settings, null, 2)}\n`);
   await rename(temporary, path);
+}
+
+/** Keeps `chosen` as `role`'s default, beside the others already saved. */
+export async function saveStepDefault(path: string, role: Role, chosen: RoleDefault): Promise<void> {
+  const { settings } = await readSettings(path);
+  settings.steps[role] = chosen;
+  await writeSettings(path, settings);
+}
+
+/** Records that the first run with real agents said what they do here, so it is said once. */
+export async function markRealAgentsNoticed(path: string): Promise<void> {
+  const { settings } = await readSettings(path);
+  await writeSettings(path, { ...settings, realAgentsNoticed: true });
 }
 
 /** Removes the saved defaults; false when there were none. */

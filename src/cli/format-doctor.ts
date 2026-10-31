@@ -1,15 +1,18 @@
-import type { DoctorReport, InitResult, ToolReport } from "../doctor/index.ts";
+import { TOOLS, type DoctorReport, type InitResult, type ToolReport } from "../doctor/index.ts";
 import { THIS_REPOSITORY } from "../protocol/index.ts";
 import { ENFORCEMENT_NOTE } from "./format.ts";
 
 function formatTool(tool: ToolReport): string[] {
   const lines = [`${tool.name} (${tool.command})`];
+  const definition = TOOLS.find((candidate) => candidate.id === tool.id);
   if (!tool.installed) {
     lines.push(`  installed: no (${tool.problem})`);
+    if (definition) lines.push(`  to install: ${definition.install}`);
   } else {
     lines.push(`  installed: yes${tool.path ? ` (${tool.path})` : ""}`);
     lines.push(`  version: ${tool.version ?? `unknown${tool.problem ? ` (${tool.problem})` : ""}`}`);
     lines.push(`  logged in: ${tool.login.state === "logged_in" ? "yes" : tool.login.state === "not_logged_in" ? "no" : "unknown"} (${tool.login.detail})`);
+    if (tool.login.state === "not_logged_in" && definition) lines.push(`  to log in: ${definition.logIn}`);
   }
   if (!tool.adapter) {
     lines.push("  adapter: none in this build yet, so AHP cannot apply any capability through this tool");

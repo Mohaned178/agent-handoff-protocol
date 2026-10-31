@@ -4,4 +4,4 @@ export { branchFor, castRoles, inferCommands, inferTask, YOUR_DEFAULT, type Infe
 export { buildTaskRun, CHECK_FROM_FLAG, CHECK_TYPED, formatTaskSummary, mockCasting, mockScripts, renderTaskRun, stepsOf, type TaskRun } from "./task.ts";
 export { castRole, DEFAULT_SUITE_FILE, pathsIn, runSetup, slugOf, tasksUnder, writeNew, type Choice, type Prompter, type SetupOptions, type SetupResult } from "./wizard.ts";
 export { prepareDemo, type Demo, type DemoOptions } from "./demo.ts";
-export { clearSettings, describeDefault, formatSettings, readSettings, saveStepDefault, type Settings, type SettingsRead } from "./settings.ts";
+export { clearSettings, describeDefault, formatSettings, markRealAgentsNoticed, readSettings, saveStepDefault, type Settings, type SettingsRead } from "./settings.ts";
