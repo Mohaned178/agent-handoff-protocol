@@ -7,9 +7,11 @@ description: Implements a ticket of the new terminal app (`.scratch/new-terminal
 
 The spec is `.scratch/new-terminal-ui/spec.md`. Its mockups, palette and edge-state table are the design, so build what they draw.
 
-## Before ticket 02: the gate
+## Before ticket 02: the gates
 
-Decisions D1–D10 in the spec wait for the maintainer, who adopts them all by saying "go". If the spec's `Status:` line still says the decisions wait, ask the maintainer once, quoting the D-list headings, then record the answer in the spec's `Status:` line. Tickets 00 and 01 need no decision.
+**Order.** This feature is built after `.scratch/inference-evaluation/` (spec "Build order", decided 2026-10-31). Before ticket 02, check that every inference-evaluation ticket except the maintainer's real run (07) is `done` and merged into `main`. If they are not, tell the maintainer which are open and ask whether to wait. Only ticket 01 (lean CLAUDE.md) may go first, and it must keep the inference lines.
+
+**Decisions.** D1–D10 in the spec wait for the maintainer, who adopts them all by saying "go". If the spec's `Status:` line still says the decisions wait, ask the maintainer once, quoting the D-list headings, then record the answer in the spec's `Status:` line. Tickets 00 and 01 need no decision.
 
 ## Steps
 
@@ -21,7 +23,7 @@ Decisions D1–D10 in the spec wait for the maintainer, who adopts them all by s
 6. **Record.**
    - In the ticket: tick its boxes, set `Status: done (<date>)`, and add `## Implementation notes (<date>)` with each choice you made that the ticket left open (numbered, with the reason).
    - Change CLAUDE.md only as ticket 01's lean form allows: one paragraph per module, ending "details: <doc>".
-7. **Commit**: one commit per ticket, its message naming the ticket and ending with the attribution trailer. If you are on `main`, work on a branch `new-terminal-ui` first. Never push.
+7. **Commit**: one commit per ticket, its message naming the ticket and ending with the attribution trailer. Work on a branch `new-terminal-ui` made from a `main` that includes the inference-evaluation work. Never push.
 
 ## Rules the app must keep
 

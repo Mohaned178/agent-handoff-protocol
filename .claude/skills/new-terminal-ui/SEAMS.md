@@ -1,6 +1,6 @@
 # Seams per ticket
 
-These are the locations found on 2026-10-31. Line numbers drift, so search by name if one has moved. Reuse what is listed here: the app is a new face on code that already works.
+These are the locations found on 2026-10-31, before the inference evaluation landed. That work adds to `src/cli/main.ts`, `src/evaluation/` and the OpenCode adapter, so line numbers there will have moved: search by name. Reuse what is listed here: the app is a new face on code that already works.
 
 ## 00: Clean the garbage
 
@@ -105,6 +105,8 @@ Done (commit b5521be).
   - Remove with `git worktree remove --force`, then `git worktree prune`, through the git helpers in `src/runtime/workspace.ts`.
 
 ## 08: Plain commands
+
+- **`ahp bench`** (from inference-evaluation ticket 02) is in today's `main.ts`. Port it like `eval`: its runner is `runBench` in `src/inference/`, so only its parsing and output move. Its `--json` shape stays unchanged.
 
 - **Today's commands to port:** `src/cli/main.ts`, with `parseArgs` near :250, `USAGE` at :65 and `SHORT_USAGE` at :145.
 - **Behaviour to keep:**
