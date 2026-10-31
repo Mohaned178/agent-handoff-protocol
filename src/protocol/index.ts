@@ -8,7 +8,7 @@ export * from "./capabilities.ts";
 export * from "./handoff.ts";
 export * from "./review.ts";
 export { protocolJsonSchemas } from "./schemas.ts";
-export { PROTOCOL_VERSION } from "./version.ts";
+export { isNewerProtocol, PROTOCOL_VERSION } from "./version.ts";
 
 export type RunState =
   | "pending"

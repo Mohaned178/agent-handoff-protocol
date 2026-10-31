@@ -4,7 +4,7 @@
 //   npm run conformance -- run <adapter> [--tool-version <v>] [--out <dir>] [--only <id,id>]
 //   npm run conformance -- matrix [--dir <dir>] [--adapters <a,b>]
 import { parseArgs } from "node:util";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { claudeCodeSubject } from "../src/adapters/claude-code/conformance.ts";
 import { codexSubject } from "../src/adapters/codex/conformance.ts";
@@ -18,6 +18,7 @@ import {
   recordResult,
   renderMatrix,
   renderSupportMatrixDoc,
+  withSupportedTools,
   runConformance,
   type ConformanceSubject,
 } from "../src/conformance/index.ts";
@@ -33,9 +34,11 @@ const USAGE = `Usage:
 
 Adapters: ${Object.keys(subjects).join(", ")}
 run records the result in <dir> (default conformance/results), except for the mock, which is recorded only with --out, and for --only, which is never recorded.
-matrix --write publishes the support matrix page (default docs/support-matrix.md) from the recorded results.
+matrix --write publishes the support matrix page (default docs/support-matrix.md) from the recorded results; with no file
+named it also rewrites the README's "Supported tools" table.
 Exit codes: 0 passed, 1 failed, 2 refused or usage error, 3 untested (a check was skipped).`;
 const defaultDoc = fileURLToPath(new URL("../docs/support-matrix.md", import.meta.url));
+const readme = fileURLToPath(new URL("../README.md", import.meta.url));
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -54,6 +57,10 @@ if (command === "matrix" && values.write) {
   const file = adapter ?? defaultDoc;
   writeFileSync(file, renderSupportMatrixDoc(readResults(values.dir ?? defaultDir)));
   console.log(`wrote ${file}`);
+  if (adapter === undefined) {
+    writeFileSync(readme, withSupportedTools(readFileSync(readme, "utf8"), readResults(values.dir ?? defaultDir)));
+    console.log(`wrote ${readme} (supported tools)`);
+  }
 } else if (command === "matrix") {
   const results = readResults(values.dir ?? defaultDir);
   const names = values.adapters?.split(",") ?? [...new Set(results.filter((r) => !r.mock).map((r) => r.adapter))].sort();

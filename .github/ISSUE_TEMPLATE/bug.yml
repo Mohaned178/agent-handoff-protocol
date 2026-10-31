@@ -1,0 +1,56 @@
+name: Bug
+description: Something AHP did wrong, or a message that did not say how to fix it
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. Leave out credentials and any private code. A ledger or a transcript can hold text from your
+        repository: read it before pasting any of it. A security problem goes to a private advisory instead
+        (see SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: ahp --version
+      placeholder: 0.1.0 (alpha)
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: System
+      options: [Windows, Linux (WSL2), Linux, macOS]
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: The command you ran
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: What it printed
+      description: The whole output, or from the first line that looks wrong. `--verbose` prints every event.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: ahp doctor --json
+      description: It holds no credentials, but it names paths on your machine; edit them out if you like.
+      render: json
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: The tools and models of each step, whether it happens every time, `ahp inspect` output.

@@ -345,7 +345,7 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
       return 0;
     }
     if (values.version) {
-      io.stdout(version());
+      io.stdout(`${version()} (alpha)`);
       return 0;
     }
     if (command === undefined) {
@@ -674,7 +674,9 @@ function cancelOnInterrupt(io: Io, what: string, whileWaiting: string): { signal
 /** Exit 0 unless Node or git does not meet its requirement; a tool that is missing is reported, not a failure. */
 async function doctorCommand(json: boolean, io: Io): Promise<number> {
   const report = await diagnose();
-  io.stdout(json ? JSON.stringify(report, null, 2) : formatDoctor(report));
+  // AHP's own version first: with the rest of the report, it is what a bug report needs (ticket 09).
+  const ahp = `${version()} (alpha)`;
+  io.stdout(json ? JSON.stringify({ ahp, ...report }, null, 2) : [`ahp ${ahp}`, "", formatDoctor(report), "", BUG_REPORT_HINT].join("\n"));
   return report.ok ? 0 : 1;
 }
 
@@ -1136,6 +1138,10 @@ async function decideCommand(
   { diff });
   return await decideHere(io, repo, state, diff);
 }
+
+/** The last lines of `ahp doctor`: where a bug goes and what it should carry. */
+const BUG_REPORT_HINT =
+  "To report a bug: https://github.com/Mohaned178/agent-handoff-protocol/issues/new/choose, with the command you ran, what it printed, and this report (`ahp doctor --json`; it holds no credentials, but read it first: it names paths on this machine).";
 
 function version(): string {
   const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string };

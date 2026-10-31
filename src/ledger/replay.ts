@@ -1,4 +1,4 @@
-import { isApprovalGate, isExternalAction, isExternalActionDone, isPresentOutputField, reviewFindingsOf, reviewVerdictOf, UNKNOWN_MODEL } from "../protocol/index.ts";
+import { isApprovalGate, isNewerProtocol, PROTOCOL_VERSION, isExternalAction, isExternalActionDone, isPresentOutputField, reviewFindingsOf, reviewVerdictOf, UNKNOWN_MODEL } from "../protocol/index.ts";
 import type {
   AttemptRecovery,
   AttemptState,
@@ -131,6 +131,12 @@ export function replay(events: readonly LedgerEvent[]): RunView {
 export function applyEvent(state: RunView | undefined, event: LedgerEvent): RunView {
   if (event.type === "run_created") {
     if (state) throw new LedgerInconsistentError(event, "run already created");
+    if (isNewerProtocol(event.protocolVersion)) {
+      throw new LedgerInconsistentError(
+        event,
+        `run ${event.runId} was recorded under AHP protocol ${event.protocolVersion}, which this AHP (protocol ${PROTOCOL_VERSION}) cannot read: install a newer AHP`,
+      );
+    }
     return {
       runId: event.runId,
       protocolVersion: event.protocolVersion,

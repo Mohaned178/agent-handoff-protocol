@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { CORE_CI_SYSTEMS, RELEASE_ADAPTERS, SUITE_VERSION, readResults, renderSupportMatrixDoc, type ConformanceResult } from "../src/conformance/index.ts";
+import { CORE_CI_SYSTEMS, RELEASE_ADAPTERS, SUITE_VERSION, readResults, renderSupportMatrixDoc, renderSupportedTools, withSupportedTools, type ConformanceResult } from "../src/conformance/index.ts";
 
 const root = new URL("../", import.meta.url);
 const published = readFileSync(new URL("docs/support-matrix.md", root), "utf8");
@@ -41,5 +41,20 @@ describe("the limits page", () => {
     expect(limits).toMatch(/Verification runs agent-written code on your machine/i);
     expect(limits).toMatch(/vendor's terms/i);
     expect(limits).toMatch(/stores no credentials/i);
+  });
+});
+
+describe("the README's supported tools", () => {
+  const readme = readFileSync(new URL("README.md", root), "utf8");
+  const results = readResults(fileURLToPath(new URL("conformance/results", root)));
+
+  it("is the table rendered from the recorded results (run `npm run conformance -- matrix --write`)", () => {
+    expect(readme).toBe(withSupportedTools(readme, results));
+  });
+
+  it("names a system only where the matrix says passed", () => {
+    const fake: ConformanceResult = { suiteVersion: SUITE_VERSION, adapter: "codex", mock: false, platform: "linux", osLabel: "Linux (WSL2)", toolVersion: "9.9.9", ranAt: "2026-01-02T00:00:00.000Z", checks: [] };
+    expect(renderSupportedTools([fake])).toContain("| Codex CLI | `codex` | none yet |");
+    expect(renderSupportedTools([])).not.toMatch(/Windows|Linux|macOS/);
   });
 });

@@ -1,0 +1,21 @@
+name: Feature request
+description: Something AHP should do, and the work it would help with
+labels: [enhancement]
+body:
+  - type: textarea
+    id: task
+    attributes:
+      label: What you were trying to do
+      description: The task or workflow, and where AHP got in the way or fell short.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ahp --version

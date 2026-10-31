@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security problem
+    url: https://github.com/Mohaned178/agent-handoff-protocol/security/advisories/new
+    about: Report it privately, never in a public issue.
+  - name: Troubleshooting
+    url: https://github.com/Mohaned178/agent-handoff-protocol/blob/main/docs/troubleshooting.md
+    about: Each failure message, its cause and the command that fixes it.

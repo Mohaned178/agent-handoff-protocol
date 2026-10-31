@@ -5,7 +5,7 @@ their own work, so "developers will use it" is measured rather than hoped, and w
 
 **Blocked by:** 07 (a published version), 06 (docs they can follow alone); needs the maintainer to find the people
 
-**Status:** planned
+**Status:** planned: nothing to build; waits for 07's publish and needs the maintainer to find the people
 
 - [ ] Five developers, at least two on Linux or WSL2 and at least one using each tool, each asked to run at least
       three of their own tasks with no help beyond the README
@@ -20,3 +20,8 @@ their own work, so "developers will use it" is measured rather than hoped, and w
 ## Notes
 
 - Usage that cannot be counted without telemetry is not counted: no download numbers are quoted as users.
+
+## Implementation notes (2026-10-31)
+
+- Nothing to implement before 0.1.0 is published. Ready for it: the bug template (ticket 09) asks for what the reports
+  need, and the README and troubleshooting page (ticket 06) are what the five follow alone.

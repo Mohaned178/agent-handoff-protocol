@@ -1,9 +1,24 @@
 {
-  "name": "agent-handoff-protocol",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@mohaned178/ahp",
+  "version": "0.1.0",
   "description": "Explicit, verifiable and measurable handoffs between AI coding agents",
+  "keywords": [
+    "ai",
+    "coding-agents",
+    "claude-code",
+    "codex",
+    "opencode",
+    "handoff",
+    "verification",
+    "cli",
+    "agents",
+    "acp"
+  ],
   "license": "Apache-2.0",
+  "homepage": "https://github.com/Mohaned178/agent-handoff-protocol#readme",
+  "bugs": {
+    "url": "https://github.com/Mohaned178/agent-handoff-protocol/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Mohaned178/agent-handoff-protocol.git"
@@ -24,8 +39,14 @@
   "files": [
     "bin",
     "dist",
-    "schemas"
+    "schemas",
+    "README.md",
+    "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "prepare": "npm run build",
@@ -33,7 +54,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "schemas": "node scripts/export-schemas.ts",
-    "conformance": "node scripts/conformance.ts"
+    "conformance": "node scripts/conformance.ts",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.7.5",

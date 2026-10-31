@@ -14,4 +14,4 @@ export {
 } from "./result.ts";
 export { SCENARIOS, type ConformanceSubject, type Provoked, type Provoker, type ProvokerContext, type Scenario, type ToldUsage } from "./subject.ts";
 export { matrixOf, readResults, recordResult, renderMatrix, resultFileName, type CellStatus, type MatrixCell } from "./matrix.ts";
-export { CORE_CI_SYSTEMS, RELEASE_ADAPTERS, renderSupportMatrixDoc } from "./publish.ts";
+export { CORE_CI_SYSTEMS, RELEASE_ADAPTERS, SUPPORTED_TOOLS_END, SUPPORTED_TOOLS_START, renderSupportMatrixDoc, renderSupportedTools, withSupportedTools } from "./publish.ts";
