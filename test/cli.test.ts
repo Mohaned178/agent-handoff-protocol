@@ -162,6 +162,25 @@ describe("ahp run and ahp inspect", () => {
       expect(all.stdout).toContain(command);
     }
   });
+
+  it("prints the same text for help as for --help, and for help all as for --help --all", () => {
+    const short = ahp(["--help"], process.cwd());
+    const all = ahp(["--help", "--all"], process.cwd());
+    const help = ahp(["help"], process.cwd());
+    const helpAll = ahp(["help", "all"], process.cwd());
+
+    expect(help.code).toBe(0);
+    expect(help.stderr).toBe("");
+    expect(help.stdout).toBe(short.stdout);
+    expect(helpAll.code).toBe(0);
+    expect(helpAll.stderr).toBe("");
+    expect(helpAll.stdout).toBe(all.stdout);
+
+    const invalid = ahp(["help", "everything"], process.cwd());
+    expect(invalid.code).toBe(2);
+    expect(invalid.stdout).toBe("");
+    expect(invalid.stderr).toContain("unexpected argument: everything");
+  });
 });
 
 const PLAN = "# Plan\n- add the endpoint\n";
