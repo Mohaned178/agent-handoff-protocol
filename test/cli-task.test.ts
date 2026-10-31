@@ -141,6 +141,14 @@ describe("ahp \"<task>\": running it", () => {
     expect(run.stdout).toContain("ahp approve");
   });
 
+  it("keeps two spaces between a long check and where it came from, so the source never reads as part of it", async () => {
+    const repo = plainProject();
+
+    const run = await ahpHere([TASK, "--mock", "--yes", "--check", "node check.mjs --reporter=dot --long"], repo, null);
+
+    expect(run.stdout).toContain("node check.mjs --reporter=dot --long  --check\n");
+  });
+
   it("pushes to origin with --push once approved", async () => {
     const repo = plainProject();
     const remote = addBareRemote(repo);

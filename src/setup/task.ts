@@ -142,7 +142,8 @@ function castLine(assignment: RoleAssignment): string {
  * agents never see.
  */
 export function formatTaskSummary(run: TaskRun, uncommitted: number): string {
-  const row = (label: string, value: string, note = "") => `  ${label.padEnd(10)} ${note ? value.padEnd(COLUMN) : value}${note ? ` ${note}` : ""}`;
+  // A value longer than its column keeps two spaces before its note, so the note never reads as part of a command.
+  const row = (label: string, value: string, note = "") => `  ${label.padEnd(10)} ${note ? value.padEnd(COLUMN) : value}${note ? `${value.length >= COLUMN ? "  " : " "}${note}` : ""}`;
   const lines = [row("task", run.task)];
   if (run.check) {
     lines.push(row("check", run.check.command, sourceOf(run.check)));
