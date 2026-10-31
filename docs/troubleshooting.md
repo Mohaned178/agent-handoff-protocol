@@ -130,7 +130,7 @@ calls.
 
 ## Windows
 
-### A path too long ("Filename too long", `ENAMETOOLONG`)
+### A path too long (git's `Filename too long`, or `ENAMETOOLONG`)
 
 **Cause:** Windows limits paths to 260 characters unless long paths are turned on. AHP's own worktrees, under
 `%LOCALAPPDATA%\ahp\worktrees`, set git's `core.longpaths`, so git itself copes there. Your project's install or tests
