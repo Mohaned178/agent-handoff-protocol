@@ -3,9 +3,16 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { ENGINES, type EngineId } from "./engines.ts";
 
-/** What the bench sends an engine (GLOSSARY "Workload"): a closed list, like the conditions. Ticket 02 adds `quality` and `tools`. */
-export const WORKLOADS = ["latency", "throughput"] as const;
+/**
+ * What the bench sends an engine (GLOSSARY "Workload"): a closed list, like the conditions. `latency` and `throughput` time the
+ * prompts; `quality` tests each answer's code and `tools` checks each answer's tool call (both at concurrency 1, each prompt
+ * once per repeat). The order here is only the list's: a bench runs them in the order its file names them.
+ */
+export const WORKLOADS = ["latency", "throughput", "quality", "tools"] as const;
 export type WorkloadId = (typeof WORKLOADS)[number];
+
+/** The workloads a bench file that names none runs: the two that need nothing but prompts. `quality` and `tools` are named. */
+export const DEFAULT_WORKLOADS: readonly WorkloadId[] = ["latency", "throughput"];
 
 /** One engine as the bench file lists it: which engine, where its OpenAI-compatible API is, and the model it serves. */
 export interface BenchEngine {
@@ -33,7 +40,12 @@ export interface BenchFile {
    * against `RunBenchOptions.baseDir`, which the CLI sets to the directory of the bench file.
    */
   prompts: string;
-  /** Default: every workload there is. */
+  /**
+   * A directory of tool-call cases, `<id>.json` each (`{ prompt, tools, expect }`, see `tools.ts`): required by the `tools`
+   * workload, ignored otherwise. Resolved like `prompts`.
+   */
+  tools?: string;
+  /** Default: `latency` and `throughput`. `quality` needs a `test.mjs` beside every prompt; `tools` needs `tools`. */
   workloads?: WorkloadId[];
   /** The concurrency levels of the throughput sweep (default `[1, 2, 4, 8]`). */
   concurrency?: number[];
@@ -64,7 +76,7 @@ export interface BenchSettings {
 export const DEFAULT_SAMPLE_INTERVAL_MS = 500;
 
 export const settingsOf = (file: BenchFile, sampleIntervalMs: number): BenchSettings => ({
-  workloads: file.workloads ?? [...WORKLOADS],
+  workloads: file.workloads ?? [...DEFAULT_WORKLOADS],
   concurrency: file.concurrency ?? [...BENCH_DEFAULTS.concurrency],
   repeats: file.repeats ?? BENCH_DEFAULTS.repeats,
   maxTokens: file.maxTokens ?? BENCH_DEFAULTS.maxTokens,
@@ -87,7 +99,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const isPositiveInteger = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 1;
 const isNonEmpty = (value: unknown) => typeof value === "string" && value.trim() !== "";
 
-const BENCH_KEYS = ["name", "engines", "prompts", "workloads", "concurrency", "repeats", "maxTokens", "warmup", "timeoutMs"];
+const BENCH_KEYS = ["name", "engines", "prompts", "tools", "workloads", "concurrency", "repeats", "maxTokens", "warmup", "timeoutMs"];
 const ENGINE_KEYS = ["engine", "baseURL", "model", "quantization", "container"];
 
 /** An http or https URL whose path ends in `/v1`, with no query or fragment. */
@@ -130,11 +142,15 @@ export function validateBench(bench: unknown): string[] {
       }
     }
   }
+  if (bench.tools !== undefined && !isNonEmpty(bench.tools)) problems.push("`tools` must be the directory of the tool-call cases");
   if (bench.workloads !== undefined) {
     const workloads = bench.workloads;
     if (!Array.isArray(workloads) || workloads.length === 0 || !workloads.every((w) => (WORKLOADS as readonly unknown[]).includes(w))) {
       problems.push(`\`workloads\` must be a non-empty array of: ${WORKLOADS.join(", ")}`);
-    } else if (new Set(workloads).size !== workloads.length) problems.push("`workloads` lists a workload twice");
+    } else {
+      if (new Set(workloads).size !== workloads.length) problems.push("`workloads` lists a workload twice");
+      if (workloads.includes("tools") && !isNonEmpty(bench.tools)) problems.push("the `tools` workload needs `tools`: the directory of the tool-call cases");
+    }
   }
   if (bench.concurrency !== undefined) {
     const levels = bench.concurrency;
@@ -148,17 +164,24 @@ export function validateBench(bench: unknown): string[] {
   return problems;
 }
 
-/** A prompt as the bench sends it, with the SHA-256 of its file, recorded so two benches can be told to have used the same set. */
-export interface BenchPrompt {
-  id: string;
+/** A file read once, with the SHA-256 of the bytes read, recorded so two benches can be told to have used the same set. */
+export interface HashedText {
   text: string;
   sha256: string;
 }
 
+/** A prompt as the bench sends it, with the SHA-256 of its file, and the `test.mjs` beside it if there is one (what `quality` runs). */
+export interface BenchPrompt extends HashedText {
+  id: string;
+  test: HashedText | null;
+}
+
+export const sha256Of = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
+
 const PROMPT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
 /**
- * Reads every `<id>/prompt.md` under `dir`, sorted by id. Files at the top of `dir` (a README) are not prompts; a directory
+ * Reads every `<id>/prompt.md` (and `<id>/test.mjs`, when there is one) under `dir`, sorted by id. Files at the top of `dir` (a README) are not prompts; a directory
  * without `prompt.md`, or none at all, is a problem. Read once, so the bytes hashed are the bytes sent.
  */
 export async function loadPrompts(dir: string): Promise<{ prompts: BenchPrompt[]; problems: string[] }> {
@@ -185,7 +208,14 @@ export async function loadPrompts(dir: string): Promise<{ prompts: BenchPrompt[]
     }
     const text = bytes.toString("utf8");
     if (text.trim() === "") problems.push(`prompt ${id}: prompt.md is empty`);
-    prompts.push({ id, text, sha256: createHash("sha256").update(bytes).digest("hex") });
+    let test: HashedText | null = null;
+    try {
+      const testBytes = await readFile(join(dir, id, "test.mjs"));
+      test = { text: testBytes.toString("utf8"), sha256: sha256Of(testBytes) };
+    } catch {
+      // No test.mjs: the prompt can be timed but not scored.
+    }
+    prompts.push({ id, text, sha256: sha256Of(bytes), test });
   }
   if (prompts.length === 0 && problems.length === 0) problems.push(`the prompts directory ${dir} holds no <id>/prompt.md`);
   return { prompts, problems };

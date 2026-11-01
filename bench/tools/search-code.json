@@ -1,0 +1,53 @@
+{
+  "prompt": "Find where parseConfig is used under the src/lib directory.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "search_code",
+        "description": "Search the project's source for a text.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "directory": {
+              "type": "string",
+              "description": "Where to search, relative to the project root."
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "description": "Read a text file from the project.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path relative to the project root."
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "name": "search_code",
+    "arguments": {
+      "query": "parseConfig",
+      "directory": "src/lib"
+    }
+  }
+}

@@ -8,6 +8,7 @@ import type { BenchEngine, BenchSettings, WorkloadId } from "./bench.ts";
 import type { ChatMeasurement, REQUEST_SETTINGS } from "./client.ts";
 import type { EngineId } from "./engines.ts";
 import type { HardwareFingerprint, Resources } from "./resources.ts";
+import type { RequestScore } from "./score.ts";
 
 /** One workload of one engine in one repeat, as the schedule lists it: `prompts` is the order its requests go in. */
 export interface ScheduledWorkload {
@@ -15,9 +16,12 @@ export interface ScheduledWorkload {
   /** From 1. */
   repeat: number;
   workload: WorkloadId;
-  /** 1 for `latency`; the sweep's level for `throughput`. */
+  /** The sweep's level for `throughput`; 1 for every other workload. */
   concurrency: number;
-  /** Prompt ids in the order drawn from the seed; `throughput` cycles through them for as many requests as it sends. */
+  /**
+   * The ids in the order drawn from the seed: the prompts for `latency`, `throughput` (which cycles through them for as many
+   * requests as it sends) and `quality`; the tool-call cases for `tools`.
+   */
   prompts: string[];
 }
 
@@ -27,6 +31,12 @@ export type RequestRecord = Omit<ChatMeasurement, "content" | "toolCalls"> & {
   /** Milliseconds from the workload's start to the request's start, and to its end. */
   startMs: number;
   endMs: number;
+  /**
+   * How a `quality` or `tools` answer was scored; null for the other workloads, for a request that errored (an engine error is
+   * no answer to score) and when scoring could not be done (`scoreProblem` says why). Read with `?? null`.
+   */
+  score?: RequestScore | null;
+  scoreProblem?: string | null;
 };
 
 /** Why a workload was not run. */
@@ -49,7 +59,10 @@ export type BenchEventBody =
       settings: BenchSettings;
       /** What every request sends beside its model, messages and `max_tokens`. */
       request: typeof REQUEST_SETTINGS;
-      prompts: { id: string; sha256: string }[];
+      /** Each prompt's file and, when it has one, its `test.mjs` (read with `?? null`), so two benches can be told to have used the same set. */
+      prompts: { id: string; sha256: string; testSha256?: string | null }[];
+      /** The tool-call cases of the `tools` workload (read with `?? []`). */
+      toolCases?: { id: string; sha256: string }[];
       fingerprint: HardwareFingerprint;
       /** Every workload, in the order they run: engines × repeats shuffled from the seed, each with its workloads in order. */
       schedule: ScheduledWorkload[];

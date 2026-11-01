@@ -14,7 +14,7 @@ export class UsageError extends Error {
   }
 }
 
-export const COMMANDS = ["doctor", "init", "setup", "demo", "run", "eval", "runs", "inspect", "recover", "approve", "reject", "settings", "help"];
+export const COMMANDS = ["doctor", "init", "setup", "demo", "run", "eval", "bench", "runs", "inspect", "recover", "approve", "reject", "settings", "help"];
 
 /**
  * Whether the first argument is a task rather than a command (spec D1): not a command, and more than one word. A single

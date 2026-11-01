@@ -1,6 +1,7 @@
 import type { BenchEngine, BenchSettings } from "./bench.ts";
 import type { EngineId } from "./engines.ts";
 import type { BenchEndState, BenchEvent, EngineChecked, ScheduledWorkload, SkipReason, WorkloadEnded } from "./events.ts";
+import type { REQUEST_SETTINGS } from "./client.ts";
 import type { HardwareFingerprint } from "./resources.ts";
 
 /** A bench ledger whose events do not follow from each other in a way the hash chain does not catch (a workload out of turn). */
@@ -33,7 +34,10 @@ export interface BenchView {
   seed: number;
   onlyEngine: EngineId | null;
   settings: BenchSettings;
-  prompts: { id: string; sha256: string }[];
+  /** What every request sends beside its model, messages and limit. */
+  request: typeof REQUEST_SETTINGS;
+  prompts: { id: string; sha256: string; testSha256: string | null }[];
+  toolCases: { id: string; sha256: string }[];
   fingerprint: HardwareFingerprint;
   engines: EngineView[];
   /** The workloads still to start or skip, the next first. What is left when the bench ends was never run (a cancel or an error). */
@@ -71,7 +75,9 @@ export function applyBenchEvent(state: BenchView | undefined, event: BenchEvent)
       seed: event.seed,
       onlyEngine: event.onlyEngine ?? null,
       settings: event.settings,
-      prompts: event.prompts,
+      request: event.request,
+      prompts: event.prompts.map((prompt) => ({ ...prompt, testSha256: prompt.testSha256 ?? null })),
+      toolCases: event.toolCases ?? [],
       fingerprint: event.fingerprint,
       engines: event.engines.map((engine) => ({ ...engine, check: null })),
       pending: [...event.schedule],

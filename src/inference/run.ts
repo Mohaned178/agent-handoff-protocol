@@ -1,18 +1,20 @@
 import { randomInt } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { seededRandom, seededShuffle, isSeed } from "../evaluation/statistics.ts";
 import { LedgerWriter, readCheckedLedger } from "../ledger/index.ts";
 import { PROTOCOL_VERSION } from "../protocol/index.ts";
 import { benchesRoot, newId, systemClock, type Clock } from "../runtime/index.ts";
 import { BenchInvalidError, DEFAULT_SAMPLE_INTERVAL_MS, loadPrompts, settingsOf, validateBench, type BenchEngine, type BenchFile, type BenchPrompt, type BenchSettings } from "./bench.ts";
+import { formatBenchReport, reportOf } from "./report.ts";
+import { loadToolCases, type ToolCase } from "./tools.ts";
 import { checkEngine } from "./check.ts";
 import { REQUEST_SETTINGS } from "./client.ts";
 import { ENGINES, isEngineId, type EngineId } from "./engines.ts";
 import type { BenchEvent, BenchEventBody, ScheduledWorkload } from "./events.ts";
 import { applyBenchEvent, replayBench, type BenchView } from "./replay.ts";
 import { fingerprintOf, idleGpuMemory, startSampling } from "./resources.ts";
-import { runWorkload, warmUp } from "./workloads.ts";
+import { runWorkload, scoreWorkload, warmUp } from "./workloads.ts";
 
 export interface RunBenchOptions {
   /** The directory the bench's own directory (`<out>/<bench id>`) is made in. Default `<AHP_HOME>/benches`. */
@@ -44,11 +46,18 @@ export interface BenchResult {
   state: BenchView;
 }
 
+/** The ids a schedule orders: the prompts (for `latency`, `throughput` and `quality`) and the tool-call cases (for `tools`). */
+export interface ScheduleIds {
+  prompts: readonly string[];
+  tools: readonly string[];
+}
+
 /**
  * The order a bench runs in: the engines × repeats shuffled from the seed, each running its workloads in the order the file
- * lists them (the throughput sweep in its levels' order), each workload's prompts shuffled from the same generator.
+ * lists them (the throughput sweep in its levels' order; every other workload at concurrency 1), each workload's ids shuffled
+ * from the same generator.
  */
-export function scheduleOf(engines: readonly EngineId[], settings: BenchSettings, promptIds: readonly string[], seed: number): ScheduledWorkload[] {
+export function scheduleOf(engines: readonly EngineId[], settings: BenchSettings, ids: ScheduleIds, seed: number): ScheduledWorkload[] {
   const random = seededRandom(seed);
   const pairs = seededShuffle(
     engines.flatMap((engine) => Array.from({ length: settings.repeats }, (_, i) => ({ engine, repeat: i + 1 }))),
@@ -56,8 +65,8 @@ export function scheduleOf(engines: readonly EngineId[], settings: BenchSettings
   );
   return pairs.flatMap(({ engine, repeat }) =>
     settings.workloads.flatMap((workload) => {
-      const levels = workload === "latency" ? [1] : settings.concurrency;
-      return levels.map((concurrency) => ({ engine, repeat, workload, concurrency, prompts: seededShuffle(promptIds, random) }));
+      const levels = workload === "throughput" ? settings.concurrency : [1];
+      return levels.map((concurrency) => ({ engine, repeat, workload, concurrency, prompts: seededShuffle(workload === "tools" ? ids.tools : ids.prompts, random) }));
     }),
   );
 }
@@ -77,13 +86,23 @@ export async function runBench(file: BenchFile, options: RunBenchOptions = {}): 
     else if (!file.engines.some((entry) => entry.engine === options.engine)) problems.push(`--engine ${options.engine}: the bench file does not list it (it lists: ${file.engines.map((entry) => entry.engine).join(", ")})`);
   }
   if (options.seed !== undefined && !isSeed(options.seed)) problems.push(`the seed must be an integer from 0 to ${0xffffffff}`);
-  const promptsDir = resolve(options.baseDir ?? process.cwd(), file.prompts);
-  const loaded = await loadPrompts(promptsDir);
+  const settings = settingsOf(file, options.sampleIntervalMs ?? DEFAULT_SAMPLE_INTERVAL_MS);
+  const baseDir = options.baseDir ?? process.cwd();
+  const loaded = await loadPrompts(resolve(baseDir, file.prompts));
   problems.push(...loaded.problems);
+  if (settings.workloads.includes("quality")) {
+    const untested = loaded.prompts.filter((prompt) => prompt.test === null).map((prompt) => prompt.id);
+    if (untested.length > 0) problems.push(`the quality workload tests every prompt, and these have no test.mjs: ${untested.join(", ")}`);
+  }
+  let toolCases: ToolCase[] = [];
+  if (settings.workloads.includes("tools")) {
+    const cases = await loadToolCases(resolve(baseDir, file.tools!));
+    problems.push(...cases.problems);
+    toolCases = cases.cases;
+  }
   if (problems.length > 0) throw new BenchInvalidError(problems);
 
   const engines = options.engine ? file.engines.filter((entry) => entry.engine === options.engine) : file.engines;
-  const settings = settingsOf(file, options.sampleIntervalMs ?? DEFAULT_SAMPLE_INTERVAL_MS);
   const seed = options.seed ?? randomInt(0, 0x100000000);
   const prompts = new Map(loaded.prompts.map((prompt) => [prompt.id, prompt]));
   const fingerprint = await fingerprintOf(options.env);
@@ -111,16 +130,17 @@ export async function runBench(file: BenchFile, options: RunBenchOptions = {}): 
       engines: engines.map(({ engine, baseURL, model, quantization, container }) => ({ engine, baseURL, model, quantization, ...(container ? { container } : {}) })),
       settings,
       request: REQUEST_SETTINGS,
-      prompts: loaded.prompts.map(({ id, sha256 }) => ({ id, sha256 })),
+      prompts: loaded.prompts.map(({ id, sha256, test }) => ({ id, sha256, testSha256: test?.sha256 ?? null })),
+      toolCases: toolCases.map(({ id, sha256 }) => ({ id, sha256 })),
       fingerprint,
       schedule: scheduleOf(
         engines.map((entry) => entry.engine),
         settings,
-        loaded.prompts.map((prompt) => prompt.id),
+        { prompts: loaded.prompts.map((prompt) => prompt.id), tools: toolCases.map((toolCase) => toolCase.id) },
         seed,
       ),
     });
-    await record(await drive(() => view!, record, { settings, prompts, loadedPrompts: loaded.prompts, options }));
+    await record(await drive(() => view!, record, { settings, prompts, toolCases: new Map(toolCases.map((toolCase) => [toolCase.id, toolCase])), loadedPrompts: loaded.prompts, options }));
   } catch (error) {
     // The ledger says it stopped, rather than leave a bench that reads as still running; the error is still the caller's.
     await record({ type: "bench_ended", state: "stopped", reason: `error: ${(error as Error).message}`.slice(0, 500) }).catch(() => undefined);
@@ -128,12 +148,15 @@ export async function runBench(file: BenchFile, options: RunBenchOptions = {}): 
   } finally {
     await ledger.close();
   }
+  // Beside the ledger, for whoever opens the directory: a report is derived, so failing to write it changes nothing.
+  await writeBenchReport(dir, view!).catch(() => undefined);
   return { benchId, dir, state: view! };
 }
 
 interface DriveContext {
   settings: BenchSettings;
   prompts: ReadonlyMap<string, BenchPrompt>;
+  toolCases: ReadonlyMap<string, ToolCase>;
   loadedPrompts: readonly BenchPrompt[];
   options: RunBenchOptions;
 }
@@ -163,16 +186,20 @@ async function drive(current: () => BenchView, record: (body: BenchEventBody) =>
     }
     await record({ type: "workload_started", ...slot });
     const sampling = await startSampling({ env: options.env, intervalMs: settings.sampleIntervalMs, container: engine.container });
-    const outcome = await runWorkload(engine, next, { settings, prompts: ctx.prompts, now: options.now, signal: options.signal }).then(
+    const outcome = await runWorkload(engine, next, { settings, prompts: ctx.prompts, toolCases: ctx.toolCases, now: options.now, signal: options.signal }).then(
       (measured) => ({ measured }),
       (error: unknown) => ({ error }),
     );
     // Sampling stops even when the workload threw, so no nvidia-smi is left running.
     const resources = await sampling.stop();
     if ("error" in outcome) throw outcome.error;
-    const { measured } = outcome;
-    await record({ type: "workload_ended", ...slot, ...measured, resources });
-    if (measured.cancelled) return cancelled("cancelled during a workload");
+    const { answers, ...measured } = outcome.measured;
+    // Scored once sampling has stopped, so running the tests is not in the workload's resources.
+    const scored = await scoreWorkload(next, measured.requests, answers, { prompts: ctx.prompts, toolCases: ctx.toolCases, signal: options.signal });
+    // A cancel that came while answers were being scored cuts the workload short as one during its requests does.
+    const cutShort = measured.cancelled || scored.cutShort;
+    await record({ type: "workload_ended", ...slot, ...measured, requests: scored.requests, cancelled: cutShort, resources });
+    if (cutShort) return cancelled("cancelled during a workload");
   }
 }
 
@@ -184,6 +211,13 @@ async function checkOne(engine: BenchEngine, ctx: DriveContext): Promise<Extract
   const idle = await idleGpuMemory(options.env);
   const warmup = await warmUp(engine, settings.warmup, ctx.loadedPrompts, { settings, signal: options.signal });
   return { type: "engine_checked", engine: engine.engine, ...check, ...idle, warmup };
+}
+
+/** Writes `report.json` and `report.txt` for a bench into its directory. */
+export async function writeBenchReport(dir: string, view: BenchView): Promise<void> {
+  const report = reportOf([view]);
+  await writeFile(join(dir, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
+  await writeFile(join(dir, "report.txt"), `${formatBenchReport(report)}\n`);
 }
 
 /** Reads a bench's ledger, every event checked against the hash chain, and derives its state. */

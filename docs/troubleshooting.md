@@ -128,6 +128,34 @@ calls.
 **Fix:** wait for that process, or stop it. If it is already gone (its PID no longer runs), the lock is stale:
 `ahp recover <run-id>` takes it over and records the old owner in the ledger.
 
+## Measuring local engines (`ahp bench`)
+
+### "nothing was measured: no engine of the bench was available"
+
+**Cause:** every engine the bench ran was unreachable, or did not list its model at `<baseURL>/models`. AHP never starts
+an engine; the report lists each with its error (`UNAVAILABLE: GET http://...`).
+**Fix:** start the engine from `bench/engines/` (one at a time: two do not fit in 8 GB), check
+`curl <baseURL>/models` lists the model exactly as the bench file names it, then run `ahp bench <file> --engine <id>`
+again.
+
+### "the quality workload tests every prompt, and these have no test.mjs: ..."
+
+**Cause:** the `quality` workload scores every prompt by its tests, and a prompt directory has no `test.mjs`.
+**Fix:** add a `test.mjs` beside the prompt's `prompt.md` (it imports `./solution.mjs`, which the answer's code block is
+written to), or leave `quality` out of the bench file's `workloads`.
+
+### "these benches cannot be combined"
+
+**Cause:** `ahp bench report` was given benches that would not be comparable: the same engine twice, another machine
+(GPU, CPU, RAM, OS), other prompt files, tests or tool-call cases, or other settings. The message lists each difference.
+**Fix:** run the engines from the same bench file on the same machine, one `--engine` at a time, and give the report one
+directory per engine.
+
+### "not a bench directory (it has no ledger.jsonl)"
+
+**Cause:** `ahp bench report` was given a folder that is not a bench's own directory.
+**Fix:** give the directory `ahp bench` printed after "kept in" (`<out>/bench_...`), not the folder above it.
+
 ## Windows
 
 ### A path too long (git's `Filename too long`, or `ENAMETOOLONG`)

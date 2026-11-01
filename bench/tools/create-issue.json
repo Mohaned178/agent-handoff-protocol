@@ -1,0 +1,61 @@
+{
+  "prompt": "File an issue titled 'Login fails on Safari' with the labels bug and safari.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "create_issue",
+        "description": "Create an issue in the tracker.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "labels": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "title"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "search_code",
+        "description": "Search the project's source for a text.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "directory": {
+              "type": "string",
+              "description": "Where to search, relative to the project root."
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "name": "create_issue",
+    "arguments": {
+      "title": "Login fails on Safari",
+      "labels": [
+        "bug",
+        "safari"
+      ]
+    }
+  }
+}

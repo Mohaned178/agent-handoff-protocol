@@ -1,0 +1,47 @@
+{
+  "prompt": "Run only the tests with 'auth' in their name.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "run_tests",
+        "description": "Run the project's tests.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Only run tests whose name matches."
+            }
+          },
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "description": "Read a text file from the project.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path relative to the project root."
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    }
+  ],
+  "expect": {
+    "name": "run_tests",
+    "arguments": {
+      "pattern": "auth"
+    }
+  }
+}

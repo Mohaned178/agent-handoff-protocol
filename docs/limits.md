@@ -12,7 +12,7 @@ Run AHP in a container or virtual machine if the agent or the repository is not 
 
 ## Verification runs agent-written code on your machine
 
-A step's verification command, and the hidden tests of an evaluation, run through the system shell in a fresh verification worktree on the host. They execute code the agent wrote (and the repository's own install scripts, when a step asks for an install). A fresh worktree stops an agent from faking its own state; it does not isolate the code from your machine. The same applies to the validators of `ahp eval`.
+A step's verification command, and the hidden tests of an evaluation, run through the system shell in a fresh verification worktree on the host. They execute code the agent wrote (and the repository's own install scripts, when a step asks for an install). A fresh worktree stops an agent from faking its own state; it does not isolate the code from your machine. The same applies to the validators of `ahp eval`. And to `ahp bench`: its `quality` workload writes the code block a local model answered with beside the prompt's `test.mjs` in a temporary directory and runs it with `node --test`, with a time limit and the process tree stopped on expiry, but with your permissions and no sandbox.
 
 ## Subscriptions fall under each vendor's terms
 

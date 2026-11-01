@@ -63,3 +63,29 @@ export {
   type UsageSummary,
   type WallTime,
 } from "./evaluation/index.ts";
+// The inference bench's public surface (ADR 0007): running a bench, reading its ledger and combining benches into a report.
+// "Bench" is the glossary's word; the rest of the module (the streaming client, scoring, replay) stays inside it.
+export {
+  BenchesNotComparableError,
+  BenchInvalidError,
+  ENGINES,
+  formatBenchReport,
+  QUALITY_OUTCOMES,
+  readBench,
+  reportOf as benchReportOf,
+  runBench,
+  TOOL_OUTCOMES,
+  validateBench,
+  WORKLOADS,
+  type BenchEngine,
+  type BenchEvent,
+  type BenchFile,
+  type BenchReport,
+  type BenchResult,
+  type BenchView,
+  type EngineId,
+  type QualityOutcome,
+  type RunBenchOptions,
+  type ToolOutcome,
+  type WorkloadId,
+} from "./inference/index.ts";

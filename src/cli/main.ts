@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
-import { realpath } from "node:fs/promises";
+import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { DEFAULT_REMOTE, RECOVERY_ACTIONS, THIS_REPOSITORY, type LedgerEvent, type RecoveryAction, type RunView } from "../protocol/index.ts";
@@ -20,7 +20,7 @@ import {
 } from "../sdk/index.ts";
 import { assignRoles, diagnose, initWorkflow, publishRemoteOf, TOOLS, type DoctorReport, type RoleAssignment, type ToolId } from "../doctor/index.ts";
 import { API_KEY_NOTICE, formatReport, runEvaluation, SuiteInvalidError, TaskInvalidError, type EvaluationEvent, type EvaluationSuite, type EvaluationView } from "../evaluation/index.ts";
-import { demosRoot, evaluationsRoot, git, locateRepo, settingsPath, toolCallLogPath, transcriptPaths } from "../runtime/index.ts";
+import { benchesRoot, demosRoot, evaluationsRoot, git, locateRepo, settingsPath, toolCallLogPath, transcriptPaths } from "../runtime/index.ts";
 import { checkStepFlags, COMMANDS, isTask, seedOf, stepFlagsOf, UsageError, withOptionalValues, type StepFlags } from "./args.ts";
 import { changesBetween, describeChanges, diffBetween, formatDiff } from "./diff.ts";
 import { watchProgress } from "./progress.ts";
@@ -29,7 +29,9 @@ import { precheck } from "./precheck.ts";
 import { formatBriefReceipt, nextStepOf } from "./receipt.ts";
 import { LiveView, type Terminal } from "./live.ts";
 import { formatDoctor, formatInit } from "./format-doctor.ts";
+import { formatBenchEvent } from "./format-bench.ts";
 import { formatEvaluationEvent } from "./format-evaluation.ts";
+import { BenchesNotComparableError, BenchInvalidError, formatBenchReport, readBench, reportOf, runBench, type BenchFile } from "../inference/index.ts";
 import {
   branchFor,
   buildTaskRun,
@@ -83,6 +85,12 @@ Commands:
   eval <suite-file>     Run the evaluation suite exported by default from <suite-file>: its tasks are frozen,
                         then each runs under conditions C0-C3 and the matched-budget baseline, repeated, in a
                         shuffled order, each trial scored by independent validators, conditions compared by task
+  bench <bench-file>    Measure the local inference engines the bench file lists (Ollama, vLLM, SGLang,
+                        TensorRT-LLM, started by you from bench/engines/): latency, throughput under
+                        concurrency, GPU use, code quality and tool-call validity; --engine <id> runs one
+  bench report <bench-dir>...
+                        Combine the benches of several engines into one report; refuses benches made on
+                        another machine, or with other prompts or settings
   settings              Print the tool, model and effort you chose to keep for each step of a task, and
                         where they are kept; --clear removes them
   runs                  List this repository's runs, newest first, with what to do next for any that waits
@@ -100,8 +108,12 @@ Commands:
 
 Options:
   --repo <dir>          The git repository to use (default: the current directory)
-  --out <dir>           eval: where the evaluation is kept (default: AHP's per-user directory)
-  --seed <n>            eval: the seed of the trial order and of the comparisons, 0 to 4294967295 (default: drawn)
+  --out <dir>           eval, bench: where the evaluation or bench is kept (default: AHP's per-user directory);
+                        bench report: where to also write report.json and report.txt
+  --seed <n>            eval: the seed of the trial order and of the comparisons, 0 to 4294967295 (default: drawn);
+                        bench: the seed of the workload and prompt order (default: drawn); bench report: the
+                        seed of the comparisons' bootstrap (default: 0)
+  --engine <id>         bench: run only this engine of the bench file: ollama, vllm, sglang or tensorrt_llm
   --json                inspect: print the derived state, the ledger check and the run's lock as JSON;
                         runs: every run as JSON; doctor: print the report as JSON; eval: print only the report, as JSON
   --all                 runs: list every run, not only the newest 20; --help: print this whole list
@@ -134,10 +146,11 @@ Options:
 
 Ctrl+C during run, recover, approve or reject cancels the run: the running agent and every
 process it started are stopped, and the run ends cancelled. Ctrl+C during eval cancels the
-trial in hand and starts no other.
+trial in hand and starts no other; during bench it cancels the workload in hand and starts no other.
 
 Exit codes: 0 the run succeeded (eval: the evaluation completed, whatever its trials found),
-1 it failed or ahp failed (eval: it stopped because a frozen task changed), 2 usage error,
+1 it failed or ahp failed (eval: it stopped because a frozen task changed; bench: it stopped on an error,
+or measured nothing because no engine was available), 2 usage error,
 3 the run stopped for a recovery decision, 4 the run stopped at an approval gate,
 130 the run was cancelled`;
 
@@ -271,6 +284,7 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
         repo: { type: "string" },
         out: { type: "string" },
         seed: { type: "string" },
+        engine: { type: "string" },
         json: { type: "boolean" },
         policy: { type: "string" },
         reason: { type: "string" },
@@ -317,6 +331,8 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
       // Words given unquoted arrive one by one: the first is not a command, and must never be read as a task's start.
       throw new UsageError(`unknown command: ${command} (a task is one argument, in quotes: ahp "${positionals.join(" ")}")`);
     }
+    // `bench report` takes any number of bench directories, so it is read before the one-target rule below.
+    if (command === "bench") return await benchCommand(positionals.slice(1), { engine: values.engine, out: values.out, seed: seedOf(values.seed), json: values.json ?? false }, io);
     const deciding = command === "approve" || command === "reject";
     // Only a decision takes a second argument, the gate's step ID.
     if (extra.length > 0 || (step !== undefined && !deciding)) throw new UsageError(`unexpected argument: ${extra[0] ?? step}`);
@@ -1032,6 +1048,85 @@ async function evalCommand(file: string, out: string | undefined, seed: number |
   } finally {
     interrupt.release();
   }
+}
+
+interface BenchCliOptions {
+  engine: string | undefined;
+  out: string | undefined;
+  seed: number | undefined;
+  json: boolean;
+}
+
+/**
+ * `ahp bench <bench-file>` runs a bench and prints its report; `ahp bench report <bench-dir>...` combines the benches already
+ * made. Ctrl+C cancels the workload in hand and starts no other. Exit 0 when the bench completed with something measured; an
+ * unavailable engine is a finding in the report, but a bench in which nothing could be measured exits 1.
+ */
+async function benchCommand(args: string[], options: BenchCliOptions, io: Io): Promise<number> {
+  const [first, ...rest] = args;
+  if (first === undefined) throw new UsageError("bench needs a bench file, or `bench report <bench-dir>...`");
+  if (first === "report") return await benchReportCommand(rest, options, io);
+  if (rest.length > 0) throw new UsageError(`unexpected argument: ${rest[0]}`);
+  const path = resolve(first);
+  let file: unknown;
+  try {
+    file = ((await import(pathToFileURL(path).href)) as { default?: unknown }).default;
+  } catch (error) {
+    throw new UsageError(`cannot load bench file ${path}: ${(error as Error).message}`);
+  }
+  const interrupt = cancelOnInterrupt(io, "the bench", "waiting until the requests in flight and the workload in hand are seen ended");
+  try {
+    const result = await runBench(file as BenchFile, {
+      out: options.out === undefined ? benchesRoot() : resolve(options.out),
+      baseDir: dirname(path),
+      signal: interrupt.signal,
+      ...(options.engine !== undefined ? { engine: options.engine as never } : {}),
+      ...(options.seed !== undefined ? { seed: options.seed } : {}),
+      onEvent: (event, state) => {
+        if (!options.json) io.stdout(formatBenchEvent(event, state));
+      },
+    });
+    const report = reportOf([result.state]);
+    io.stdout(options.json ? JSON.stringify(report, null, 2) : `\n${formatBenchReport(report)}\nkept in ${result.dir}`);
+    if (result.state.state === "cancelled") return 130;
+    if (result.state.state !== "completed") return 1;
+    if (!result.state.workloads.some((workload) => workload.status === "ended")) {
+      io.stderr("ahp: nothing was measured: no engine of the bench was available (the report says why)");
+      return 1;
+    }
+    return 0;
+  } catch (error) {
+    // A bench file or prompt set that is invalid is a mistake in how ahp was used, as an invalid suite is.
+    if (error instanceof BenchInvalidError) throw new UsageError(`${error.message}\n(bench file ${path})`);
+    throw error;
+  } finally {
+    interrupt.release();
+  }
+}
+
+async function benchReportCommand(dirs: string[], options: BenchCliOptions, io: Io): Promise<number> {
+  if (dirs.length === 0) throw new UsageError("bench report needs the directory of at least one bench");
+  if (options.engine !== undefined) throw new UsageError("--engine chooses what to run: `bench report` reports the benches it is given");
+  const views = [];
+  for (const dir of dirs) {
+    if (!existsSync(join(resolve(dir), "ledger.jsonl"))) throw new UsageError(`not a bench directory (it has no ledger.jsonl): ${resolve(dir)}`);
+    views.push(await readBench(dir));
+  }
+  let report;
+  try {
+    report = reportOf(views, options.seed === undefined ? {} : { seed: options.seed });
+  } catch (error) {
+    if (error instanceof BenchesNotComparableError) throw new UsageError(error.message);
+    throw error;
+  }
+  if (options.out !== undefined) {
+    const out = resolve(options.out);
+    await mkdir(out, { recursive: true });
+    await writeFile(join(out, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
+    await writeFile(join(out, "report.txt"), `${formatBenchReport(report)}\n`);
+  }
+  io.stdout(options.json ? JSON.stringify(report, null, 2) : `${formatBenchReport(report)}${options.out !== undefined ? `\nwritten to ${resolve(options.out)}` : ""}`);
+  return 0;
 }
 
 /** `ahp runs`: the repository's runs, newest first; with --json every run, as `listRuns` gives them. */

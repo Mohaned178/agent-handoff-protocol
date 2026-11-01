@@ -339,3 +339,13 @@ Time from sending a streaming request to the first chunk that carries content or
 
 **Hardware fingerprint**:
 GPU, VRAM, driver, CPU, RAM and OS label recorded with every bench. Engines are compared only within one fingerprint.
+
+**Tool-call case**:
+One `bench/tools/<id>.json`: a prompt, the tool schemas sent with it and the call the answer is expected to make (the tool's name and the arguments it must carry). Scored `valid_call`, `wrong_tool`, `bad_arguments`, `no_call` or `malformed` from the answer's first tool call; an engine error is no answer and is not scored.
+_Avoid_: Tool prompt
+
+**Quality score**:
+How a `quality` answer is judged: the first JavaScript code block is written beside the prompt's `test.mjs` and run with `node --test`; `pass`, `fail`, `no_code` or `timed_out`. Model-written code runs on the host, with a time limit and no sandbox.
+
+**Bench report**:
+Computed from replayed bench ledgers, one bench or the benches of several engines on the same machine, prompts and settings (`ahp bench report`; otherwise refused). Percentiles are nearest-rank with their count; rates have their counts beside them; engine pairs are compared per prompt on pass rate and valid-call rate with `comparePaired`.
