@@ -1,6 +1,7 @@
 services:
   sglang:
     image: lmsysorg/sglang:v0.5.22
+    container_name: ahp-sglang
     ports:
       - "8002:30000"
     volumes:

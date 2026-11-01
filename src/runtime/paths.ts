@@ -45,6 +45,11 @@ export function evaluationsRoot(): string {
   return join(ahpHome(), "evaluations");
 }
 
+/** Where `ahp bench` keeps its benches unless told otherwise: beside the evaluations, outside every repository. */
+export function benchesRoot(): string {
+  return join(ahpHome(), "benches");
+}
+
 /** The per-user settings `ahp "<task>"` reads (the defaults a person chose for each step): never read by `ahp eval` or `ahp run`. */
 export function settingsPath(): string {
   return join(ahpHome(), "settings.json");

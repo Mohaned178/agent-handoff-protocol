@@ -335,7 +335,7 @@ _Avoid_: Evaluation (that scores coding-agent workflows), benchmark suite
 What the bench sends an engine: `latency` (one request at a time over the prompt set), `throughput` (the prompt set at a fixed concurrency), `quality` (coding prompts whose answer is tested) and `tools` (prompts whose expected tool call is checked).
 
 **Time to first token (TTFT)**:
-Time from sending a streaming request to the first chunk that carries content. With end-to-end latency and inter-token gaps, measured by AHP's clock; token counts come only from the engine's reported usage, else null, never counted from chunks.
+Time from sending a streaming request to the first chunk that carries content or a tool call. With end-to-end latency and inter-chunk gaps (a chunk is not a token), measured by AHP's clock; token counts come only from the engine's reported usage, else null, never counted from chunks.
 
 **Hardware fingerprint**:
 GPU, VRAM, driver, CPU, RAM and OS label recorded with every bench. Engines are compared only within one fingerprint.

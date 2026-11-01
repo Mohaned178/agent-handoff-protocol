@@ -3,6 +3,7 @@
 services:
   tensorrt-llm:
     image: nvcr.io/nvidia/tensorrt-llm/release:1.2.1
+    container_name: ahp-tensorrt-llm
     ports:
       - "8003:8000"
     volumes:

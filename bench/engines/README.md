@@ -13,6 +13,10 @@ while only the running one answers. An engine that is not running is recorded as
 
 Images are pinned (checked on their registries 2026-10-31). Change a tag only together with the bench that records it.
 
+Each Docker engine's container is named `ahp-vllm`, `ahp-sglang` or `ahp-tensorrt-llm`. A bench file gives that name as
+the engine's `container`, so the bench also records the container's own memory and CPU from `docker stats`; Ollama runs
+natively and has none.
+
 The Docker engines need Docker Desktop with the WSL2 backend and GPU support (`docker run --rm --gpus all
 nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi` must print the GPU). Models are cached in the named volume
 `ahp-hf-cache`, so the first start downloads about 5.5 GB.
