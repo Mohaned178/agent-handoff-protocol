@@ -613,9 +613,50 @@ export interface ToolCallLogEntry {
   permission: "allowed" | "rejected" | null;
 }
 
-/** The last of a transport's tool-call log entries, oldest first. */
+/** The last of a transport's tool-call log entries, oldest first. Only a recovery report recorded before the activity log has one. */
 export interface ToolCallLog {
   entries: ToolCallLogEntry[];
+  /** True when earlier entries were left out. */
+  truncated: boolean;
+}
+
+/**
+ * What a tool said about one of its limits, exactly as it said it: Claude Code's plan limit (`rate_limit_event`: its
+ * `status` and `rateLimitType` as `window`) or OpenCode's context window (`usage_update`: `used` of `size` tokens). A
+ * field the tool did not state is absent. A `limit` is never an error: Claude Code sends one on healthy runs too.
+ */
+export interface ActivityLimit {
+  /** The adapter whose tool said it. */
+  tool: string;
+  kind: "plan_limit" | "context_window";
+  status?: string;
+  window?: string;
+  used?: number;
+  size?: number;
+}
+
+/**
+ * One line of an attempt's activity log (`<runs>/<run>/activity/<attempt>.jsonl`), written by its adapter as each thing
+ * happens, for a person watching and for a recovery report. It is never the record: the ledger is (`attempt_exited`
+ * keeps the usage). Metadata only: a tool call's title and paths, never its input or output; a message's first 300
+ * characters, with keys redacted.
+ * - `tool_call`: what the tool said about a call (a `ToolCallLogEntry`), or AHP's answer to a permission request for it.
+ * - `message`: the agent's own text.
+ * - `usage`: what the tool reported using, with its source. `scope` says what the numbers cover: `attempt` is the
+ *   attempt so far as the tool counts it, `message` one model message alone (Claude Code), never to be added up.
+ * - `limit`: an `ActivityLimit`.
+ */
+export type ActivityEntry =
+  | ({ type: "tool_call" } & ToolCallLogEntry)
+  | { type: "message"; time: string; text: string }
+  | { type: "usage"; time: string; scope: "attempt" | "message"; usage: UsageReport }
+  | ({ type: "limit"; time: string } & ActivityLimit);
+
+export const ACTIVITY_ENTRY_TYPES = ["tool_call", "message", "usage", "limit"] as const satisfies readonly ActivityEntry["type"][];
+
+/** The last entries of an attempt's activity log, oldest first. */
+export interface ActivityLog {
+  entries: ActivityEntry[];
   /** True when earlier entries were left out. */
   truncated: boolean;
 }
@@ -649,8 +690,13 @@ export interface RecoveryReport {
     /** Why the refs could not be compared: a snapshot is missing. */
     error: string | null;
   };
-  /** The transport's log of the agent's tool calls; null when the attempt's adapter kept none. */
-  toolCallLog: ToolCallLog | null;
+  /**
+   * The last 100 entries of the attempt's activity log (an old run's `tool-calls/` log is read as its `tool_call`
+   * entries); null when the attempt's adapter wrote none.
+   */
+  activity: ActivityLog | null;
+  /** Only in a report recorded before the activity log: that report's tool-call log. Read `activity` first. */
+  toolCallLog?: ToolCallLog | null;
   /** The statement that host and external effects are undetermined, always present. */
   undetermined: string;
 }

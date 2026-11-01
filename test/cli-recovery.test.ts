@@ -48,7 +48,7 @@ describe("ahp recover, after the runtime was killed", () => {
       expect(recover.code).toBe(3);
       expect(recover.stdout).toContain(`run ${runId}: resumed by a new process, which took over the stale lock of PID ${runtime.pid}`);
       expect(recover.stdout).toContain(`attempt ${attemptId} [mock] unknown (no_terminal_record)`);
-      expect(recover.stdout).toContain("tool-call log: none, the attempt's adapter keeps none");
+      expect(recover.stdout).toContain("activity log: none, the attempt's adapter wrote none");
       expect(recover.stdout).toContain("Host and external effects are undetermined");
       expect(recover.stdout).toContain("Whether the agent's process started is not known.");
       expect(recover.stdout).toContain(`run ${runId}: needs recovery`);

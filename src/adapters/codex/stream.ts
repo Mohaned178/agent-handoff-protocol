@@ -8,6 +8,7 @@
 // `turn.failed` ends a turn badly: the top-level `error` events before it are retry notices ("Reconnecting... 2/5") too.
 
 import type { AdapterErrorKind, AttemptError, OutputFieldValue, StopReason, UsageReport } from "../../protocol/index.ts";
+import type { ActivityItem } from "../activity.ts";
 
 type Json = Record<string, unknown>;
 const isObject = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -60,6 +61,13 @@ export class CodexStream {
   private lastError: string | null = null;
   private pending = "";
 
+  /**
+   * Called with each thing the stream reports while the agent works, for the activity log: tool calls from
+   * `command_execution` and `file_change` items, messages from `agent_message` items, and the usage, which Codex states
+   * only at `turn.completed` (nothing is estimated before it). Codex reports no limit.
+   */
+  onActivity: (item: ActivityItem) => void = () => undefined;
+
   /** Takes the next piece of the process's stdout, whole lines or not. */
   write(chunk: string): void {
     this.pending += chunk;
@@ -96,14 +104,21 @@ export class CodexStream {
       case "thread.started":
         if (typeof event.thread_id === "string") this.threadIdSeen = event.thread_id;
         break;
+      case "item.started":
+        this.toolCall(event.item);
+        break;
       case "item.completed":
         this.item(event.item);
+        this.toolCall(event.item);
         break;
-      case "turn.completed":
+      case "turn.completed": {
         this.turnCompleted = true;
         if (isObject(event.usage)) this.usageBlock = event.usage;
         this.answeredSeen = true;
+        const usage = this.usage();
+        if (usage !== null) this.onActivity({ type: "usage", scope: "attempt", usage });
         break;
+      }
       case "turn.failed":
         this.failure = isObject(event.error) && typeof event.error.message === "string" ? event.error.message : "Codex reported a failed turn";
         break;
@@ -118,8 +133,27 @@ export class CodexStream {
     if (item.type === "agent_message" && typeof item.text === "string") {
       this.lastMessage = item.text;
       this.answeredSeen = true;
+      this.onActivity({ type: "message", text: item.text });
     } else if (item.type === "command_execution") {
       this.answeredSeen = true;
+    }
+  }
+
+  /**
+   * A `command_execution` or `file_change` item, started or completed, as a tool call: its status as Codex gives it
+   * (`in_progress`, `completed`, `failed`, `declined`), the command as its title, a file change's paths. Its output is
+   * not kept.
+   */
+  private toolCall(item: unknown): void {
+    if (!isObject(item) || typeof item.id !== "string") return;
+    const status = typeof item.status === "string" ? item.status : null;
+    if (item.type === "command_execution") {
+      const title = typeof item.command === "string" ? item.command : null;
+      this.onActivity({ type: "tool_call", toolCallId: item.id, kind: "command_execution", title, status, paths: [], permission: null });
+    } else if (item.type === "file_change") {
+      const changes = Array.isArray(item.changes) ? item.changes : [];
+      const paths = changes.flatMap((change) => (isObject(change) && typeof change.path === "string" ? [change.path] : []));
+      this.onActivity({ type: "tool_call", toolCallId: item.id, kind: "file_change", title: null, status, paths, permission: null });
     }
   }
 

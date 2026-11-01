@@ -6,7 +6,8 @@
 
 import { isAbsolute, relative, resolve } from "node:path";
 import type { AppliedCapabilities } from "../../protocol/index.ts";
-import type { ToolCall, ToolCallLogger } from "./tool-calls.ts";
+import type { ActivityLogger } from "../activity.ts";
+import type { ToolCall } from "./tool-calls.ts";
 
 /** The commands that move a shared ref or open a pull request. Matched at the start of a shell command; `git branch` and `git tag` also list, so they are not here. */
 export const EXTERNAL_ACTION_COMMANDS = ["git push", "git update-ref", "gh"] as const;
@@ -93,7 +94,7 @@ export function isExternalAction(command: string): boolean {
  * never `allow_always` (it would outlive the attempt in the user's own rules). What the agent knew of the call from
  * earlier updates fills in what the request leaves out.
  */
-export function answerPermission(params: unknown, policy: PermissionPolicy, known: (toolCallId: string) => ToolCall | undefined, log: ToolCallLogger): { outcome: { outcome: "selected"; optionId: string } | { outcome: "cancelled" } } {
+export function answerPermission(params: unknown, policy: PermissionPolicy, known: (toolCallId: string) => ToolCall | undefined, log: Pick<ActivityLogger, "permission">): { outcome: { outcome: "selected"; optionId: string } | { outcome: "cancelled" } } {
   const request = (typeof params === "object" && params !== null ? params : {}) as { toolCall?: unknown; options?: { optionId?: string; kind?: string }[] };
   const tool = (typeof request.toolCall === "object" && request.toolCall !== null ? request.toolCall : {}) as Record<string, unknown>;
   const earlier: ToolCall | undefined = typeof tool.toolCallId === "string" ? known(tool.toolCallId) : undefined;

@@ -20,7 +20,7 @@ import {
 } from "../sdk/index.ts";
 import { assignRoles, diagnose, initWorkflow, publishRemoteOf, TOOLS, type DoctorReport, type RoleAssignment, type ToolId } from "../doctor/index.ts";
 import { API_KEY_NOTICE, formatReport, readEvaluation, runEvaluation, SuiteInvalidError, TaskInvalidError, type EvaluationEvent, type EvaluationSuite, type EvaluationView } from "../evaluation/index.ts";
-import { benchesRoot, demosRoot, evaluationsRoot, git, locateRepo, settingsPath, toolCallLogPath, transcriptPaths } from "../runtime/index.ts";
+import { activityLogPath, benchesRoot, demosRoot, evaluationsRoot, git, locateRepo, settingsPath, transcriptPaths } from "../runtime/index.ts";
 import { checkStepFlags, COMMANDS, isTask, seedOf, stepFlagsOf, UsageError, withOptionalValues, type StepFlags } from "./args.ts";
 import { changesBetween, describeChanges, diffBetween, formatDiff } from "./diff.ts";
 import { watchProgress } from "./progress.ts";
@@ -530,7 +530,7 @@ async function followRun<R>(io: Io, repo: string, execute: (following: Following
           watching = watch;
           void location.then((found) => {
             if (!found || watching !== watch) return;
-            const files = { output: transcriptPaths(found, current.runId, attemptId).output, toolCalls: toolCallLogPath(found, current.runId, attemptId) };
+            const files = { output: transcriptPaths(found, current.runId, attemptId).output, activity: activityLogPath(found, current.runId, attemptId) };
             // The compact view shows the tool's last call on the step's own line, and its spinner says it is alive.
             watch.stop = live
               ? watchProgress(files, "", (line) => live.activity(stepId, line.replace(/^: /, "")), { heartbeatMs: Number.MAX_SAFE_INTEGER }).stop

@@ -24,6 +24,15 @@ claude -p --output-format stream-json --verbose --permission-mode dontAsk
 - Usage comes from the `result` event only: `input_tokens`, `output_tokens`, `cache_read_input_tokens` (as `cachedInputTokens`) and `total_cost_usd` (a list-price figure the tool prints, labelled so; not a charge). `input_tokens` excludes cache reads and cache writes, and the `source` text says how many cache writes were reported and left out. `totalTokens` is always `null`. A force-killed attempt prints no `result`, so it reports no usage. A block of all zeros (what the tool prints for a failed login) is not recorded.
 - Errors are read from the closing `result` event and the error code on the assistant message that carries it, never from `rate_limit_event` (which is sent on healthy runs): `authentication_failed`, `oauth_org_not_allowed`, `account_on_hold`, `verification_required`, `billing_error`, `cloud_credential_error` and `model_not_found` are `config_auth`; `rate_limit`, `overloaded` and `server_error` are `transient`; anything else the tool calls an error is `agent_error`. The code list is read from the installed 2.1.311's own schema (static evidence).
 
+## Activity log
+
+What the stream reports while the agent works is appended, as it happens, to the attempt's activity log (`<git common dir>/ahp/runs/<run>/activity/<attempt>.jsonl`, see `docs/how-it-works.md`). A subagent's messages (`parent_tool_use_id` set) are left out.
+
+- **Tool calls:** each `tool_use` block (`in_progress`) and its `tool_result` (`completed`, or `failed` when `is_error`). The kind is Claude Code's tool name (`Write`, `Bash`, ...); the title is the input's `command`, `pattern`, `url` or `query`, cut at 300 characters; the paths are its `file_path`, `notebook_path` or `path`, relative to the workspace when inside it. Never the call's input otherwise, nor its output. AHP answers no permission request here (the hook does, and its answer is not in the stream), so the permission is always `null`.
+- **Messages:** each assistant `text` block, cut to 300 characters with keys redacted.
+- **Usage:** each assistant message's own `usage` (`scope: "message"`): that model call alone, not the attempt so far, and never to be added up (the per-message counts do not sum to the result's, observed). The attempt's usage arrives only with the `result` event (`scope: "attempt"`), the same numbers the ledger records.
+- **Limits:** each `rate_limit_event`'s `status` and `rateLimitType` (as `window`), as a `plan_limit`, written again only when it changes. It is sent on healthy runs too, so it is never an error. Claude Code reports no context window in the stream.
+
 ## Options (`claudeCode({ model, ... })`)
 
 | Option | Meaning |

@@ -89,9 +89,16 @@ What is applied, through `OPENCODE_CONFIG_CONTENT` (inline config, which a file 
 
 For every request that does reach AHP (also those your own OpenCode config makes it ask): a path outside the workspace, or a write into `.git`, is rejected; anything else is answered **`allow_once`**, never `allow_always`, which would outlive the attempt in your own rules. Every agent→client request that is not a permission request (OpenCode asks to write a file through the client after an approved edit, although none was offered) is answered "method not found"; OpenCode logs a stack trace to stderr and carries on, the file having been written by its own tool (observed). Stderr is not read.
 
-## Tool-call log
+## Activity log
 
-Each tool call OpenCode reports (`tool_call`, `tool_call_update`) is appended, as it happens, to a file the runtime owns (`<git common dir>/ahp/runs/<run>/tool-calls/<attempt>.jsonl`): the call's kind, title (for a shell command, the command, cut at 300 characters), status, paths relative to the workspace, and AHP's answer to a permission request. Never the call's input or output. The recovery report of an attempt whose outcome is unknown (`ahp recover`) lists the last 100 entries, which is how you see what the agent was doing when its process was lost. The file is created when the attempt starts, so an attempt lost before any tool call shows an empty log (the agent had made none), not "none". A command's text can contain whatever the agent typed; the file stays in the repository's `.git` directory, as the ledger does.
+What OpenCode reports during the turn is appended, as it happens, to the attempt's activity log, a file the runtime owns (`<git common dir>/ahp/runs/<run>/activity/<attempt>.jsonl`, see `docs/how-it-works.md`):
+
+- **Tool calls** (`tool_call`, `tool_call_update`): the call's kind, title (for a shell command, the command, cut at 300 characters), status, paths relative to the workspace, and AHP's answer to a permission request, once per change. Never the call's input or output.
+- **Messages:** the chunks of each `agent_message_chunk` message, joined once the message is whole, then cut to 300 characters with keys redacted. Thoughts (`agent_thought_chunk`) are not kept.
+- **Usage:** a `usage_update`'s cost, as usage so far, only when above zero (a zero is what OpenCode says for a model it does not price, a local engine's included, so a local engine shows no cost); it carries no token counts. The turn's token counts arrive only with the `session/prompt` result, and are logged then.
+- **Limits:** each `usage_update`'s context window, `used` of `size` tokens. OpenCode reports no plan limit.
+
+An older run kept only the tool calls, under `tool-calls/`; it is still read. The recovery report of an attempt whose outcome is unknown (`ahp recover`) lists the last 100 entries, which is how you see what the agent was doing when its process was lost. The file is created when the attempt starts, so an attempt lost before any tool call shows an empty log (the agent had made none), not "none". A command's text can contain whatever the agent typed; the file stays in the repository's `.git` directory, as the ledger does.
 
 ## Cancel
 

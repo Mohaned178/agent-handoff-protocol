@@ -4,7 +4,8 @@
 //
 // The attempt is one conversation: `initialize`, `session/new`, the model (`session/set_config_option`, only when one is
 // requested), one `session/prompt`. AHP answers OpenCode's own requests (`session/request_permission` by the capabilities,
-// everything else "not found") and logs each tool call to the file the runtime gave it. Cancelling is the transport's:
+// everything else "not found") and appends each tool call, message, usage report and context-window report to the activity
+// log the runtime gave it. Cancelling is the transport's:
 // `session/cancel`, then the end of stdin, which is what makes an ACP agent exit; the process layer kills the tree only
 // if that does not end it within the grace period.
 
@@ -15,7 +16,8 @@ import type { AgentRef } from "../../protocol/index.ts";
 import type { Adapter, AttemptExit, AttemptInput } from "../contract.ts";
 import { AcpConnection, AcpError, ConnectionClosedError } from "../acp/connection.ts";
 import { answerPermission, policyOf } from "../acp/permissions.ts";
-import { redacted, toolCallLogger } from "../acp/tool-calls.ts";
+import { redacted } from "../acp/tool-calls.ts";
+import { activityLogger } from "../activity.ts";
 import { promptFor, REPORT_AS_JSON_MESSAGE } from "../prompt.ts";
 import { LOCAL_PROVIDER, localEndpointProblems, localModelOf, servedModelOf, type LocalEndpoint } from "./local.ts";
 import { configContentOf } from "./policy.ts";
@@ -102,7 +104,7 @@ export const openCodeAdapter: Adapter = {
   },
 };
 
-async function start({ workspace, requestedModel, capabilities, handoff, options, toolCallLog, transcript }: AttemptInput) {
+async function start({ workspace, requestedModel, capabilities, handoff, options, activityLog, transcript }: AttemptInput) {
   const chosen = (options ?? {}) as OpenCodeOptions;
   const reportFields = chosen.reportFields ?? [];
   const localEndpoint = chosen.localEndpoint ?? null;
@@ -119,8 +121,9 @@ async function start({ workspace, requestedModel, capabilities, handoff, options
   const agent = await launch({ executable, args: ["acp", "--pure", "--cwd", workspace], cwd: workspace, duplex: true, env, transcript });
 
   const turn = new AcpTurn();
-  const log = toolCallLogger(toolCallLog ?? null, workspace);
+  const log = activityLogger(activityLog ?? null, workspace, "opencode");
   turn.onToolCall = (call) => log.call(call);
+  turn.onActivity = (item) => (item.type === "limit" ? log.limit(item.limit) : log.write(item));
   let sessionId: string | null = null;
   let prompting: Promise<unknown> | null = null;
   let cancelling = false;

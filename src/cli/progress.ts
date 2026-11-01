@@ -1,15 +1,16 @@
-// What `ahp run` says while an agent works, between the ledger's events: each tool call an ACP adapter logged as it
+// What `ahp run` says while an agent works, between the ledger's events: each tool call its adapter logged as it
 // finished, and a line every minute that the attempt is still running and when its tool last printed anything. Read from
-// the files the runtime owns (the tool-call log and the stdout transcript), so no adapter is asked for anything.
+// the files the runtime owns (the activity log and the stdout transcript), so no adapter is asked for anything.
 
 import { open, stat } from "node:fs/promises";
+import { activityEntryOf } from "../adapters/activity.ts";
 import type { ToolCallLogEntry } from "../protocol/index.ts";
 
 export interface ProgressFiles {
   /** The attempt's stdout transcript. */
   output: string;
-  /** The attempt's tool-call log; an adapter that keeps none leaves it empty or absent. */
-  toolCalls: string;
+  /** The attempt's activity log, of which only the tool calls are said; an adapter given none leaves it absent. */
+  activity: string;
 }
 
 export interface ProgressOptions {
@@ -62,7 +63,7 @@ export function watchProgress(files: ProgressFiles, label: string, say: (line: s
   const readNewEntries = async (): Promise<ToolCallLogEntry[]> => {
     let text = "";
     try {
-      const handle = await open(files.toolCalls, "r");
+      const handle = await open(files.activity, "r");
       try {
         const { size } = await handle.stat();
         if (size <= offset) return [];
@@ -80,7 +81,8 @@ export function watchProgress(files: ProgressFiles, label: string, say: (line: s
     partial = lines.pop() ?? "";
     return lines.flatMap((line) => {
       try {
-        return [JSON.parse(line) as ToolCallLogEntry];
+        const entry = activityEntryOf(JSON.parse(line));
+        return entry?.type === "tool_call" ? [entry] : [];
       } catch {
         return [];
       }

@@ -38,7 +38,7 @@ describe("an attempt whose adapter lost contact with its agent", () => {
     expect(report).toMatchObject({
       workspace: { path: attempt.workspace, exists: true, changed: [{ path: "greeting.txt", change: "added" }], error: null },
       refs: { changed: [], error: null },
-      toolCallLog: null,
+      activity: null,
     });
     expect(report.undetermined).toMatch(/^Host and external effects are undetermined/);
     expect(report.lastEvents.map((event) => event.type).slice(-3)).toEqual(["ref_snapshot_taken", "attempt_dispatching", "attempt_running"]);

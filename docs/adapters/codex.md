@@ -38,6 +38,15 @@ From the closing `turn.completed` event: `input_tokens` and `cached_input_tokens
 
 Only a `turn.failed` event ends a turn badly. The top-level `error` events before it (`Reconnecting... 2/5 (...)`) are retry notices and say nothing about how the attempt ended: a missing login produced nine of them, across two transports, before the failure. The class comes from the HTTP status and error code in the failure: a 401 (a missing login: seen) and `model_not_found` (a model the login cannot use: seen) are `config_auth`, and so is a quota or usage limit (`usage_limit_reached`, `insufficient_quota`, or the plain text "You've hit your usage limit. ... try again at <date>": seen, 2026-10-29), since retrying it only spends attempts; 408, 429 and 5xx are `transient` (by what those statuses mean; not seen from Codex); anything else, including the `unsupported_value` 400 that a refused reasoning effort produces (seen), is `agent_error`. A command the sandbox declined (`status: "declined"`) is the agent being told no, not an adapter error.
 
+### Activity log
+
+What the stream reports while the agent works is appended, as it happens, to the attempt's activity log (`<git common dir>/ahp/runs/<run>/activity/<attempt>.jsonl`, see `docs/how-it-works.md`):
+
+- **Tool calls:** each `command_execution` item when it starts and when it completes, with Codex's own status (`in_progress`, `completed`, `failed`, `declined`: seen) and the command as its title, cut at 300 characters; each `file_change` item with its changed paths (by the item's documented shape; no captured stream has one). Never a command's output. Codex asks no permission of AHP, so the permission is always `null`.
+- **Messages:** each `agent_message` item, cut to 300 characters with keys redacted (the last is the JSON report).
+- **Usage:** **only at `turn.completed`**, the same numbers as above: Codex states none before, and nothing is estimated in between, so a watcher sees no usage until the turn ends.
+- **Limits:** none; Codex reports no plan limit or context window in the stream.
+
 ## Options (`codex({ model, ... })`)
 
 | Option | Meaning |

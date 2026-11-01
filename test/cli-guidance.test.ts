@@ -102,13 +102,14 @@ describe("progress while an agent runs", () => {
 
   it("says each tool call once it has finished or was refused, and a heartbeat with the time since the tool last printed", async () => {
     const dir = tempDir();
-    const files = { output: join(dir, "out.txt"), toolCalls: join(dir, "calls.jsonl") };
+    const files = { output: join(dir, "out.txt"), activity: join(dir, "activity.jsonl") };
     writeFileSync(files.output, "started\n");
     const lines: string[] = [];
     const watch = watchProgress(files, "step implement: attempt att_1", (line) => lines.push(line), { heartbeatMs: 150, pollMs: 20 });
+    const line = (changes: Partial<ToolCallLogEntry>) => JSON.stringify({ type: "tool_call", ...entry(changes) });
     try {
-      appendFileSync(files.toolCalls, `${JSON.stringify(entry({}))}\n${JSON.stringify(entry({ status: "in_progress" }))}\n`);
-      appendFileSync(files.toolCalls, `${JSON.stringify(entry({ status: "completed" }))}\n${JSON.stringify(entry({ toolCallId: "call_2", kind: "execute", title: "git push", permission: "rejected" }))}\n`);
+      appendFileSync(files.activity, `${line({})}\n${line({ status: "in_progress" })}\n${JSON.stringify({ type: "message", time: "2026-10-28T00:00:00.000Z", text: "Fixing it." })}\n`);
+      appendFileSync(files.activity, `${line({ status: "completed" })}\n${line({ toolCallId: "call_2", kind: "execute", title: "git push", permission: "rejected" })}\n`);
       await until(() => (lines.some((line) => line.includes("still running")) ? true : undefined), "a heartbeat");
     } finally {
       watch.stop();

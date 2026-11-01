@@ -38,7 +38,7 @@ import { classifyAttempt, decideAfterFailure, resolveRetryPolicy, verdictFailure
 import { git } from "./git.ts";
 import { introduceHiddenTests } from "./hidden-tests.ts";
 import { buildHandoff, handedOnFieldsOf, retryEvidence, reviseHandoff, validateHandoffRevision } from "./handoff.ts";
-import { ledgerPath, locateRepo, prepareWorktreeRoot, snapshotRef, toolCallLogPath, transcriptPaths, worktreePath, type RepoLocation } from "./paths.ts";
+import { activityLogPath, ledgerPath, locateRepo, prepareWorktreeRoot, snapshotRef, toolCallLogPath, transcriptPaths, worktreePath, type RepoLocation } from "./paths.ts";
 import { githubCli, type PullRequestProvider } from "./pull-requests.ts";
 import { buildRecoveryReport, refChanges } from "./recovery.ts";
 import { sharedRefs } from "./refs.ts";
@@ -489,7 +489,7 @@ async function executeAttempt(step: StepDefinition, index: number, run: RunConte
     capabilities,
     handoff,
     options: agent.options,
-    toolCallLog: toolCallLogPath(location, runId, attemptId),
+    activityLog: activityLogPath(location, runId, attemptId),
     transcript: transcriptPaths(location, runId, attemptId),
   });
   let started: StartedAttempt | typeof CANCELLED | typeof TIMED_OUT;
@@ -674,8 +674,8 @@ async function advanceUnknownAttempt(step: StepDefinition, index: number, attemp
   const recovery = attempt.recovery!;
   if (!recovery.report) {
     if (!attempt.refs.after) return recordRefsAfter(attempt, run);
-    const toolCallLog = toolCallLogPath(run.location, run.runId, attempt.id);
-    const report = await buildRecoveryReport({ attempt, base: stepBase(index, run), events: run.events(), toolCallLog });
+    const logs = { activityLog: activityLogPath(run.location, run.runId, attempt.id), toolCallLog: toolCallLogPath(run.location, run.runId, attempt.id) };
+    const report = await buildRecoveryReport({ attempt, base: stepBase(index, run), events: run.events(), ...logs });
     return record({ type: "recovery_report_written", attemptId: attempt.id, report });
   }
   if (!recovery.decision) {

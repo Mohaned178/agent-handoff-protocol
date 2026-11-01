@@ -118,8 +118,17 @@ export function transcriptPaths(location: RepoLocation, runId: string, attemptId
 }
 
 /**
- * The file an attempt's adapter appends its tool-call log to (`AttemptInput.toolCallLog`): beside the run's ledger, out
- * of every working tree, and found again by any process that picks the run up.
+ * The file an attempt's adapter appends its activity log to (`AttemptInput.activityLog`): beside the run's ledger, out of
+ * every working tree, and found again by any process that picks the run up.
+ */
+export function activityLogPath(location: RepoLocation, runId: string, attemptId: string): string {
+  if (!isRunId(runId) || !isAttemptId(attemptId)) throw new Error(`not a run and attempt ID: ${runId} ${attemptId}`);
+  return join(runsDir(location), runId, "activity", `${attemptId}.jsonl`);
+}
+
+/**
+ * Where an attempt's tool-call log was kept before the activity log replaced it: read only, for runs recorded then (its
+ * lines are `ToolCallLogEntry`s with no `type`). Nothing writes it any more.
  */
 export function toolCallLogPath(location: RepoLocation, runId: string, attemptId: string): string {
   if (!isRunId(runId) || !isAttemptId(attemptId)) throw new Error(`not a run and attempt ID: ${runId} ${attemptId}`);

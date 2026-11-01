@@ -1,5 +1,6 @@
 import { reviewFindingsOf, reviewVerdictOf, THIS_REPOSITORY, UNKNOWN_MODEL } from "../protocol/index.ts";
 import type {
+  ActivityEntry,
   AppliedCapabilities,
   AttemptCancel,
   AttemptRecovery,
@@ -487,16 +488,32 @@ function describeRecovery({ reason, detail, report, awaited, decision }: Attempt
   return lines;
 }
 
-/** The transport's tool-call log of an unknown attempt: what its tools were doing, the last thing last. */
-function describeToolCallLog(log: RecoveryReport["toolCallLog"]): string[] {
-  if (log === null) return ["tool-call log: none, the attempt's adapter keeps none"];
-  if (log.entries.length === 0) return ["tool-call log: empty, the agent had made no tool call"];
-  const lines = log.entries.map((entry) => {
-    const what = [entry.kind, entry.title === null ? null : JSON.stringify(entry.title), entry.paths.length > 0 ? `on ${entry.paths.join(", ")}` : null].filter((part) => part !== null);
-    const answer = entry.permission === null ? "" : `, ${entry.permission} by AHP`;
-    return `  | ${entry.time} ${entry.status ?? "?"}${answer}: ${what.join(" ")}`;
-  });
-  return [`tool-call log: ${log.entries.length} ${log.entries.length === 1 ? "entry" : "entries"}${log.truncated ? ", the last only" : ""}`, ...lines];
+/** One line of an activity log: a tool call, a message, usage as reported with its source, or a limit as the tool said it. */
+function describeActivityEntry(entry: ActivityEntry): string {
+  switch (entry.type) {
+    case "tool_call": {
+      const what = [entry.kind, entry.title === null ? null : JSON.stringify(entry.title), entry.paths.length > 0 ? `on ${entry.paths.join(", ")}` : null].filter((part) => part !== null);
+      const answer = entry.permission === null ? "" : `, ${entry.permission} by AHP`;
+      return `${entry.status ?? "?"}${answer}: ${what.join(" ")}`;
+    }
+    case "message":
+      return `said: ${JSON.stringify(entry.text)}`;
+    case "usage":
+      return `usage reported (${entry.scope === "message" ? "one message alone" : "the attempt so far"}): ${describeUsageReport(entry.usage)}`;
+    case "limit": {
+      const parts = [entry.status, entry.window, entry.used === undefined ? undefined : `used ${entry.used}`, entry.size === undefined ? undefined : `of ${entry.size}`].filter((part) => part !== undefined);
+      return `${entry.tool} reported its ${entry.kind === "plan_limit" ? "plan limit" : "context window"}: ${parts.join(" ")}`;
+    }
+  }
+}
+
+/** The activity log of an unknown attempt (an old run's tool-call log as its tool calls): what the agent was doing, the last thing last. */
+function describeActivity(report: RecoveryReport): string[] {
+  const log = report.activity ?? (report.toolCallLog ? { ...report.toolCallLog, entries: report.toolCallLog.entries.map((entry) => ({ type: "tool_call" as const, ...entry })) } : null);
+  if (log === null) return ["activity log: none, the attempt's adapter wrote none"];
+  if (log.entries.length === 0) return ["activity log: empty, the agent had done nothing its tool reported"];
+  const lines = log.entries.map((entry) => `  | ${entry.time} ${describeActivityEntry(entry)}`);
+  return [`activity log: ${log.entries.length} ${log.entries.length === 1 ? "entry" : "entries"}${log.truncated ? ", the last only" : ""}`, ...lines];
 }
 
 /** A recovery report, line by line, each indented by `indent`. */
@@ -521,7 +538,7 @@ function describeReport(report: RecoveryReport, indent: string): string[] {
       ...refs.changed.map((change) => `  | ${describeRefChange(change)}`),
     );
   }
-  lines.push(...describeToolCallLog(report.toolCallLog), report.undetermined);
+  lines.push(...describeActivity(report), report.undetermined);
   return lines.map((line) => `${indent}${line}`);
 }
 

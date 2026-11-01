@@ -17,6 +17,9 @@ import type {
 } from "../protocol/index.ts";
 import type { Termination, TranscriptFiles } from "../process/index.ts";
 
+/** One line of an attempt's activity log: a closed union of `tool_call`, `message`, `usage` and `limit` (`src/protocol`). */
+export type { ActivityEntry, ActivityLimit } from "../protocol/index.ts";
+
 /**
  * What an adapter says about itself, statically: the same on every run, so the runtime can check a handoff against it
  * before any agent starts. An adapter states a level for every capability, stance and operating system, so none is left
@@ -64,16 +67,18 @@ export interface AttemptInput {
   /** The step's adapter options, already accepted by `validateOptions`. */
   options: unknown;
   /**
-   * An absolute path the runtime owns, outside the workspace, where an adapter whose transport reports tool calls
-   * appends one JSON line (`ToolCallLogEntry`) for each as it happens. The runtime reads it into the recovery report of
-   * an attempt whose outcome is unknown, which no adapter's `exited` ever reaches, so it must be written during the
-   * attempt, not at its end. Metadata only. An adapter with nothing to log leaves it alone, and one that is not given a path (a caller that keeps no report) logs nothing.
+   * An absolute path the runtime owns, outside the workspace (`<runs>/<run>/activity/<attempt>.jsonl`), where the adapter
+   * appends one JSON line (`ActivityEntry`) for each thing its tool reports as it happens: a tool call, a message, usage,
+   * a limit (`activityLogger` in `activity.ts`). A person watching reads it, and so does the recovery report of an attempt
+   * whose outcome is unknown, which no adapter's `exited` ever reaches, so it is written during the attempt, never
+   * rewritten. Metadata only, and never the record: `AttemptExit.usage` is. A write that fails never fails the attempt,
+   * and an adapter that is not given a path (a caller that keeps no log) logs nothing.
    */
-  toolCallLog?: string;
+  activityLog?: string;
   /**
    * Absolute paths the runtime owns, outside the workspace, where the attempt's raw transcript is kept: what the adapter
    * sent the tool on stdin and what the tool printed on stdout, byte for byte, written by the process layer when the
-   * adapter passes them to `launch` as its `transcript`. Optional like `toolCallLog`: an adapter that is given none, and
+   * adapter passes them to `launch` as its `transcript`. Optional like `activityLog`: an adapter that is given none, and
    * a caller that keeps no transcript, keeps none. Stderr is not kept. Whatever the tool printed is in it, secrets the
    * agent happened to print included.
    */
