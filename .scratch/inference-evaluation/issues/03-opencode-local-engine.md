@@ -61,3 +61,9 @@ verified success on the pilot tasks.
 11. **The suites take each engine's model, URL and id from `bench/local.mjs`**, so the evaluation and the bench cannot
     disagree on the model. Every role is OpenCode on the engine.
 12. `stepFlagsOf`'s input type now allows `string[]`, for the repeatable `--eval` in the shared `parseArgs` values.
+
+## Confirmed (2026-11-01)
+
+The maintainer adopted every recommendation (notes 1 to 12, as flagged: building before the spike, `engine` in
+`localEndpoint`, a down engine leaves the trial `unscored` `setup_failed`, the model refusal, the seed given as `--seed`
+with no suite key, `REPEATS` 1 until the spike). Later tickets treat them as settled.
