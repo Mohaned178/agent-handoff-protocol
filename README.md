@@ -246,6 +246,7 @@ export default {
 | `ahp recover <run>` | Continues a run whose process stopped |
 | `ahp settings` | Shows the tool, model and effort you kept for each step (`--clear` removes them) |
 | `ahp eval <suite>` | Runs an evaluation suite |
+| `ahp bench <file>` | Measures local inference engines you started (Ollama, vLLM, SGLang, TensorRT-LLM): latency, throughput, GPU use, code quality, tool calls |
 
 Exit codes:
 
@@ -288,6 +289,8 @@ AHP also measures whether its checks and handoffs help, and reports the answer w
 
 Trials are repeated in a seeded random order, and each one is scored by independent validators with hidden tests that no agent sees. **No result yet**: the [pilot suite](docs/pilot.md) is written but has not been run, so nothing here claims that handoffs beat a single agent. A negative result is a legitimate outcome. See [docs/evaluation.md](docs/evaluation.md).
 
+`ahp bench` compares local inference engines on one model, and `ahp eval` can run the pilot through OpenCode on each of them. **No result yet**: it needs a real run on a GPU. See [docs/inference-evaluation.md](docs/inference-evaluation.md).
+
 ## Versions and support
 
 - **Versions** follow [semantic versioning](https://semver.org) for the `ahp` command, its options and output meant for scripts (`--json`, exit codes), the workflow file and the SDK. While the version is 0.x, a minor version may break one of them; its [changelog](CHANGELOG.md) entry says what broke and how to move.
@@ -312,6 +315,7 @@ The code is TypeScript on Node 24. You can run it from source without building: 
 - [How AHP works](docs/how-it-works.md): handoffs, verification, the ledger, crash recovery and cancelling
 - [Troubleshooting](docs/troubleshooting.md): each failure message, its cause and the command that fixes it
 - Adapters: [Claude Code](docs/adapters/claude-code.md), [Codex](docs/adapters/codex.md), [OpenCode](docs/adapters/opencode.md)
+- [Inference evaluation](docs/inference-evaluation.md): benchmarking local engines, setup and the reproducibility checklist
 - [Support matrix](docs/support-matrix.md) and [limits](docs/limits.md)
 - [Design direction](docs/design/ahp-v2-direction.md), [architecture decisions](docs/adr/) and [glossary](GLOSSARY.md)
 - [A2A mapping](docs/a2a-mapping.md): how AHP's data shapes map to the Agent2Agent protocol

@@ -181,6 +181,8 @@ What an agent does see is the acceptance check's output, as the evidence of a re
 
 ## Before a real evaluation
 
+To compare local inference engines (`ahp bench`, and this evaluation through OpenCode on each), see [docs/inference-evaluation.md](inference-evaluation.md).
+
 The pilot itself (six tasks, two agent combinations, 3 repeats, with an estimate of its cost) is in [docs/pilot.md](pilot.md), and each vendor's terms as read on 2026-10-28, with what could not be retrieved, in [docs/terms-review-2026-10-28.md](terms-review-2026-10-28.md).
 
 Needed before the pilot, and not something AHP can check for you: set spend limits in each provider's console (AHP can only see what a tool reports, and says so), use API-key logins configured in each tool (design doc §9, item 9; subscription use under `ahp eval` falls under each vendor's terms; `ahp eval` states this expectation but reads no credential), pin the tool versions in the suite (the safeguards above record and report them), and expect that verification executes agent-written code on your machine: a worktree is isolation, not a security boundary.
