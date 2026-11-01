@@ -135,3 +135,39 @@ describe("the report's display of usage", () => {
     expect(money(12)).toBe("12");
   });
 });
+
+describe("tool calls", () => {
+  const call = (toolCallId: string, status: string | null, permission: "allowed" | "rejected" | null = null) => ({ toolCallId, status, permission });
+  // An ACP-like log: a call is reported several times, and the last status is the one that counts.
+  const LOG = [
+    call("a", "pending"),
+    call("a", "in_progress"),
+    call("a", "completed"),
+    call("b", "pending"),
+    call("b", "failed"),
+    call("c", "permission_requested"),
+    call("c", null, "rejected"),
+    call("c", "failed"),
+    call("d", "in_progress"),
+  ];
+
+  it("counts each call by its last status, and the refused ones, per condition and adapter", async () => {
+    const agents = { plan: scripted(PLANS), implement: scripted({ ...IMPLEMENTS, toolCallLog: LOG }), review: scripted(APPROVES) };
+
+    const { state, report } = await evaluate(suiteOf([greetingTaskDir()], agents, { conditions: ["C3"] }));
+
+    const ended = state.trials[0]!.ended!;
+    expect(ended.toolCalls).toMatchObject({ total: 4, completed: 1, failed: 2, refused: 1 });
+    expect(ended.toolCalls!.attempts).toHaveLength(1);
+    expect(report.conditions[0]!.toolCalls).toEqual([{ adapter: "mock", trials: 1, attempts: 1, total: 4, completed: 1, failed: 2, refused: 1 }]);
+    expect(formatReport(report)).toContain("tool calls by mock, from the logs of 1 attempt in 1 trial that kept one (of 1 trial): 4 (1 completed, 2 failed, 1 refused)");
+  });
+
+  it("is null, not 0, for a trial whose attempts kept no log, and the report says nothing of tool calls", async () => {
+    const { state, report } = await evaluate(suiteOf([greetingTaskDir()], { implement: scripted(IMPLEMENTS) }, { conditions: ["C0"] }));
+
+    expect(state.trials[0]!.ended!.toolCalls).toBeNull();
+    expect(report.conditions[0]!.toolCalls).toEqual([]);
+    expect(formatReport(report)).not.toContain("tool calls");
+  });
+});

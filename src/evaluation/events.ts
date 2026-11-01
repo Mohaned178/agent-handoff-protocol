@@ -55,6 +55,30 @@ export interface TrialWork {
   reverted: number;
 }
 
+/** One attempt's tool calls (see `TrialToolCalls`). */
+export interface AttemptToolCalls {
+  attemptId: string;
+  adapter: string;
+  total: number;
+  completed: number;
+  failed: number;
+  refused: number;
+}
+
+/**
+ * The tool calls a trial's attempts made, from the logs their adapters kept, each call by the last status the tool gave it
+ * (`completed`, `failed`; a call left pending counts only in `total`). `refused` is the calls AHP answered `rejected`; it
+ * overlaps `failed`. `attempts` is the attempts that kept a log, so the report can sum per adapter; an attempt without one is
+ * absent, not 0.
+ */
+export interface TrialToolCalls {
+  total: number;
+  completed: number;
+  failed: number;
+  refused: number;
+  attempts: AttemptToolCalls[];
+}
+
 /**
  * How a trial ended, for the report.
  * - `scored`: the validators ran to a result on what the trial left: `pass` or `fail`. The only outcome that counts.
@@ -239,6 +263,8 @@ export type EvaluationEventBody =
       usage: AttemptUsage[];
       /** Null when no result was validated (and so none is known). */
       work: TrialWork | null;
+      /** Null when no attempt of the trial kept a tool-call log (never 0: no count was taken). Older ledgers lack it. */
+      toolCalls?: TrialToolCalls | null;
       unscored: { reason: UnscoredReason; detail: string } | null;
       /**
        * The commit the validators scored: the last snapshot the run made, or the fixture if it made none. `changed` is whether

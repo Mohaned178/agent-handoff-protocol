@@ -1,9 +1,11 @@
 import { extname, isAbsolute } from "node:path";
+import { appendFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import { text } from "node:stream/consumers";
 import { fileURLToPath } from "node:url";
 import { launch } from "../../process/index.ts";
 import { ADAPTER_ERROR_KINDS, isUsageReport, levelOn, meetsLevel, sameOnEveryOs, STOP_REASONS } from "../../protocol/index.ts";
-import type { AgentRef, AttemptError, OutputFieldValue, StopReason, UsageReport } from "../../protocol/index.ts";
+import type { AgentRef, AttemptError, OutputFieldValue, StopReason, ToolCallLogEntry, UsageReport } from "../../protocol/index.ts";
 import type { Adapter, AttemptExit } from "../contract.ts";
 
 /** The usage a mock attempt reports, as a tool would: only the numbers it gives; the rest are not reported. */
@@ -53,6 +55,8 @@ export interface MockAttemptScript {
    * transport's connection drops, so the attempt's outcome is unknown.
    */
   loseContact?: boolean;
+  /** Lines the adapter appends to the attempt's tool-call log, as a transport that reports tool calls would. Defaults to none: no log is made. */
+  toolCallLog?: Pick<ToolCallLogEntry, "toolCallId" | "status" | "permission">[];
   /** The agent makes its edits and commit, then never exits: it hangs until something kills it. */
   hang?: boolean;
   /**
@@ -166,7 +170,7 @@ export const mockAdapter: Adapter = {
   },
 
   // Called as a method, so an adapter built from this one under another declaration is held to its own.
-  async startAttempt({ attemptNumber, workspace, options, capabilities, transcript }) {
+  async startAttempt({ attemptNumber, workspace, options, capabilities, transcript, toolCallLog }) {
     // The contract: fail rather than apply a capability at a weaker level than the one recorded.
     const { declaration } = this;
     for (const { kind, level } of capabilities.capabilities) {
@@ -181,6 +185,11 @@ export const mockAdapter: Adapter = {
     const script = (options as MockOptions).attempts[attemptNumber - 1];
     if (!script) throw new Error(`mock adapter has no script for attempt ${attemptNumber}`);
     // A promise alone would not keep the process alive; the timer does.
+    if (script.toolCallLog && toolCallLog) {
+      await mkdir(dirname(toolCallLog), { recursive: true });
+      const lines = script.toolCallLog.map((entry) => JSON.stringify({ time: new Date().toISOString(), kind: null, title: null, paths: [], ...entry }));
+      await appendFile(toolCallLog, `${lines.join("\n")}\n`);
+    }
     if (script.hangBeforeSpawn) await new Promise(() => setInterval(() => undefined, 60_000));
 
     const agent = await launch({

@@ -15,6 +15,7 @@ import { recordToolVersions } from "./tools.ts";
 import type { EvaluationSuite } from "./suite.ts";
 import type { LoadedTask } from "./task.ts";
 import { validateResult, type Validation } from "./validators.ts";
+import { toolCallsOf } from "./tool-calls.ts";
 import { workOf } from "./work.ts";
 
 export type TrialEndedBody = Extract<EvaluationEventBody, { type: "trial_ended" }>;
@@ -130,12 +131,12 @@ export async function runTrial(ctx: TrialContext, loaded: LoadedTask, scheduled:
     if (down.length > 0) {
       const detail = down.map((engine) => `${engine.name} at ${engine.baseURL} is unavailable: ${engine.error ?? "no reason recorded"}`).join("; ");
       const artifacts = await keepArtifacts({ ctx, place, runId: null, attempts: [], base: null, commit: null, validation: null });
-      ended = endOf(trialId, progress, { outcome: "unscored", unscored: { reason: "setup_failed", detail: detail.slice(0, MAX_DETAIL_CHARS) }, artifacts });
+      ended = endTrial(trialId, progress, { outcome: "unscored", unscored: { reason: "setup_failed", detail: detail.slice(0, MAX_DETAIL_CHARS) }, artifacts });
     } else ended = await execute(ctx, loaded, workflow, place, progress);
   } catch (error) {
     // What the trial had made when AHP threw is kept as far as it goes: a run, if there was one, and the configuration anyway.
     const artifacts = await keepArtifacts({ ctx, place, runId: progress.runId, attempts: attemptsOf(progress.state), base: progress.base, commit: null, validation: null });
-    ended = endOf(trialId, progress, { outcome: "unscored", unscored: { reason: "harness_error", detail: messageOf(error).slice(0, MAX_DETAIL_CHARS) }, artifacts });
+    ended = endTrial(trialId, progress, { outcome: "unscored", unscored: { reason: "harness_error", detail: messageOf(error).slice(0, MAX_DETAIL_CHARS) }, artifacts });
   }
   await removeWorkspaces(repo, progress.state);
   await ctx.record(ended);
@@ -182,6 +183,9 @@ async function execute(ctx: TrialContext, loaded: LoadedTask, workflow: Workflow
   progress.runId = runId;
   progress.state = state;
   const attempts = attemptsOf(state);
+  // A measure beside the score: a log that cannot be read leaves the count out and never changes how the trial ended.
+  const toolCalls = await toolCallsOf(repo, runId, attempts).catch(() => null);
+  const endOf = (id: string, current: Progress, how: Parameters<typeof endTrial>[2]) => endTrial(id, current, { ...how, toolCalls });
   const kept = (candidate: { commit: string } | null, validation: Validation | null) =>
     keepArtifacts({ ctx, place, runId, attempts, base, commit: candidate?.commit ?? null, validation });
 
@@ -232,7 +236,7 @@ async function resultOf(repo: string, runId: string, base: string): Promise<{ co
 }
 
 /** A `trial_ended` event from what the trial has shown so far and how it ended. */
-function endOf(trialId: string, progress: Progress, how: Pick<TrialEndedBody, "outcome"> & Partial<Pick<TrialEndedBody, "unscored" | "score" | "result" | "work" | "artifacts">>): TrialEndedBody {
+function endTrial(trialId: string, progress: Progress, how: Pick<TrialEndedBody, "outcome"> & Partial<Pick<TrialEndedBody, "unscored" | "score" | "result" | "work" | "toolCalls" | "artifacts">>): TrialEndedBody {
   const { state } = progress;
   const attempts = attemptsOf(state);
   const stepsAttempted = state?.steps.filter((step) => step.attempts.length > 0).length ?? 0;
@@ -248,6 +252,7 @@ function endOf(trialId: string, progress: Progress, how: Pick<TrialEndedBody, "o
     wallTimeMs: state?.endedAt ? Date.parse(state.endedAt) - Date.parse(state.createdAt) : null,
     usage: attempts.map((attempt) => ({ attemptId: attempt.id, adapter: attempt.adapter, reportedModel: attempt.reportedModel, usage: attempt.usage })),
     work: how.work ?? null,
+    toolCalls: how.toolCalls ?? null,
     unscored: how.unscored ?? null,
     result: how.result ?? null,
     score: how.score ?? null,

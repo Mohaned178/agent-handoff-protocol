@@ -123,6 +123,23 @@ export interface ConditionReport extends Exclusions {
   wallTime: WallTime;
   /** Over every trial that ended. */
   usage: UsageSummary[];
+  /** Over every trial that ended, per adapter, from the tool-call logs that were kept (`ToolCallSummary`). */
+  toolCalls: ToolCallSummary[];
+}
+
+/**
+ * The tool calls of one adapter's attempts in one condition, summed over those that kept a log. `trials` and `attempts` say
+ * how many that was: an attempt with no log is in neither and in none of the sums, never counted as 0 calls. `refused`
+ * overlaps `failed`.
+ */
+export interface ToolCallSummary {
+  adapter: string;
+  trials: number;
+  attempts: number;
+  total: number;
+  completed: number;
+  failed: number;
+  refused: number;
 }
 
 /** One cell of the matched-budget baseline: the C0 trials matching one scored C3 trial. */
@@ -221,6 +238,26 @@ function usageOf(trials: readonly TrialView[]): UsageSummary[] {
   return summarizeUsage(trials.flatMap((trial) => trial.ended?.usage ?? []));
 }
 
+function toolCallsSummaryOf(trials: readonly TrialView[]): ToolCallSummary[] {
+  const byAdapter = new Map<string, ToolCallSummary & { seen: Set<string> }>();
+  for (const trial of trials) {
+    for (const attempt of trial.ended?.toolCalls?.attempts ?? []) {
+      const summary = byAdapter.get(attempt.adapter) ?? { adapter: attempt.adapter, trials: 0, attempts: 0, total: 0, completed: 0, failed: 0, refused: 0, seen: new Set<string>() };
+      if (!summary.seen.has(trial.id)) {
+        summary.seen.add(trial.id);
+        summary.trials += 1;
+      }
+      summary.attempts += 1;
+      summary.total += attempt.total;
+      summary.completed += attempt.completed;
+      summary.failed += attempt.failed;
+      summary.refused += attempt.refused;
+      byAdapter.set(attempt.adapter, summary);
+    }
+  }
+  return [...byAdapter.values()].sort((a, b) => a.adapter.localeCompare(b.adapter)).map(({ seen: _seen, ...summary }) => summary);
+}
+
 function exclusionsOf(ended: readonly TrialView[], notRun: number): Exclusions {
   const incidents = ended.filter((trial) => trial.ended!.outcome === "harness_incident");
   const unscored = ended.filter((trial) => trial.ended!.outcome === "unscored");
@@ -290,6 +327,7 @@ function conditionReportOf(view: EvaluationView, condition: TrialCondition, cons
     work: { trials: counted.length, result: sum("result"), duplicated: sum("duplicated"), reverted: sum("reverted") },
     wallTime: wallTimeOf(scored.map((trial) => trial.ended!.wallTimeMs)),
     usage: usageOf(ended),
+    toolCalls: toolCallsSummaryOf(ended),
     ...exclusionsOf(ended, (view.pending ?? []).filter((trial) => trial.condition === condition).length),
   };
 }
@@ -537,6 +575,9 @@ export function formatReport(report: EvaluationReport): string {
     }
     lines.push(wallTimeLine(condition.wallTime, "scored trials"));
     lines.push(...usageLines(condition.usage, USAGE_HEADING, "  "));
+    for (const calls of condition.toolCalls) {
+      lines.push(`  tool calls by ${calls.adapter}, from the logs of ${plural(calls.attempts, "attempt")} in ${plural(calls.trials, "trial")} that kept one (of ${plural(condition.trials, "trial")}): ${calls.total} (${calls.completed} completed, ${calls.failed} failed, ${calls.refused} refused)`);
+    }
     lines.push(...exclusionLines(condition));
   }
   const { baseline } = report;
