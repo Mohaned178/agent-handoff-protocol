@@ -12,11 +12,12 @@ import type { EngineId } from "../inference/engines.ts";
  * in one step; C1 the plan → implement → review pipeline passing plain text; C2 that pipeline with AHP's handoffs and no
  * acceptance checks or retry; C3 full AHP. C0V is C0 with C3's acceptance check and retry, so what C3 adds beyond a
  * verify-and-retry loop can be told apart; C3min is C3 without its plan step (implement → review); C3c is C3 with a context
- * budget on every step, which verification holds it to (`C3C_CONTEXT_BUDGET`). `baseline` is the
+ * budget on every step, which verification holds it to (`C3C_CONTEXT_BUDGET`); C3r is C3 with a reflect step between implement
+ * and review, where the implementing agent critiques its own result and fixes it. `baseline` is the
  * matched-budget baseline, which the design names beside the conditions: for each scored C3 trial, as many independent C0
  * trials as attempts that trial made, a success if any passes (a ceiling: it picks a pass with the hidden tests).
  */
-export const CONDITIONS = ["C0", "C0V", "C1", "C2", "C3min", "C3", "C3c", "baseline"] as const;
+export const CONDITIONS = ["C0", "C0V", "C1", "C2", "C3min", "C3", "C3c", "C3r", "baseline"] as const;
 export type ConditionId = (typeof CONDITIONS)[number];
 
 /** Which trial of the matched-budget baseline: the scored C3 trial it matches, and which of that trial's `of` C0 trials it is. */

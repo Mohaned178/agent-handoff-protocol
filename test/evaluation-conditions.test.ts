@@ -168,3 +168,52 @@ describe("the comparisons", () => {
     ]);
   });
 });
+
+describe("C3r, reflection between implement and review", () => {
+  // Implement and reflect are cast to the same agent, whose scripts each step indexes by its own attempt number; so one
+  // script reports the fields of both steps, and reflect's own report is the one the review is handed.
+  const REFLECTS = { ...IMPLEMENTS, outputFields: { ...IMPLEMENTS.outputFields, reflection: "checked the greeting against the constraints; nothing to fix" } };
+
+  it("is plan → implement → reflect → review, the reflect step cast to the implement agent under the acceptance check and retry", async () => {
+    const agents = { plan: scripted(PLANS), implement: scripted(IMPLEMENTS), review: scripted(APPROVES) };
+    const { dir, state } = await evaluate(suiteOf([greetingTaskDir()], agents, { conditions: ["C3r"] }));
+
+    const workflow = await workflowOf(dir, state.trials[0]!);
+    expect(workflow.steps.map((step) => step.id)).toEqual(["plan", "implement", "reflect", "review"]);
+    const [, implement, reflect, review] = workflow.steps as unknown as { agent: unknown; verification: object; retry: object; review?: object }[];
+    expect(reflect!.agent).toEqual(implement!.agent);
+    expect(reflect!.verification).toMatchObject({ command: "node visible-check.mjs", requiredOutputFields: ["summary", "decisions", "constraints", "reflection"] });
+    expect(reflect!.verification).not.toHaveProperty("hiddenTests");
+    expect(reflect!.retry).toEqual(implement!.retry);
+    expect(review!.review).toEqual({ sendBackTo: "reflect" });
+  });
+
+  it("runs end to end on the mock: reflect is handed the implementation, review is handed the reflection", async () => {
+    const agents = { plan: scripted(PLANS), implement: scripted(REFLECTS), review: scripted(APPROVES) };
+    const { dir, state } = await evaluate(suiteOf([greetingTaskDir()], agents, { conditions: ["C3r"] }));
+
+    const trial = state.trials[0]!;
+    expect(trial.ended).toMatchObject({ outcome: "scored", runState: "succeeded", attempts: 4, score: { verdict: "pass" } });
+    const run = await runOf(dir, trial);
+    expect(run.steps.map((step) => step.id)).toEqual(["plan", "implement", "reflect", "review"]);
+    expect(run.steps[2]!.handoffs[0]!.handoff.context.fields).toMatchObject({ summary: IMPLEMENTS.outputFields!.summary });
+    expect(run.steps[3]!.handoffs[0]!.handoff.context.fields).toMatchObject({ reflection: REFLECTS.outputFields.reflection });
+  });
+
+  it("sends reflect back, not implement, when the review asks for changes", async () => {
+    const agents = { plan: scripted(PLANS), implement: scripted(REFLECTS, REFLECTS), review: scripted(REQUESTS_CHANGES, APPROVES) };
+    const { dir, state } = await evaluate(suiteOf([greetingTaskDir()], agents, { conditions: ["C3r"] }));
+
+    const trial = state.trials[0]!;
+    expect(trial.ended).toMatchObject({ outcome: "scored", runState: "succeeded", score: { verdict: "pass" } });
+    const run = await runOf(dir, trial);
+    expect(run.steps[1]!.attempts).toHaveLength(1);
+    expect(run.steps[2]!.attempts).toHaveLength(2);
+  });
+
+  it("is compared with C3, and needs the plan and review agents like C3", async () => {
+    const { COMPARISONS } = await import("../src/evaluation/index.ts");
+
+    expect(COMPARISONS).toContainEqual(["C3r", "C3"]);
+  });
+});

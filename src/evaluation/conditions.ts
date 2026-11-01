@@ -43,13 +43,20 @@ const PIPELINE = {
 };
 
 /** The conditions with an acceptance check and a retry budget: what C3 has that C0, C1 and C2 do not. */
-export const GATED_CONDITIONS: readonly ConditionId[] = ["C0V", "C3min", "C3", "C3c"];
+export const GATED_CONDITIONS: readonly ConditionId[] = ["C0V", "C3min", "C3", "C3c", "C3r"];
 
 /**
  * C3c's context budget on every step, in UTF-8 bytes of the handed-on fields as JSON: about two pages of text, a quarter or
  * less of what a plan of a pilot task runs to unchecked, so a step must compress what it hands on rather than restate all.
  */
 export const C3C_CONTEXT_BUDGET = 2048;
+
+/** What C3r's reflect step reports: C3's handed-on fields and the reflection itself. */
+const REFLECTED = [...HANDED_ON, "reflection"];
+
+/** What C3r's reflect step is told: critique the result against the task and constraints it was handed, then fix what is wrong. */
+const REFLECT_TEXT =
+  "Reflect on the implementation in this workspace: check it against the decisions and constraints you were handed, say what is wrong or missing, and fix it. Report your summary, your decisions, every constraint you kept (restate each one), and your reflection: what you found and what you changed.";
 
 /** What C3c adds to each step's words: the budget, which verification also checks (the handoff's contract states it too). */
 const BUDGET_TEXT = `Keep what you report short: together your reported fields must come to at most ${C3C_CONTEXT_BUDGET} bytes as JSON, since they are all the next step is handed. Keep what it needs and leave out the rest.`;
@@ -65,7 +72,7 @@ export const retryBudgetOf = (condition: ConditionId, suite: EvaluationSuite): n
  */
 function acceptanceOf(task: EvaluationTask, requiredOutputFields: string[]) {
   const { acceptance, install, protectedPaths } = task.verification;
-  if (acceptance === undefined) throw new Error("the task has no `verification.acceptance`, the check C0V, C3min, C3 and C3c run on an agent's result");
+  if (acceptance === undefined) throw new Error("the task has no `verification.acceptance`, the check C0V, C3min, C3, C3c and C3r run on an agent's result");
   return { command: acceptance, ...(install !== undefined ? { install } : {}), protectedPaths, requiredOutputFields };
 }
 
@@ -83,6 +90,9 @@ function acceptanceOf(task: EvaluationTask, requiredOutputFields: string[]) {
  * - C3min: C3 without its plan step: implement (told the task and its constraints) → review.
  * - C3c: C3 with a context budget (`C3C_CONTEXT_BUDGET`) on every step, told to each in its words and checked by verification:
  *   handed-on fields over it fail the step, which is retried with the bytes as evidence. Its words are C3's plus the budget.
+ * - C3r: C3 with a `reflect` step between implement and review: the implement agent again, in the workspace implement left,
+ *   critiques its result against the task and constraints and fixes it, under the same acceptance check and retry. Review
+ *   follows it and sends `reflect` back (a review's `sendBackTo` must be the step before it).
  * Every pipeline step is told the same words in C1, C2, C3min and C3, and only the first is told the task and its constraints.
  */
 export function workflowFor(condition: ConditionId, task: EvaluationTask, suite: EvaluationSuite, slot: TrialSlot): WorkflowDefinition {
@@ -156,7 +166,8 @@ export function workflowFor(condition: ConditionId, task: EvaluationTask, suite:
     case "C2":
     case "C3min":
     case "C3":
-    case "C3c": {
+    case "C3c":
+    case "C3r": {
       const full = condition !== "C2";
       const retry = { budget: retryBudgetOf(condition, suite) };
       const reportKept = "Report your summary, your decisions, and every constraint you kept: restate each one.";
@@ -181,12 +192,22 @@ export function workflowFor(condition: ConditionId, task: EvaluationTask, suite:
           retry,
           ...common,
         },
+        ...(condition === "C3r"
+          ? [{
+              id: "reflect",
+              agent: agent("implement"),
+              instructions: REFLECT_TEXT,
+              verification: acceptanceOf(task, REFLECTED),
+              retry,
+              ...common,
+            } satisfies StepDefinition]
+          : []),
         {
           id: "review",
           agent: agent("review"),
           instructions: `${PIPELINE.review} Report your verdict and your findings.`,
           // C2's review reports the same fields, as an ordinary step: its verdict is not checked and sends nothing back.
-          ...(full ? { review: { sendBackTo: "implement" }, verification: {} } : { verification: { requiredOutputFields: [...REVIEW_OUTPUT_FIELDS] } }),
+          ...(full ? { review: { sendBackTo: condition === "C3r" ? "reflect" : "implement" }, verification: {} } : { verification: { requiredOutputFields: [...REVIEW_OUTPUT_FIELDS] } }),
           capabilities: [{ kind: "read_only" }],
           retry,
           ...common,

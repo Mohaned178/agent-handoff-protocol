@@ -201,7 +201,7 @@ export interface ConditionComparison extends PairedComparison {
 /**
  * The comparisons a report makes, `a` against `b`, when the evaluation ran both. First what a pipeline adds beyond one agent
  * with the same acceptance check and retry (C3min and C3 against C0V), what that check and retry add to one agent (C0V
- * against C0) and what the plan step adds (C3 against C3min); what compressing the handoffs costs or gains (C3c against C3); then full AHP against each other alternative, and each step of
+ * against C0) and what the plan step adds (C3 against C3min); what compressing the handoffs costs or gains (C3c against C3) and what a reflect step adds (C3r against C3); then full AHP against each other alternative, and each step of
  * the ladder against the one below it (C2 against C1 is the envelope's effect, C3 against C2 the acceptance checks').
  */
 export const COMPARISONS: readonly (readonly [ConditionId, ConditionId])[] = [
@@ -210,6 +210,7 @@ export const COMPARISONS: readonly (readonly [ConditionId, ConditionId])[] = [
   ["C0V", "C0"],
   ["C3", "C3min"],
   ["C3c", "C3"],
+  ["C3r", "C3"],
   ["C3", "C0"],
   ["C3", "baseline"],
   ["C3", "C1"],
@@ -506,6 +507,7 @@ const CONDITION_NAMES: Record<ConditionId, string> = {
   C3min: "implement → review, with the acceptance check and retry",
   C3: "full AHP",
   C3c: "full AHP with a context budget on every step",
+  C3r: "full AHP with a reflect step: the implementer critiques and fixes its own result before review",
   baseline: "matched-budget baseline: C0 as many times as C3 made attempts, a pass if any passed (a ceiling: no developer can pick a pass by the hidden tests)",
 };
 

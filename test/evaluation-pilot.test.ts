@@ -214,6 +214,7 @@ describe("the pilot suites", () => {
         decisions: ["follow the task"],
         constraints: task.constraints.map((constraint) => constraint.statement),
         output: "done",
+        reflection: "nothing to fix",
       });
       const script = (...scripts: MockAttemptScript[]) => mock({ attempts: scripts });
       const suite: EvaluationSuite = {
