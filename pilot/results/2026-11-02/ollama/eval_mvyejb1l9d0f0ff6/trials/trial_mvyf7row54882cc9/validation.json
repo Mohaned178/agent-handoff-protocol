@@ -1,0 +1,32 @@
+{
+  "commit": "678c78f24adb45b399b76655985731f0823db0ca",
+  "base": "2f5a6d90ed7e7b4b26b9fa76a2395a78e0c50691",
+  "changed": [],
+  "protected": [
+    "package.json",
+    "test/errors.test.js",
+    "test/hidden.test.js"
+  ],
+  "tests": {
+    "command": "node --test",
+    "exitCode": 1,
+    "signal": null,
+    "output": "✔ a server error, a rate limit and a timeout are worth retrying (0.8615ms)\n✔ a client error is not (0.163ms)\n✔ a dropped connection is, and a plain error is not (0.1354ms)\nnode:internal/modules/esm/resolve:272\n    throw new ERR_MODULE_NOT_FOUND(\n          ^\n\nError [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\\Users\\pc\\AppData\\Local\\ahp\\worktrees\\run_mvyf7srxcf7e6572\\validation-1\\src\\retry.js' imported from C:\\Users\\pc\\AppData\\Local\\ahp\\worktrees\\run_mvyf7srxcf7e6572\\validation-1\\test\\hidden.test.js\n    at finalizeResolution (node:internal/modules/esm/resolve:272:11)\n    at moduleResolve (node:internal/modules/esm/resolve:879:10)\n    at defaultResolve (node:internal/modules/esm/resolve:1006:11)\n    at #cachedDefaultResolve (node:internal/modules/esm/loader:705:20)\n    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:725:38)\n    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:763:56)\n    at #resolve (node:internal/modules/esm/loader:687:17)\n    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:607:35)\n    at ModuleJob.syncLink (node:internal/modules/esm/module_job:276:33)\n    at ModuleJob.link (node:internal/modules/esm/module_job:381:17) {\n  code: 'ERR_MODULE_NOT_FOUND',\n  url: 'file:///C:/Users/pc/AppData/Local/ahp/worktrees/run_mvyf7srxcf7e6572/validation-1/src/retry.js'\n}\n\nNode.js v24.21.0\n✖ test\\hidden.test.js (67.7776ms)\nℹ tests 4\nℹ suites 0\nℹ pass 3\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 100.2533\n\n✖ failing tests:\n\ntest at test\\hidden.test.js:1:1\n✖ test\\hidden.test.js (67.7776ms)\n  'test failed'\n",
+    "truncated": false
+  },
+  "constraints": [
+    {
+      "id": "no-math-random",
+      "kind": "forbidden_pattern",
+      "outcome": "held",
+      "detail": "no match"
+    },
+    {
+      "id": "no-timers-in-retry",
+      "kind": "forbidden_pattern",
+      "outcome": "held",
+      "detail": "no match"
+    }
+  ],
+  "validatorRuns": 1
+}

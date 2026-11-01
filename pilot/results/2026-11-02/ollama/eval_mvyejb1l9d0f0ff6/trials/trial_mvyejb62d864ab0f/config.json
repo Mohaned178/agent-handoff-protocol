@@ -1,0 +1,125 @@
+{
+  "trialId": "trial_mvyejb62d864ab0f",
+  "condition": "C3",
+  "repeat": 1,
+  "baseline": null,
+  "task": {
+    "id": "password-reset",
+    "dir": "F:\\Agent Handoff\\pilot\\tasks\\password-reset",
+    "hash": "d3b56ffa13e1c199c7f8648be2c1639d90f32070ee1fba6c7b88fb41771f0640"
+  },
+  "retryBudget": 2,
+  "platform": "win32",
+  "node": "v24.21.0",
+  "protocolVersion": "0.2.0",
+  "workflow": {
+    "name": "password-reset-C3",
+    "steps": [
+      {
+        "id": "plan",
+        "agent": {
+          "adapter": "opencode",
+          "model": "ahp-local/qwen2.5-coder:7b-instruct-q4_K_M",
+          "options": {
+            "localEndpoint": {
+              "engine": "ollama",
+              "baseURL": "http://localhost:11434/v1",
+              "models": [
+                "qwen2.5-coder:7b-instruct-q4_K_M"
+              ]
+            }
+          }
+        },
+        "instructions": "Add password reset to the accounts library, in `src/auth.js`. `createAuth(...)` gains two methods.\n\n`requestPasswordReset(email)` returns `{ token }` for a known user and `null` for an unknown email. An email address identifies a user whatever its letter case. The token is an unguessable string of at least 32 characters, good for 30 minutes from the moment it is issued (the `now` option is the clock, in milliseconds). Asking again for the same user retires the earlier token. The caller delivers the token by email; delivering it is not part of this task.\n\n`resetPassword(token, newPassword)` returns `{ ok: true }` and sets the new password, or `{ ok: false, reason }`, where reason is `\"invalid\"` (a token that is unknown, already used or retired), `\"expired\"` (30 minutes or more have passed) or `\"weak\"` (the new password is shorter than 8 characters; the token stays usable). Check in that order. A token works once. After a reset the old password no longer logs in and the new one does.\n\nThese constraints must hold in the final result:\n- Never log anything from src: no console calls (a reset token is a credential).\n- Passwords that are already stored must keep working: do not change how passwords are hashed or verified, or what a failed login returns.\n\nPlan the work; do not change any file. Report your summary, the decisions you made, and every constraint the work must respect: restate each one you were given.",
+        "capabilities": [
+          {
+            "kind": "read_only"
+          }
+        ],
+        "verification": {
+          "requiredOutputFields": [
+            "summary",
+            "decisions",
+            "constraints"
+          ]
+        },
+        "retry": {
+          "budget": 2
+        },
+        "network": {
+          "stance": "deny"
+        },
+        "recovery": "abort"
+      },
+      {
+        "id": "implement",
+        "agent": {
+          "adapter": "opencode",
+          "model": "ahp-local/qwen2.5-coder:7b-instruct-q4_K_M",
+          "options": {
+            "localEndpoint": {
+              "engine": "ollama",
+              "baseURL": "http://localhost:11434/v1",
+              "models": [
+                "qwen2.5-coder:7b-instruct-q4_K_M"
+              ]
+            }
+          }
+        },
+        "instructions": "Implement the plan you were handed. Follow its decisions and respect every one of its constraints. Report your summary, your decisions, and every constraint you kept: restate each one.",
+        "verification": {
+          "command": "node --test",
+          "protectedPaths": [
+            "package.json",
+            "test/auth.test.js"
+          ],
+          "requiredOutputFields": [
+            "summary",
+            "decisions",
+            "constraints"
+          ]
+        },
+        "retry": {
+          "budget": 2
+        },
+        "network": {
+          "stance": "deny"
+        },
+        "recovery": "abort"
+      },
+      {
+        "id": "review",
+        "agent": {
+          "adapter": "opencode",
+          "model": "ahp-local/qwen2.5-coder:7b-instruct-q4_K_M",
+          "options": {
+            "localEndpoint": {
+              "engine": "ollama",
+              "baseURL": "http://localhost:11434/v1",
+              "models": [
+                "qwen2.5-coder:7b-instruct-q4_K_M"
+              ]
+            }
+          }
+        },
+        "instructions": "Review the implementation in this workspace against the decisions and constraints you were handed. Do not change any file. Report your verdict and your findings.",
+        "review": {
+          "sendBackTo": "implement"
+        },
+        "verification": {},
+        "capabilities": [
+          {
+            "kind": "read_only"
+          }
+        ],
+        "retry": {
+          "budget": 2
+        },
+        "network": {
+          "stance": "deny"
+        },
+        "recovery": "abort"
+      }
+    ]
+  }
+}
