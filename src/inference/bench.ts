@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { ENGINES, type EngineId } from "./engines.ts";
+import { ENGINES, isBaseURL, type EngineId } from "./engines.ts";
 
 /**
  * What the bench sends an engine (GLOSSARY "Workload"): a closed list, like the conditions. `latency` and `throughput` time the
@@ -101,17 +101,6 @@ const isNonEmpty = (value: unknown) => typeof value === "string" && value.trim()
 
 const BENCH_KEYS = ["name", "engines", "prompts", "tools", "workloads", "concurrency", "repeats", "maxTokens", "warmup", "timeoutMs"];
 const ENGINE_KEYS = ["engine", "baseURL", "model", "quantization", "container"];
-
-/** An http or https URL whose path ends in `/v1`, with no query or fragment. */
-function isBaseURL(value: unknown): boolean {
-  if (typeof value !== "string") return false;
-  try {
-    const url = new URL(value);
-    return (url.protocol === "http:" || url.protocol === "https:") && url.pathname.endsWith("/v1") && url.search === "" && url.hash === "";
-  } catch {
-    return false;
-  }
-}
 
 /** One message per problem with the bench file's own shape; unknown keys are refused, so a misspelt setting is never ignored. */
 export function validateBench(bench: unknown): string[] {

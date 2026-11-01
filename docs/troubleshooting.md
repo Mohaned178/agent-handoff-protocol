@@ -156,6 +156,33 @@ directory per engine.
 **Cause:** `ahp bench report` was given a folder that is not a bench's own directory.
 **Fix:** give the directory `ahp bench` printed after "kept in" (`<out>/bench_...`), not the folder above it.
 
+### "not an evaluation directory (it has no ledger.jsonl)"
+
+**Cause:** `ahp bench report --eval` was given a folder that is not an evaluation's own directory.
+**Fix:** give the directory `ahp eval` made (`<out>/eval_...`), one `--eval` per engine.
+
+### "these benches cannot be combined: ... evaluation ... ran on ..."
+
+**Cause:** an evaluation given with `--eval` cannot stand beside the benches: it "ran on the mock adapter", "ran on no
+local engine" (a suite whose OpenCode steps have no `localEndpoint`), "ran on more than one engine", ran on an engine
+"which none of the benches measured", asked the engine for another model than the bench measured, has the same engine as
+another `--eval`, or "differs ... in its tasks" (engines are compared task by task, so every evaluation needs the same
+tasks, by freeze hash).
+**Fix:** run one suite of `pilot/local/` per engine (they share tasks, conditions and seed, and take each engine's model from
+`bench/local.mjs`), and give one bench and one evaluation per engine.
+
+### "--eval puts evaluations beside benches already made"
+
+**Cause:** `--eval` was given to `ahp bench <bench-file>`, which runs a bench.
+**Fix:** use it with `ahp bench report <bench-dir>... --eval <eval-dir>...`.
+
+### "a step on the local engine ... must request one of its models"
+
+**Cause:** an OpenCode step with a `localEndpoint` requested no model, or one that is not `ahp-local/<id>` for an `<id>` in
+its `models`. The attempt fails as `config_auth` before any prompt, so OpenCode's own default model never answers in the
+engine's place.
+**Fix:** name the step with `opencode({ localEndpoint })` (its first model) or `opencode({ localEndpoint, model: "<id>" })`.
+
 ## Windows
 
 ### A path too long (git's `Filename too long`, or `ENAMETOOLONG`)

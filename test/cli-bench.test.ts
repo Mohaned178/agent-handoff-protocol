@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { main, type Io } from "../src/cli/main.ts";
 import { answerOf, closeEngines, fakeEngine, promptFiles, toolCaseFiles, toolsEnv } from "./helpers/bench.ts";
 import { closedBaseURL } from "./helpers/fake-engine.ts";
+import { evaluate, GREETS, greetingTaskDir, scripted, suiteOf } from "./helpers/evaluation.ts";
 import { removeTempRepos, writeTree } from "./helpers/repo.ts";
 
 // `ahp bench` looks for `nvidia-smi` and `docker` on PATH: never the real ones in a test.
@@ -211,5 +212,18 @@ describe("ahp bench report", () => {
     expect(notABench.stderr).toContain("not a bench directory (it has no ledger.jsonl)");
     expect((await ahp(["bench", "report"])).stderr).toContain("bench report needs the directory of at least one bench");
     expect((await ahp(["bench", "report", dirs[0]!, "--engine", "vllm"])).stderr).toContain("--engine chooses what to run");
+  });
+
+  it("reads each --eval directory as an evaluation, refuses one that is the mock's or not an evaluation, and takes --eval only with report", async () => {
+    const { dirs, dir } = await twoBenches();
+    const { dir: evaluation } = await evaluate(suiteOf([greetingTaskDir()], { implement: scripted(GREETS) }, { conditions: ["C0"] }));
+
+    const mocked = await ahp(["bench", "report", ...dirs, "--eval", evaluation]);
+    expect(mocked.code).toBe(2);
+    expect(mocked.stderr).toContain("ran on the mock adapter: its results are not evidence of any engine");
+    const notOne = await ahp(["bench", "report", ...dirs, "--eval", writeTree({})]);
+    expect(notOne.stderr).toContain("not an evaluation directory (it has no ledger.jsonl)");
+    expect((await ahp(["bench", join(dir, "bench.mjs"), "--eval", evaluation])).stderr).toContain("--eval puts evaluations beside benches already made");
+    expect((await ahp(["--help", "--all"])).stdout).toContain("bench report <bench-dir>... [--eval <eval-dir>]...");
   });
 });

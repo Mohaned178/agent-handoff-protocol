@@ -2,12 +2,14 @@
 // one bench or combined from the benches of several engines. Percentiles are nearest-rank. Every rate has its count beside it;
 // an engine that was unavailable is listed with its error; a figure no source gave is null, never filled in.
 
+import type { EvaluationView } from "../evaluation/replay.ts";
 import { comparePaired, type PairedComparison, type TaskTally } from "../evaluation/statistics.ts";
 import type { BenchSettings, WorkloadId } from "./bench.ts";
 import { ENGINES, ENGINE_NAMES, type EngineId } from "./engines.ts";
 import type { RequestRecord, WorkloadEnded } from "./events.ts";
 import type { BenchView, WorkloadView } from "./replay.ts";
 import type { HardwareFingerprint, Stat } from "./resources.ts";
+import { evaluationReferenceOf, verifiedComparisonsOf, verifiedProblems, verifiedSuccessOf, type EvaluationReference, type VerifiedComparison, type VerifiedSuccess } from "./verified.ts";
 import { summarizeWorkload } from "./workloads.ts";
 
 /** The seed of the comparisons' bootstrap when none is given: fixed, so a report is the same every time it is made. */
@@ -134,6 +136,8 @@ export interface EngineReport {
   quality: ScoreReport | null;
   tools: ScoreReport | null;
   resources: ResourceReport | null;
+  /** Its verified success on the pilot tasks, from the evaluation run through OpenCode on it (`--eval`); null without one. */
+  verified: VerifiedSuccess | null;
 }
 
 export interface BenchReference {
@@ -169,6 +173,10 @@ export interface BenchReport {
   toolCases: BenchView["toolCases"];
   engines: EngineReport[];
   comparisons: PairComparison[];
+  /** The evaluations put beside the benches (`--eval`), one per engine; empty without them. */
+  evaluations: EvaluationReference[];
+  /** Engines compared by verified success, task by task, under each condition their evaluations both ran. */
+  verifiedComparisons: VerifiedComparison[];
   /** The seed of the comparisons' paired bootstrap. */
   comparisonSeed: number;
   method: { percentiles: "nearest-rank"; comparisons: string };
@@ -333,6 +341,7 @@ function engineReportOf(view: BenchView, engine: BenchView["engines"][number]): 
     quality: scoresOf("quality", of("quality")),
     tools: scoresOf("tools", of("tools")),
     resources: resourcesOf(complete.map((workload) => workload.ended)),
+    verified: null,
   };
 }
 
@@ -351,17 +360,24 @@ function comparisonsOf(engines: readonly EngineReport[], seed: number): PairComp
 }
 
 /**
- * The report of one bench or of several: engines in `ENGINES` order, each with the figures of the bench that measured it.
- * Throws `BenchesNotComparableError` for benches that cannot share a report. Pure: nothing is read or written.
+ * The report of one bench or of several: engines in `ENGINES` order, each with the figures of the bench that measured it and,
+ * given `evaluations` (one per engine, through OpenCode on it), its verified success beside them. Throws
+ * `BenchesNotComparableError` for benches or evaluations that cannot share a report. Pure: nothing is read or written.
  */
-export function reportOf(views: readonly BenchView[], options: { seed?: number } = {}): BenchReport {
-  const problems = comparabilityProblems(views);
+export function reportOf(views: readonly BenchView[], options: { seed?: number; evaluations?: readonly EvaluationView[] } = {}): BenchReport {
+  const evaluations = options.evaluations ?? [];
+  const problems = [...comparabilityProblems(views), ...(evaluations.length > 0 ? verifiedProblems(views, evaluations) : [])];
   if (problems.length > 0) throw new BenchesNotComparableError(problems);
   const seed = options.seed ?? DEFAULT_REPORT_SEED;
   const first = views[0]!;
+  const references = evaluations.map(evaluationReferenceOf);
   const engines = views
     .flatMap((view) => view.engines.map((engine) => engineReportOf(view, engine)))
-    .sort((a, b) => ENGINES.indexOf(a.engine) - ENGINES.indexOf(b.engine));
+    .sort((a, b) => ENGINES.indexOf(a.engine) - ENGINES.indexOf(b.engine))
+    .map((engine) => {
+      const index = references.findIndex((reference) => reference.engine === engine.engine);
+      return index === -1 ? engine : { ...engine, verified: verifiedSuccessOf(evaluations[index]!) };
+    });
   return {
     benches: views.map((view) => ({ benchId: view.benchId, name: view.name, state: view.state, reason: view.reason, seed: view.seed, onlyEngine: view.onlyEngine, createdAt: view.createdAt, endedAt: view.endedAt })),
     fingerprint: first.fingerprint,
@@ -370,6 +386,8 @@ export function reportOf(views: readonly BenchView[], options: { seed?: number }
     toolCases: first.toolCases,
     engines,
     comparisons: comparisonsOf(engines, seed),
+    evaluations: references,
+    verifiedComparisons: verifiedComparisonsOf(evaluations, seed),
     comparisonSeed: seed,
     method: {
       percentiles: "nearest-rank",
@@ -411,6 +429,9 @@ export function formatBenchReport(report: BenchReport): string {
   for (const bench of report.benches) {
     lines.push(`bench ${bench.benchId}: ${bench.state}${bench.reason ? ` (${bench.reason})` : ""}, seed ${bench.seed}${bench.onlyEngine ? `, engine ${bench.onlyEngine} only` : ""}`);
   }
+  for (const evaluation of report.evaluations) {
+    lines.push(`evaluation ${evaluation.evaluationId} (suite "${evaluation.suite}"): ${evaluation.state}${evaluation.reason ? ` (${evaluation.reason})` : ""}, seed ${evaluation.seed ?? "none"}, through OpenCode on ${ENGINE_NAMES[evaluation.engine]} (${evaluation.model})`);
+  }
   for (const engine of report.engines) {
     lines.push("");
     lines.push(`${engine.name} (${engine.model}, ${engine.quantization})${engine.version ? ` ${engine.version}` : ""}${engine.container ? ` [container ${engine.container}]` : ""}`);
@@ -450,11 +471,60 @@ export function formatBenchReport(report: BenchReport): string {
     lines.push(`comparisons (${report.method.comparisons}; seed ${report.comparisonSeed}):`);
     for (const { workload, a, b, served, comparison } of report.comparisons) {
       const side = (engine: EngineId, of: { model: string; quantization: string }) => `${ENGINE_NAMES[engine]} (${of.model}, ${of.quantization})`;
-      const head = `  ${workload}: ${side(a, served.a)} vs ${side(b, served.b)}`;
-      const mean = comparison.meanDifference === null ? "no prompt scored on both" : `mean difference ${comparison.meanDifference >= 0 ? "+" : ""}${comparison.meanDifference.toFixed(3)}${comparison.interval ? ` [${comparison.interval[0].toFixed(3)}, ${comparison.interval[1].toFixed(3)}]` : ""}`;
-      const finding = { higher: `${ENGINE_NAMES[a]} higher`, lower: `${ENGINE_NAMES[a]} lower`, no_detectable_difference: "no detectable difference", too_few_tasks: "too few prompts for an interval" }[comparison.finding];
-      lines.push(`${head}: ${mean} over ${comparison.tasks.length} prompt${comparison.tasks.length === 1 ? "" : "s"}${comparison.excluded.length > 0 ? ` (${comparison.excluded.length} left out: no valid answer on a side)` : ""}: ${finding}`);
+      lines.push(`  ${workload}: ${side(a, served.a)} vs ${side(b, served.b)}: ${comparisonText(a, comparison, "prompt", "no valid answer on a side")}`);
     }
   }
+  if (report.evaluations.length > 0) lines.push(...verifiedLines(report));
   return lines.join("\n");
+}
+
+/** A paired comparison's headline: the mean difference with its interval, over how many, and what it finds. */
+function comparisonText(a: EngineId, comparison: PairedComparison, unit: "prompt" | "task", gap: string): string {
+  const mean = comparison.meanDifference === null ? `no ${unit} scored on both` : `mean difference ${comparison.meanDifference >= 0 ? "+" : ""}${comparison.meanDifference.toFixed(3)}${comparison.interval ? ` [${comparison.interval[0].toFixed(3)}, ${comparison.interval[1].toFixed(3)}]` : ""}`;
+  const finding = { higher: `${ENGINE_NAMES[a]} higher`, lower: `${ENGINE_NAMES[a]} lower`, no_detectable_difference: "no detectable difference", too_few_tasks: `too few ${unit}s for an interval` }[comparison.finding];
+  const count = comparison.tasks.length;
+  return `${mean} over ${count} ${unit}${count === 1 ? "" : "s"}${comparison.excluded.length > 0 ? ` (${comparison.excluded.length} left out: ${gap})` : ""}: ${finding}`;
+}
+
+/** What the engine was measured to do directly, in one line: the latency workload's medians and each level's output rate. */
+function speedLine(engine: EngineReport): string {
+  if (!engine.available) return `speed: none measured (the bench found it unavailable: ${engine.error ?? "no reason recorded"})`;
+  const parts: string[] = [];
+  if (engine.latency) parts.push(`time to first token p50 ${n1(engine.latency.ttftMs.p50)} ms, request latency p50 ${n1(engine.latency.latencyMs.p50)} ms (n=${engine.latency.latencyMs.n})`);
+  const rates = engine.throughput.filter((level) => level.outputTokensPerSecond !== null).map((level) => `c=${level.concurrency} ${n1(level.outputTokensPerSecond!.median)}`);
+  if (rates.length > 0) parts.push(`output tokens/s (median over repeats) ${rates.join(", ")}`);
+  return `speed: ${parts.length > 0 ? parts.join("; ") : "no latency or throughput workload ran to the end"}`;
+}
+
+/** Each engine's verified success beside its speed, then the engines compared by verified success, task by task. */
+function verifiedLines(report: BenchReport): string[] {
+  const lines = ["", "verified success on the evaluation's tasks (ahp eval through OpenCode on the engine; passes over scored trials), beside speed:"];
+  for (const engine of report.engines) {
+    const verified = engine.verified;
+    if (verified === null) {
+      lines.push(`  ${engine.name}: no evaluation given`);
+      continue;
+    }
+    const versions = verified.versions.map(({ version, trials }) => `${version ?? "no version said"} in ${trials} trial${trials === 1 ? "" : "s"}`).join(", ");
+    lines.push(`  ${engine.name} (${verified.model}), evaluation ${verified.evaluationId}${versions ? `; engine ${versions}` : ""}:`);
+    const conditions = verified.conditions.map((c) => `${c.condition} ${c.passes}/${c.scored} (${pct(c.successRate)})`);
+    lines.push(`    ${conditions.length > 0 ? conditions.join("; ") : "no condition ran"}`);
+    const incidents = verified.conditions.reduce((sum, c) => sum + c.harnessIncidents, 0);
+    const unscored = verified.conditions.reduce((sum, c) => sum + c.unscored, 0);
+    const invalid = verified.conditions.reduce((sum, c) => sum + c.invalidCells, 0);
+    const apart = [
+      incidents > 0 ? `${incidents} harness incident${incidents === 1 ? "" : "s"}` : null,
+      unscored > 0 ? `${unscored} unscored${verified.unavailableTrials > 0 ? ` (the engine was unavailable when ${verified.unavailableTrials} started)` : ""}` : null,
+      invalid > 0 ? `${invalid} invalid cell${invalid === 1 ? "" : "s"} left out` : null,
+    ].filter((part): part is string => part !== null);
+    if (apart.length > 0) lines.push(`    not in the rates: ${apart.join(", ")}`);
+    lines.push(`    ${speedLine(engine)}`);
+  }
+  if (report.verifiedComparisons.length > 0) {
+    lines.push("", `verified success, engine against engine, task by task (mean over tasks of the difference in pass rate, 95% paired bootstrap over tasks, 10,000 resamples; seed ${report.comparisonSeed}):`);
+    for (const { condition, a, b, comparison } of report.verifiedComparisons) {
+      lines.push(`  ${condition}: ${ENGINE_NAMES[a]} vs ${ENGINE_NAMES[b]}: ${comparisonText(a, comparison, "task", "no scored trial on a side")}`);
+    }
+  }
+  return lines;
 }

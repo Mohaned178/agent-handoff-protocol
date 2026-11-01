@@ -4,6 +4,7 @@
 
 import type { FailureClass, PathChange } from "../protocol/index.ts";
 import { money, sourcesText, summarizeUsage, USAGE_COUNTS, usageLines, type UsageCount, type UsageSummary } from "../runtime/usage.ts";
+import type { EngineId } from "../inference/engines.ts";
 import type { ConditionId, UnscoredReason } from "./events.ts";
 
 export { money, sourcesText, USAGE_COUNTS, type UsageCount, type UsageSummary };
@@ -71,6 +72,21 @@ export interface ToolVersionReport {
   found: { version: string | null; trials: number }[];
   /** Trials whose version is not the pin (zero for an unpinned tool). */
   mismatchedTrials: number;
+  /** The local engines the tool reached, each with the versions found and the trials that found it unavailable. */
+  engines: LocalEngineReport[];
+}
+
+/** A local engine a tool reached, over the trials that checked it. */
+export interface LocalEngineReport {
+  engine: EngineId;
+  name: string;
+  baseURL: string;
+  model: string;
+  /** Each version the engine said it was, and the trials that read it; `version` null for an engine that said none. */
+  versions: { version: string | null; trials: number }[];
+  /** Trials that found it not serving the model (they were not scored, `setup_failed`), and the first such error. */
+  unavailableTrials: number;
+  firstError: string | null;
 }
 
 export interface ConditionReport extends Exclusions {
@@ -323,7 +339,8 @@ function baselineReportOf(view: EvaluationView): BaselineReport {
 }
 
 /** Each task's passes, valid trials and incidents under `condition`: for the baseline, its complete cells and their verdicts. */
-function talliesOf(view: EvaluationView, condition: ConditionId, baseline: BaselineReport | null): TaskTally[] {
+/** Each task's passes and valid trials under a condition, as the paired comparisons count them (an invalid cell is valid 0). */
+export function talliesOf(view: EvaluationView, condition: ConditionId, baseline: BaselineReport | null): TaskTally[] {
   return view.tasks.map(({ id: taskId }) => {
     const trials = view.trials.filter((trial) => trial.condition === condition && trial.taskId === taskId && trial.ended);
     const incidents = trials.filter((trial) => trial.ended!.outcome === "harness_incident").length;
@@ -347,12 +364,25 @@ function toolsOf(view: EvaluationView): ToolVersionReport[] {
   const byTool = new Map<string, ToolVersionReport>();
   for (const trial of view.trials) {
     for (const record of trial.tools) {
-      const entry = byTool.get(record.tool) ?? { tool: record.tool, pinned: record.pinned, found: [], mismatchedTrials: 0 };
+      const entry = byTool.get(record.tool) ?? { tool: record.tool, pinned: record.pinned, found: [], mismatchedTrials: 0, engines: [] };
       byTool.set(record.tool, entry);
       const version = entry.found.find((candidate) => candidate.version === record.found);
       if (version) version.trials += 1;
       else entry.found.push({ version: record.found, trials: 1 });
       if (record.matches === false) entry.mismatchedTrials += 1;
+      for (const checked of record.engines ?? []) {
+        const same = entry.engines.find((engine) => engine.engine === checked.engine && engine.baseURL === checked.baseURL && engine.model === checked.model);
+        const engine = same ?? { engine: checked.engine, name: checked.name, baseURL: checked.baseURL, model: checked.model, versions: [], unavailableTrials: 0, firstError: null };
+        if (!same) entry.engines.push(engine);
+        if (!checked.available) {
+          engine.unavailableTrials += 1;
+          engine.firstError ??= checked.error;
+          continue;
+        }
+        const read = engine.versions.find((candidate) => candidate.version === checked.version);
+        if (read) read.trials += 1;
+        else engine.versions.push({ version: checked.version, trials: 1 });
+      }
     }
   }
   return [...byTool.values()].sort((x, y) => byPath(x.tool, y.tool));
@@ -485,6 +515,11 @@ export function formatReport(report: EvaluationReport): string {
     const found = tool.found.map(({ version, trials }) => `${version ?? "unreadable"} (${plural(trials, "trial")})`).join(", ");
     const pin = tool.pinned === null ? "not pinned" : tool.mismatchedTrials > 0 ? `PINNED ${tool.pinned}, MISMATCH in ${plural(tool.mismatchedTrials, "trial")}` : `pinned ${tool.pinned}, matched`;
     lines.push(`Tool ${tool.tool}: ${found}; ${pin}`);
+    for (const engine of tool.engines) {
+      const versions = engine.versions.map(({ version, trials }) => `${version ?? "no version said"} (${plural(trials, "trial")})`).join(", ");
+      const down = engine.unavailableTrials > 0 ? `${versions ? "; " : ""}UNAVAILABLE in ${plural(engine.unavailableTrials, "trial")}, not scored (${engine.firstError ?? "no reason recorded"})` : "";
+      lines.push(`  on ${engine.name} at ${engine.baseURL}, model ${engine.model}: ${versions}${down}`);
+    }
   }
   for (const condition of report.conditions) {
     lines.push("", `${condition.condition} (${CONDITION_NAMES[condition.condition]}): ${plural(condition.trials, "trial")}`);

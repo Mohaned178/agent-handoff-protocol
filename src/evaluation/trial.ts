@@ -123,8 +123,15 @@ export async function runTrial(ctx: TrialContext, loaded: LoadedTask, scheduled:
   const place: TrialPlace = { trialId, trialDir, repo, config };
   const progress: Progress = { base: null, runId: null, state: null };
   let ended: TrialEndedBody;
+  const down = tools.flatMap((record) => record.engines ?? []).filter((engine) => !engine.available);
   try {
-    ended = await execute(ctx, loaded, workflow, place, progress);
+    // An engine that does not serve its model would fail every attempt for a reason that is the evaluation's, not the condition's:
+    // no agent is started, and the trial is not scored.
+    if (down.length > 0) {
+      const detail = down.map((engine) => `${engine.name} at ${engine.baseURL} is unavailable: ${engine.error ?? "no reason recorded"}`).join("; ");
+      const artifacts = await keepArtifacts({ ctx, place, runId: null, attempts: [], base: null, commit: null, validation: null });
+      ended = endOf(trialId, progress, { outcome: "unscored", unscored: { reason: "setup_failed", detail: detail.slice(0, MAX_DETAIL_CHARS) }, artifacts });
+    } else ended = await execute(ctx, loaded, workflow, place, progress);
   } catch (error) {
     // What the trial had made when AHP threw is kept as far as it goes: a run, if there was one, and the configuration anyway.
     const artifacts = await keepArtifacts({ ctx, place, runId: progress.runId, attempts: attemptsOf(progress.state), base: progress.base, commit: null, validation: null });

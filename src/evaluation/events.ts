@@ -5,6 +5,7 @@
 
 import type { ChainedEvent } from "../ledger/index.ts";
 import type { FailureClass, PathChange, RunState, UnknownReason, UsageReport } from "../protocol/index.ts";
+import type { EngineId } from "../inference/engines.ts";
 
 /**
  * The conditions an evaluation runs, named as the design does (`docs/design`, §7): C0 one coding agent doing the whole task
@@ -69,8 +70,9 @@ export type TrialOutcome = (typeof TRIAL_OUTCOMES)[number];
  * Why a trial that was not a harness incident has no score.
  * - `validator_inconclusive`: a validator could not run to a result, twice (a missing install, a command that is not
  *   there, a process killed by a signal): it says nothing about the trial.
- * - `setup_failed`: the run ended `config_auth` or `rejected`, so no coding agent did the work: a login or a
- *   configuration problem of the evaluation's, not something a condition did.
+ * - `setup_failed`: the run ended `config_auth` or `rejected`, or a local engine a step reaches did not serve its model when
+ *   the trial started (no run is made then), so no coding agent did the work: a login or a configuration problem of the
+ *   evaluation's, not something a condition did.
  * - `harness_error`: AHP itself threw while running or scoring the trial.
  */
 export const UNSCORED_REASONS = ["validator_inconclusive", "setup_failed", "harness_error"] as const;
@@ -87,6 +89,27 @@ export interface ToolVersionRecord {
   matches: boolean | null;
   /** Why `found` is null; null otherwise. */
   problem: string | null;
+  /**
+   * The local engines the tool's steps reach (OpenCode's `localEndpoint`), each checked when the trial started by the bench's
+   * own engine check (`checkEngine`). Empty for a tool on its provider's service; absent in ledgers written before ticket 03.
+   */
+  engines?: LocalEngineRecord[];
+}
+
+/** A local engine a trial's agent ran on, as found when the trial started. */
+export interface LocalEngineRecord {
+  engine: EngineId;
+  /** The engine's name (`ENGINE_NAMES`). */
+  name: string;
+  baseURL: string;
+  /** The model id the steps requested of it, as the engine lists it. */
+  model: string;
+  /** True only when `/v1/models` answered and listed the model. */
+  available: boolean;
+  /** The version the engine says it is; null when it said none, never a guess. */
+  version: string | null;
+  /** Why the engine is unavailable; null when it is available. */
+  error: string | null;
 }
 
 /** The limits an evaluation was configured with, as the ledger records them: null for one not set. */

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { adapters } from "../src/adapters/index.ts";
-import { openCodeAdapter } from "../src/adapters/opencode/index.ts";
+import { opencode, openCodeAdapter } from "../src/adapters/opencode/index.ts";
 import { decide, isExternalAction, policyOf } from "../src/adapters/acp/permissions.ts";
 import { redacted } from "../src/adapters/acp/tool-calls.ts";
 import { configContentOf } from "../src/adapters/opencode/policy.ts";
@@ -141,6 +141,47 @@ describe("the OpenCode adapter's conversation", () => {
     expect(JSON.parse(call.env.OPENCODE_CONFIG_CONTENT!)).toEqual({ permission: { edit: "deny", bash: { "git push*": "deny", "git update-ref*": "deny", "gh *": "deny" } } });
     expect(call.env.OPENCODE_DISABLE_CLAUDE_CODE).toBe("1");
     expect(call.env.OPENCODE_DISABLE_EXTERNAL_SKILLS).toBe("1");
+  });
+
+  it("adds a local engine as the provider ahp-local, selects ahp-local/<id>, and leaves the permission rules byte for byte as the capabilities made them", async () => {
+    const localEndpoint = { engine: "vllm", baseURL: "http://localhost:8001/v1", models: ["Qwen/Qwen2.5-Coder-7B-Instruct-AWQ"] } as const;
+    const capabilities: CapabilityRequest[] = [{ kind: "write_scope", paths: ["src/"], require: "cooperative" }];
+    const plain = await attempt(completingScenario(), { capabilities });
+    const local = await attempt(completingScenario(), { capabilities, requestedModel: "ahp-local/Qwen/Qwen2.5-Coder-7B-Instruct-AWQ", options: { localEndpoint } });
+
+    const config = JSON.parse(local.call.env.OPENCODE_CONFIG_CONTENT!);
+    expect(Object.keys(config)).toEqual(["permission", "provider"]);
+    expect(JSON.stringify(config.permission)).toBe(JSON.stringify(JSON.parse(plain.call.env.OPENCODE_CONFIG_CONTENT!).permission));
+    expect(config.provider).toEqual({
+      "ahp-local": { npm: "@ai-sdk/openai-compatible", name: "vLLM (local, AHP)", options: { baseURL: "http://localhost:8001/v1" }, models: { "Qwen/Qwen2.5-Coder-7B-Instruct-AWQ": {} } },
+    });
+    expect(method(local.call, "session/set_config_option")[0]).toMatchObject({ params: { configId: "model", value: "ahp-local/Qwen/Qwen2.5-Coder-7B-Instruct-AWQ" } });
+    expect(local.exit.error).toBeNull();
+  });
+
+  it("keeps the permission rules of a read-only step the same with a local engine", async () => {
+    const localEndpoint = { engine: "ollama", baseURL: "http://localhost:11434/v1", models: ["qwen2.5-coder:7b-instruct-q4_K_M"] };
+    const capabilities: CapabilityRequest[] = [{ kind: "read_only", require: "cooperative" }];
+    const policy = policyOf(appliedFor(capabilities), "ws");
+
+    const without = JSON.parse(configContentOf(policy));
+    const withLocal = JSON.parse(configContentOf(policy, localEndpoint as never));
+    expect(JSON.stringify(withLocal.permission)).toBe(JSON.stringify(without.permission));
+    expect(without.provider).toBeUndefined();
+  });
+
+  it("fails as config_auth, and never prompts, when a step on a local engine requests no model or one the engine does not list", async () => {
+    const localEndpoint = { engine: "sglang", baseURL: "http://localhost:8002/v1", models: ["m1"] };
+    const none = await attempt(completingScenario(), { options: { localEndpoint } });
+    const other = await attempt(completingScenario(), { requestedModel: "opencode/big-pickle", options: { localEndpoint } });
+
+    for (const { exit, call } of [none, other]) {
+      expect(exit.error).toEqual({ kind: "config_auth", message: expect.stringContaining("must request one of its models (ahp-local/m1)") });
+      expect(method(call, "session/set_config_option")).toEqual([]);
+      expect(method(call, "session/prompt")).toEqual([]);
+    }
+    expect(none.exit.error!.message).toContain("not none");
+    expect(other.exit.error!.message).toContain('not "opencode/big-pickle"');
   });
 
   it("reports a completed turn: end_turn, the usage the tool gave with its arithmetic in the source, and the model OpenCode records", async () => {
@@ -400,6 +441,24 @@ describe("what the OpenCode adapter declares", () => {
     expect(openCodeAdapter.validateOptions({})).toEqual([]);
     expect(openCodeAdapter.validateOptions({ reportFields: ["summary"], extraInstructions: "x" })).toEqual([]);
     expect(openCodeAdapter.validateOptions({ sandbox: "none", reportFields: ["nope!"] })).toHaveLength(2);
+  });
+
+  it("accepts a local endpoint only as `{ engine, baseURL, models }`", () => {
+    const good = { engine: "vllm", baseURL: "http://localhost:8001/v1", models: ["m1", "m2"] };
+    expect(openCodeAdapter.validateOptions({ localEndpoint: good })).toEqual([]);
+    expect(openCodeAdapter.validateOptions({ localEndpoint: "http://localhost:8001/v1" })).toEqual(["`localEndpoint` must be `{ engine, baseURL, models }`"]);
+    const problems = openCodeAdapter.validateOptions({ localEndpoint: { engine: "llama.cpp", baseURL: "http://localhost:8001/", models: [], apiKey: "x" } });
+    expect(problems).toHaveLength(4);
+    expect(problems.join("\n")).toMatch(/apiKey.*engine.*baseURL.*models/s);
+    expect(openCodeAdapter.validateOptions({ localEndpoint: { ...good, models: ["m1", "m1"] } })).toEqual(["`localEndpoint.models` names a model twice"]);
+  });
+
+  it("names a step on a local engine with its first model by default, or the one named, as ahp-local/<id>", () => {
+    const localEndpoint = { engine: "vllm" as const, baseURL: "http://localhost:8001/v1", models: ["m1", "m2"] };
+    expect(opencode({ localEndpoint })).toEqual({ adapter: "opencode", model: "ahp-local/m1", options: { localEndpoint } });
+    expect(opencode({ localEndpoint, model: "m2" }).model).toBe("ahp-local/m2");
+    expect(opencode({ localEndpoint, model: "ahp-local/m2" }).model).toBe("ahp-local/m2");
+    expect(opencode({ model: "opencode/big-pickle" }).model).toBe("opencode/big-pickle");
   });
 });
 

@@ -9,6 +9,7 @@ export { mock, MOCK_USAGE_SOURCE, type MockAttemptScript, type MockEdit, type Mo
 export { claudeCode, claudeCodeAdapter, type ClaudeCodeOptions } from "./claude-code/index.ts";
 export { codex, codexAdapter, type CodexOptions } from "./codex/index.ts";
 export { opencode, openCodeAdapter, type OpenCodeOptions } from "./opencode/index.ts";
+export { LOCAL_PROVIDER, type LocalEndpoint } from "./opencode/local.ts";
 
 /** The adapters a workflow step can name, by name. */
 export const adapters: ReadonlyMap<string, Adapter> = new Map(

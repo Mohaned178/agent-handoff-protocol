@@ -94,6 +94,25 @@ For both combinations: **360 to 936 attempts.** The low end is no condition ever
 
 **What the spend cap would see:** only the cost a tool reports. Of the three tools that is Claude Code's, in USD; every Codex and OpenCode attempt counts as an attempt "without cost" in the report, not as zero. So a cap bounds a pilot by its Claude Code spend alone, and the provider-console limits are what bound the rest.
 
+## On a local engine
+
+`pilot/local/` holds one suite per engine of `bench/local.mjs` (`ollama.mjs`, `vllm.mjs`, `sglang.mjs`,
+`tensorrt-llm.mjs`; inference-evaluation ticket 03). They share `common.mjs`: the six tasks above, conditions C0, C0V and
+C3 (C3c and C3r join once tickets 05 and 06 land), the repeats and the seed. Every role is OpenCode on that engine's model
+(`opencode`'s `localEndpoint`, see `docs/adapters/opencode.md`), the same model the bench measures, so the two can be read
+together. No API key or spend: the model is local and free.
+
+1. Start one engine from `bench/engines/` (one fits 8 GB at a time) and check `curl <baseURL>/models` lists the model.
+2. `ahp bench bench/local.mjs --engine <id> --out bench/results/<date>`
+3. `ahp eval pilot/local/<engine>.mjs --seed 20261101 --out pilot/results/<date>/<engine>` (the same seed for every engine;
+   a suite file has no seed of its own).
+4. Stop the engine, and repeat for the next.
+5. `ahp bench report <bench-dir>... --eval <eval-dir>...` puts each engine's verified success per condition beside its
+   speed, and compares the engines task by task under each condition (paired bootstrap, as `ahp eval` compares conditions).
+
+`REPEATS` is 1 until the local-engine spike gives the time per attempt (`docs/spikes/2026-11-xx-local-engines.md`): one
+engine's suite should finish overnight. A trial whose engine is down when it starts is not scored and starts no agent.
+
 ## What the tests cover
 
 `test/evaluation-pilot.test.ts`, on the mock adapter only, in this order: the tasks are valid and there are five to eight; constraints and defects are not in the prompt or fixture; every constraint has a violation; per task, the fixture fails its hidden tests, the solution passes with no constraint broken, each violation passes but breaks exactly its constraint (scored by the independent validators); both suites are valid, have 3 repeats and cast the same three tools in different roles; both suites freeze all six tasks, validate against the registered adapters and schedule 90 trials with 3 repeats of each of their five conditions (cancelled before the first trial, so no tool starts); and each task runs end to end on scripted mock agents (every condition on `password-reset`, C0 and C3 on the rest).

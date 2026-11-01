@@ -17,6 +17,7 @@ import { AcpConnection, AcpError, ConnectionClosedError } from "../acp/connectio
 import { answerPermission, policyOf } from "../acp/permissions.ts";
 import { redacted, toolCallLogger } from "../acp/tool-calls.ts";
 import { promptFor, REPORT_AS_JSON_MESSAGE } from "../prompt.ts";
+import { LOCAL_PROVIDER, localEndpointProblems, localModelOf, servedModelOf, type LocalEndpoint } from "./local.ts";
 import { configContentOf } from "./policy.ts";
 import { AcpTurn, classify } from "./turn.ts";
 
@@ -25,13 +26,26 @@ export interface OpenCodeOptions {
   reportFields?: string[];
   /** Text added to the prompt after the handoff's instructions. */
   extraInstructions?: string;
+  /**
+   * A local OpenAI-compatible engine the person started (`bench/engines/`), added to OpenCode's inline config as the provider
+   * `ahp-local`. The step's model must then be `ahp-local/<one of models>`; the permission rules are unchanged.
+   */
+  localEndpoint?: LocalEndpoint;
 }
 
-/** Names the OpenCode adapter for a step. `model` is requested from the tool as `provider/model`, one of the models its session lists. */
+/**
+ * Names the OpenCode adapter for a step. `model` is requested from the tool as `provider/model`, one of the models its session
+ * lists. With a `localEndpoint`, `model` is one of its `models` (as `<id>` or `ahp-local/<id>`), by default its first: a step on
+ * a local engine always requests a model, so OpenCode's own default never answers in its place.
+ */
 export function opencode(options: OpenCodeOptions & { model?: string } = {}): AgentRef {
   const { model, ...rest } = options;
-  return { adapter: "opencode", ...(model === undefined ? {} : { model }), options: rest };
+  const endpoint = rest.localEndpoint;
+  const requested = endpoint === undefined ? model : localRequestOf(model ?? endpoint.models[0]!);
+  return { adapter: "opencode", ...(requested === undefined ? {} : { model: requested }), options: rest };
 }
+
+const localRequestOf = (model: string) => (model.startsWith(`${LOCAL_PROVIDER}/`) ? model : localModelOf(model));
 
 /** How long OpenCode is given to exit once its stdin has ended, before its tree is killed. */
 const EXIT_AFTER_INPUT_MS = 10_000;
@@ -61,11 +75,12 @@ export const openCodeAdapter: Adapter = {
   validateOptions(options) {
     if (options === undefined) return [];
     if (typeof options !== "object" || options === null || Array.isArray(options)) return ["opencode options must be an object"];
-    const known = ["reportFields", "extraInstructions"];
+    const known = ["reportFields", "extraInstructions", "localEndpoint"];
     const o = options as Record<string, unknown>;
     const problems = Object.keys(o).filter((key) => !known.includes(key)).map((key) => `opencode option "${key}" is not one of ${known.join(", ")}`);
     if (o.reportFields !== undefined && !(Array.isArray(o.reportFields) && o.reportFields.every(isOutputFieldName))) problems.push("`reportFields` must be an array of output field names");
     if (o.extraInstructions !== undefined && typeof o.extraInstructions !== "string") problems.push("`extraInstructions` must be a string");
+    if (o.localEndpoint !== undefined) problems.push(...localEndpointProblems(o.localEndpoint));
     return problems;
   },
 
@@ -90,10 +105,11 @@ export const openCodeAdapter: Adapter = {
 async function start({ workspace, requestedModel, capabilities, handoff, options, toolCallLog, transcript }: AttemptInput) {
   const chosen = (options ?? {}) as OpenCodeOptions;
   const reportFields = chosen.reportFields ?? [];
+  const localEndpoint = chosen.localEndpoint ?? null;
   const policy = policyOf(capabilities, workspace);
   const env: NodeJS.ProcessEnv = {
-    // The rules for this attempt, as inline config: a file in the worktree cannot weaken them.
-    OPENCODE_CONFIG_CONTENT: configContentOf(policy),
+    // The rules for this attempt, as inline config: a file in the worktree cannot weaken them. A local engine adds its provider.
+    OPENCODE_CONFIG_CONTENT: configContentOf(policy, localEndpoint),
     // The user's Claude Code skills and agent files are not this attempt's instructions (observed: 52 commands without, 17 with).
     OPENCODE_DISABLE_CLAUDE_CODE: "1",
     OPENCODE_DISABLE_EXTERNAL_SKILLS: "1",
@@ -131,6 +147,12 @@ async function start({ workspace, requestedModel, capabilities, handoff, options
       const session = await connection.request<{ sessionId?: unknown }>("session/new", { cwd: workspace, mcpServers: [] });
       if (typeof session?.sessionId !== "string") throw new Error("OpenCode did not name the session it created");
       sessionId = session.sessionId;
+      if (localEndpoint !== null && servedModelOf(localEndpoint, requestedModel) === null) {
+        // Only a model of the local engine may answer: another provider's, or OpenCode's default, would be measured as the engine's.
+        const listed = localEndpoint.models.map(localModelOf).join(", ");
+        turn.fail({ kind: "config_auth", message: `a step on the local engine ${localEndpoint.baseURL} must request one of its models (${listed}), not ${requestedModel === null ? "none" : `"${requestedModel}"`}` });
+        return;
+      }
       if (requestedModel) {
         try {
           await connection.request("session/set_config_option", { sessionId, configId: "model", value: requestedModel });

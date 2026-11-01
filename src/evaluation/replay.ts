@@ -187,7 +187,7 @@ export function applyEvaluationEvent(state: EvaluationView | undefined, event: E
       if (!isSameTrial(started, next)) throw new EvaluationLedgerInconsistentError(event, `the next trial scheduled is ${JSON.stringify(next)}, not ${JSON.stringify(started)}`);
       if (state.trials.some((candidate) => !candidate.ended)) throw new EvaluationLedgerInconsistentError(event, "a trial starts only once the one before it has ended");
       state.pending!.shift();
-      state.trials.push({ id: event.trialId, taskId: event.taskId, condition: event.condition, repeat: event.repeat, baseline: event.baseline, startedAtSeq: event.seq, startedAt: event.time, tools: event.tools ?? [], endedAt: null, repo: event.repo, incident: null, ended: null });
+      state.trials.push({ id: event.trialId, taskId: event.taskId, condition: event.condition, repeat: event.repeat, baseline: event.baseline, startedAtSeq: event.seq, startedAt: event.time, tools: (event.tools ?? []).map((record) => ({ ...record, engines: record.engines ?? [] })), endedAt: null, repo: event.repo, incident: null, ended: null });
       return state;
     }
     case "harness_incident": {

@@ -6,7 +6,7 @@ export type { BenchEngine, BenchFile, BenchPrompt, BenchSettings, HashedText, Wo
 export { checkEngine, type CheckEngineOptions, type EngineCheck } from "./check.ts";
 export { REQUEST_SETTINGS, streamChat } from "./client.ts";
 export type { ChatMeasurement, ChatMessage, ChatRequest, ReportedUsage, StreamChatOptions, StreamedToolCall } from "./client.ts";
-export { ENGINE_NAMES, ENGINES, isEngineId, VERSION_PATHS, type EngineId } from "./engines.ts";
+export { ENGINE_NAMES, ENGINES, isBaseURL, isEngineId, VERSION_PATHS, type EngineId } from "./engines.ts";
 export { SKIP_REASONS } from "./events.ts";
 export type { BenchEndState, BenchEvent, BenchEventBody, BenchEventType, EngineChecked, RequestRecord, ScheduledWorkload, SkipReason, WorkloadEnded } from "./events.ts";
 export { applyBenchEvent, BenchLedgerInconsistentError, replayBench } from "./replay.ts";
@@ -26,6 +26,8 @@ export {
   reportOf,
 } from "./report.ts";
 export type { BenchReference, BenchReport, EngineReport, PairComparison, Percentiles, ResourceReport, ScoreReport, Spread, ThroughputLevel, TimingReport } from "./report.ts";
+export { verifiedComparisonsOf, verifiedProblems, verifiedSuccessOf } from "./verified.ts";
+export type { ConditionSuccess, EvaluationReference, VerifiedComparison, VerifiedSuccess } from "./verified.ts";
 export { readBench, runBench, scheduleOf, writeBenchReport, type BenchResult, type RunBenchOptions, type ScheduleIds } from "./run.ts";
 export type { RequestScore, ScoreResult } from "./score.ts";
 export { loadToolCases, scoreToolCall, TOOL_OUTCOMES, validateToolCase } from "./tools.ts";

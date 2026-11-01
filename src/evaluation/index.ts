@@ -50,6 +50,7 @@ export {
   formatReport,
   MOCK_REPORT_NOTE,
   reportOf,
+  talliesOf,
   USAGE_COUNTS,
   type BaselineCell,
   type BaselineReport,
@@ -58,6 +59,7 @@ export {
   type EvaluationReport,
   type FailureOutcome,
   type InvalidCell,
+  type LocalEngineReport,
   type SpendReport,
   type ToolVersionReport,
   type TrialCondition,
@@ -65,5 +67,5 @@ export {
   type UsageSummary,
   type WallTime,
 } from "./report.ts";
-export { recordToolVersions, toolsUsedBy, versionNumberOf } from "./tools.ts";
+export { localTargetsOf, recordLocalEngines, recordToolVersions, toolsUsedBy, versionNumberOf, type LocalTarget } from "./tools.ts";
 export { readEvaluation, runEvaluation, SuiteInvalidError, type EvaluationResult, type RunEvaluationOptions } from "./run.ts";

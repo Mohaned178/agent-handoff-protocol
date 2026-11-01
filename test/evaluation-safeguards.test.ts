@@ -130,9 +130,9 @@ describe("tool versions", () => {
   it("records what each tool a workflow uses prints, against the pin", async () => {
     const env = await codexPrinting("codex-cli 0.146.0");
 
-    expect(await recordToolVersions(workflow, { codex: "0.146.0" }, env)).toEqual([{ tool: "codex", pinned: "0.146.0", found: "0.146.0", matches: true, problem: null }]);
-    expect(await recordToolVersions(workflow, { codex: "0.145.0" }, env)).toEqual([{ tool: "codex", pinned: "0.145.0", found: "0.146.0", matches: false, problem: null }]);
-    expect(await recordToolVersions(workflow, undefined, env)).toEqual([{ tool: "codex", pinned: null, found: "0.146.0", matches: null, problem: null }]);
+    expect(await recordToolVersions(workflow, { codex: "0.146.0" }, env)).toEqual([{ tool: "codex", pinned: "0.146.0", found: "0.146.0", matches: true, problem: null, engines: [] }]);
+    expect(await recordToolVersions(workflow, { codex: "0.145.0" }, env)).toEqual([{ tool: "codex", pinned: "0.145.0", found: "0.146.0", matches: false, problem: null, engines: [] }]);
+    expect(await recordToolVersions(workflow, undefined, env)).toEqual([{ tool: "codex", pinned: null, found: "0.146.0", matches: null, problem: null, engines: [] }]);
   });
 
   it("records a tool that cannot be run as not matching its pin, with the reason", async () => {
@@ -159,7 +159,7 @@ describe("tool versions", () => {
 
     const report = reportOf(state);
 
-    expect(report.tools).toEqual([{ tool: "codex", pinned: "0.146.0", found: [{ version: "0.146.0", trials: 1 }, { version: "0.147.0", trials: 1 }], mismatchedTrials: 1 }]);
+    expect(report.tools).toEqual([{ tool: "codex", pinned: "0.146.0", found: [{ version: "0.146.0", trials: 1 }, { version: "0.147.0", trials: 1 }], mismatchedTrials: 1, engines: [] }]);
     expect(formatReport(report)).toContain("Tool codex: 0.146.0 (1 trial), 0.147.0 (1 trial); PINNED 0.146.0, MISMATCH in 1 trial");
   });
 });

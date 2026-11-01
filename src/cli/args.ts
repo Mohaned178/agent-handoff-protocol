@@ -40,7 +40,7 @@ export function withOptionalValues(argv: readonly string[]): string[] {
 /** `--<step>`, `--<step>-model` and `--<step>-effort`: a step's tool, model and effort for one run, never saved. */
 export type StepFlags = Partial<Record<Role, { tool?: string; model?: string; effort?: string }>>;
 
-export function stepFlagsOf(values: Record<string, string | boolean | undefined>): StepFlags {
+export function stepFlagsOf(values: Record<string, string | string[] | boolean | undefined>): StepFlags {
   const flags: StepFlags = {};
   for (const role of ROLES) {
     const tool = role === "plan" ? values.plan || undefined : values[role];

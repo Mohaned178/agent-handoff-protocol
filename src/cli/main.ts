@@ -19,7 +19,7 @@ import {
   validateWorkflow,
 } from "../sdk/index.ts";
 import { assignRoles, diagnose, initWorkflow, publishRemoteOf, TOOLS, type DoctorReport, type RoleAssignment, type ToolId } from "../doctor/index.ts";
-import { API_KEY_NOTICE, formatReport, runEvaluation, SuiteInvalidError, TaskInvalidError, type EvaluationEvent, type EvaluationSuite, type EvaluationView } from "../evaluation/index.ts";
+import { API_KEY_NOTICE, formatReport, readEvaluation, runEvaluation, SuiteInvalidError, TaskInvalidError, type EvaluationEvent, type EvaluationSuite, type EvaluationView } from "../evaluation/index.ts";
 import { benchesRoot, demosRoot, evaluationsRoot, git, locateRepo, settingsPath, toolCallLogPath, transcriptPaths } from "../runtime/index.ts";
 import { checkStepFlags, COMMANDS, isTask, seedOf, stepFlagsOf, UsageError, withOptionalValues, type StepFlags } from "./args.ts";
 import { changesBetween, describeChanges, diffBetween, formatDiff } from "./diff.ts";
@@ -88,9 +88,10 @@ Commands:
   bench <bench-file>    Measure the local inference engines the bench file lists (Ollama, vLLM, SGLang,
                         TensorRT-LLM, started by you from bench/engines/): latency, throughput under
                         concurrency, GPU use, code quality and tool-call validity; --engine <id> runs one
-  bench report <bench-dir>...
+  bench report <bench-dir>... [--eval <eval-dir>]...
                         Combine the benches of several engines into one report; refuses benches made on
-                        another machine, or with other prompts or settings
+                        another machine, or with other prompts or settings. --eval puts each engine's
+                        verified success (ahp eval through OpenCode on it) beside its speed
   settings              Print the tool, model and effort you chose to keep for each step of a task, and
                         where they are kept; --clear removes them
   runs                  List this repository's runs, newest first, with what to do next for any that waits
@@ -285,6 +286,7 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
         out: { type: "string" },
         seed: { type: "string" },
         engine: { type: "string" },
+        eval: { type: "string", multiple: true },
         json: { type: "boolean" },
         policy: { type: "string" },
         reason: { type: "string" },
@@ -332,7 +334,7 @@ export async function main(argv: string[], given: Io = defaultIo): Promise<numbe
       throw new UsageError(`unknown command: ${command} (a task is one argument, in quotes: ahp "${positionals.join(" ")}")`);
     }
     // `bench report` takes any number of bench directories, so it is read before the one-target rule below.
-    if (command === "bench") return await benchCommand(positionals.slice(1), { engine: values.engine, out: values.out, seed: seedOf(values.seed), json: values.json ?? false }, io);
+    if (command === "bench") return await benchCommand(positionals.slice(1), { engine: values.engine, out: values.out, seed: seedOf(values.seed), json: values.json ?? false, evaluations: values.eval ?? [] }, io);
     const deciding = command === "approve" || command === "reject";
     // Only a decision takes a second argument, the gate's step ID.
     if (extra.length > 0 || (step !== undefined && !deciding)) throw new UsageError(`unexpected argument: ${extra[0] ?? step}`);
@@ -1055,6 +1057,8 @@ interface BenchCliOptions {
   out: string | undefined;
   seed: number | undefined;
   json: boolean;
+  /** `bench report --eval <dir>`: evaluations run through OpenCode on the engines, put beside them. */
+  evaluations: string[];
 }
 
 /**
@@ -1067,6 +1071,7 @@ async function benchCommand(args: string[], options: BenchCliOptions, io: Io): P
   if (first === undefined) throw new UsageError("bench needs a bench file, or `bench report <bench-dir>...`");
   if (first === "report") return await benchReportCommand(rest, options, io);
   if (rest.length > 0) throw new UsageError(`unexpected argument: ${rest[0]}`);
+  if (options.evaluations.length > 0) throw new UsageError("--eval puts evaluations beside benches already made: use it with `bench report <bench-dir>...`");
   const path = resolve(first);
   let file: unknown;
   try {
@@ -1112,9 +1117,14 @@ async function benchReportCommand(dirs: string[], options: BenchCliOptions, io: 
     if (!existsSync(join(resolve(dir), "ledger.jsonl"))) throw new UsageError(`not a bench directory (it has no ledger.jsonl): ${resolve(dir)}`);
     views.push(await readBench(dir));
   }
+  const evaluations: EvaluationView[] = [];
+  for (const dir of options.evaluations) {
+    if (!existsSync(join(resolve(dir), "ledger.jsonl"))) throw new UsageError(`not an evaluation directory (it has no ledger.jsonl): ${resolve(dir)}`);
+    evaluations.push(await readEvaluation(dir));
+  }
   let report;
   try {
-    report = reportOf(views, options.seed === undefined ? {} : { seed: options.seed });
+    report = reportOf(views, { ...(options.seed === undefined ? {} : { seed: options.seed }), evaluations });
   } catch (error) {
     if (error instanceof BenchesNotComparableError) throw new UsageError(error.message);
     throw error;

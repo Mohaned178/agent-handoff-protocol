@@ -49,8 +49,30 @@ OpenCode's errors are JSON-RPC errors with a code and the provider's text, and n
 | `model` | Requested model, as `provider/model`, one the session lists. Passed through as OpenCode's `model` config option. |
 | `reportFields` | Output fields to report beyond the ones the step requires. |
 | `extraInstructions` | Text added to the prompt after the step's instructions. |
+| `localEndpoint` | `{ engine, baseURL, models }`: a local OpenAI-compatible engine you started (see below). |
 
 There is deliberately no option for the permission rules or the config, so a step cannot weaken what its capabilities recorded.
+
+### On a local engine (`localEndpoint`)
+
+For the inference evaluation (ADR 0007), a step can run on a model served by a local engine (Ollama, vLLM, SGLang or
+TensorRT-LLM) that **you** started from `bench/engines/`; AHP never starts, downloads or serves a model.
+`opencode({ localEndpoint: { engine: "vllm", baseURL: "http://localhost:8001/v1", models: ["Qwen/Qwen2.5-Coder-7B-Instruct-AWQ"] } })`
+adds one provider to the attempt's inline config:
+
+```json
+{ "permission": { ... as the capabilities made it ... },
+  "provider": { "ahp-local": { "npm": "@ai-sdk/openai-compatible", "name": "vLLM (local, AHP)",
+    "options": { "baseURL": "http://localhost:8001/v1" }, "models": { "Qwen/Qwen2.5-Coder-7B-Instruct-AWQ": {} } } } }
+```
+
+and the step's model is `ahp-local/<id>` (the first of `models` unless you name another). The `permission` block is the
+same, byte for byte, as without the option (a test checks it). A step with a `localEndpoint` must request one of its models:
+with none, or another, the attempt fails as `config_auth` before any prompt, so OpenCode's default model never answers in
+the engine's place. `baseURL` ends exactly in `/v1`, as in a bench file. OpenCode loads `@ai-sdk/openai-compatible` itself
+the first time, which needs the network once. In an evaluation, each trial records the engine (name, URL, model, and the
+version the engine says it is, read by the bench's own check); a trial whose engine does not list the model when it starts
+is not scored (`setup_failed`) and starts no agent.
 
 ## Capabilities: what is applied, and what it is called
 

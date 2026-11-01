@@ -349,3 +349,10 @@ How a `quality` answer is judged: the first JavaScript code block is written bes
 
 **Bench report**:
 Computed from replayed bench ledgers, one bench or the benches of several engines on the same machine, prompts and settings (`ahp bench report`; otherwise refused). Percentiles are nearest-rank with their count; rates have their counts beside them; engine pairs are compared per prompt on pass rate and valid-call rate with `comparePaired`.
+
+**Local endpoint**:
+An inference engine as OpenCode's model provider in a step (`opencode({ localEndpoint: { engine, baseURL, models } })`): the provider `ahp-local` (`@ai-sdk/openai-compatible`) added to the attempt's inline config, the model `ahp-local/<id>`, the permission rules unchanged. Each evaluation trial records the engine (name, URL, model, version) beside the tool versions; a trial whose engine does not serve the model is not scored (`setup_failed`).
+_Avoid_: Local adapter, local provider (in prose)
+
+**Verified success beside speed**:
+`ahp bench report <bench-dir>... --eval <eval-dir>...`: each engine's verified success per condition (from an evaluation through OpenCode on it) beside what the bench measured of it, and engines compared task by task. One evaluation per engine, on the model the bench measured, with the same tasks; otherwise refused.
