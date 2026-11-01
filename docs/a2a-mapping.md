@@ -1,6 +1,6 @@
 # A2A mapping
 
-Which AHP shapes map to A2A, and which belong to an AHP extension profile. Written against **A2A v1.0.0, checked 2026-10-28** (the specification page and `a2a.proto`, package `lf.a2a.v1`) and **AHP protocol 0.1.0**. Ticket 17.
+Which AHP shapes map to A2A, and which belong to an AHP extension profile. Written against **A2A v1.0.0, checked 2026-10-28** (the specification page and `a2a.proto`, package `lf.a2a.v1`) and **AHP protocol 0.1.0**, brought up to 0.2.0 (inference-evaluation ticket 05: the context budget). Ticket 17.
 
 **This is a mapping, not an implementation.** No code emits A2A JSON, there is no AgentCard, no `A2A-Extensions` header, no wire binding and no peer transport (see the last section). Every JSON example here is *illustrative, not produced by code*. The ledger is the source of truth; an A2A shape is a view derived from it by replay. Where semantics differ, AHP's own schema wins over A2A's field names (design doc §9.2).
 
@@ -59,11 +59,11 @@ Not mapped at all: run states (`RunState`), attempt states (`AttemptState`, `Att
     { "text": "Implement the password-reset endpoint." },
     { "data": { "decisions": ["use the existing mailer"] }, "mediaType": "application/json" }
   ],
-  "extensions": ["https://github.com/Mohaned178/agent-handoff-protocol/extensions/ahp/0.1"],
+  "extensions": ["https://github.com/Mohaned178/agent-handoff-protocol/extensions/ahp/0.2"],
   "metadata": {
-    "https://github.com/Mohaned178/agent-handoff-protocol/extensions/ahp/0.1": {
+    "https://github.com/Mohaned178/agent-handoff-protocol/extensions/ahp/0.2": {
       "handoff": { "handoffId": "hnd_7k2m", "revision": 1, "supersedes": null, "from": { "stepId": "plan", "attemptId": "att_1" } },
-      "contract": { "acceptance": { "verificationCommand": "npm test", "requiredOutputFields": ["summary"] } },
+      "contract": { "acceptance": { "verificationCommand": "npm test", "requiredOutputFields": ["summary"], "contextBudget": null } },
       "capabilities": [{ "kind": "no_external_actions", "require": "none" }],
       "network": { "stance": "deny", "require": "none" }
     }
@@ -89,14 +89,14 @@ Only reasons the repository records are given; where none is recorded, that is s
 
 A2A extensions are identified by a URI (`AgentExtension.uri`), declared in the AgentCard's `capabilities.extensions`, requested by a client (the `A2A-Extensions` header or a Message's `extensions` list), and carry their data in the `metadata` of a Message, Task or Artifact keyed by that URI. An extension should put its version in the URI and mint a new URI for a breaking change; an agent must not silently fall back to an earlier version.
 
-**URI (proposed, decision 2 in the ticket): `https://github.com/Mohaned178/agent-handoff-protocol/extensions/ahp/0.1`.** It is an identifier under the repository the maintainer controls; it need not resolve. The version tracks the protocol's major.minor (`PROTOCOL_VERSION` is `0.1.0`); while the protocol is 0.x, a breaking change to the profile mints `…/0.2`.
+**URI (proposed, decision 2 in the ticket): `https://github.com/Mohaned178/agent-handoff-protocol/extensions/ahp/0.2`.** It is an identifier under the repository the maintainer controls; it need not resolve. The version tracks the protocol's major.minor (`PROTOCOL_VERSION` is `0.2.0`); while the protocol is 0.x, a breaking change to the profile mints the next minor (0.2.0 minted `…/0.2` from `…/0.1`: a new evidence kind and the context budget, which a 0.1 reader cannot read).
 
 **`required`.** The flag is per extension, not per field, so the profile is all-or-nothing. Recommended: `required: true`. A peer that dropped acceptance criteria or capability requests would change what a handoff means, and for an extension marked required that a client does not declare, A2A has the agent return an error (`ExtensionSupportRequiredError`) rather than carry on without it.
 
 | AHP-only semantics | Where it sits | Shape and source |
 |---|---|---|
 | **Handoff identity and supersession** | `Message.metadata[uri].handoff` | `handoffId`, `revision`, `supersedes`, `from`, `to` (`stepId`, `adapter`, `requestedModel`), `base.commit`: `HandoffRevisionSchema`. |
-| **Acceptance criteria** | `Message.metadata[uri].contract.acceptance` | `verificationCommand`, `requiredOutputFields`; also `requires` (fields and artifacts the recipient cannot start without). |
+| **Acceptance criteria** | `Message.metadata[uri].contract.acceptance` | `verificationCommand`, `requiredOutputFields`, `contextBudget` (bytes the handed-on fields may come to, or null); also `requires` (fields and artifacts the recipient cannot start without). |
 | **Artifact integrity** | `Artifact.metadata[uri]` (and `Message.metadata[uri].artifacts`) | `path`, `sha256` of committed content at `base.commit`. |
 | **Capability requests and enforcement levels** | `Message.metadata[uri].capabilities`, `.network`; applied levels in `Task.metadata[uri].applied` | A request has a `kind` (`read_only`, `write_scope`, `no_external_actions`), `require` and, for `write_scope`, `paths`. Applied: the level the adapter's declaration reaches on the run's OS, recorded before the agent starts (`AppliedCapabilities`). |
 | **Rejection reasons** | `Task.metadata[uri].rejection` | `schema_invalid`, `artifact_hash_mismatch`, `unmet_dependency`, `capability_unsatisfiable`, each with an RFC 6901 `pointer`. |
@@ -108,7 +108,7 @@ A2A extensions are identified by a URI (`AgentExtension.uri`), declared in the A
 | **External actions** | `Task.metadata[uri].externalAction` | `push_branch`, `open_pr`, `merge_pr`: intent, check, outcome. AHP alone performs them (ADR 0003). Not on the ticket's list, present in the code. |
 | **Provenance** | grouping, see below | Not a schema. |
 
-**Two evidence shapes, not one.** The ledger's `EvidenceItem` (what verification recorded) has `test_output`, `required_output_fields`, `diff_scope`, `review_verdict`, `protected_paths`, `forbidden_external_action_detected` and `validator_error`. The handoff's `evidence` (what a retry tells the agent) is a trimmed shape, `HandoffEvidenceSchema`: `test_output`, `required_output_fields`, `review_verdict`, `protected_paths`, `forbidden_external_action_detected`, plus `review_findings` and `approval_rejected`; it leaves out `diff_scope` and `validator_error`, withholds the output of hidden tests (`output: null`) and never lists the protected paths. A client that reads evidence from a Message must not assume it is the Task's verification evidence.
+**Two evidence shapes, not one.** The ledger's `EvidenceItem` (what verification recorded) has `test_output`, `required_output_fields`, `diff_scope`, `review_verdict`, `protected_paths`, `forbidden_external_action_detected`, `context_over_budget` and `validator_error`. The handoff's `evidence` (what a retry tells the agent) is a trimmed shape, `HandoffEvidenceSchema`: `test_output`, `required_output_fields`, `review_verdict`, `protected_paths`, `forbidden_external_action_detected`, `context_over_budget`, plus `review_findings` and `approval_rejected`; it leaves out `diff_scope` and `validator_error`, withholds the output of hidden tests (`output: null`) and never lists the protected paths. A client that reads evidence from a Message must not assume it is the Task's verification evidence.
 
 **Provenance has no field of that name.** It is a grouping of what is already recorded: who handed what to whom (`from`, `to.adapter`), the model requested and the model reported (`unknown` when the tool did not say, never filled in from the request), usage with the `source` the tool gave (null where not reported, never estimated), the snapshot commit of an attempt, the hash chain over the ledger (`prevHash`, `hash`) and the approver's user name. A mock adapter's values are flagged (`mock`) and are never evidence.
 
@@ -119,5 +119,5 @@ A2A extensions are identified by a URI (`AgentExtension.uri`), declared in the A
 ## 6. What release 1 does not have
 
 - **No wire binding and no peer transport.** AHP does not speak A2A over HTTP, gRPC or JSON-RPC, serves no AgentCard, sends or reads no `A2A-Extensions` header, and no code emits A2A JSON.
-- **The protocol stays 0.x** (`PROTOCOL_VERSION` is `0.1.0`). This document is the mapping that the version rule waits on; it does not say the other conditions (two real adapters having run workflows) are met, and the version is not changed here.
+- **The protocol stays 0.x** (`PROTOCOL_VERSION` is `0.2.0`). This document is the mapping that the version rule waits on; it does not say the other conditions (two real adapters having run workflows) are met, and the version is not changed here.
 - Exposing workflows northbound over A2A is later work (design doc §3).

@@ -77,6 +77,14 @@ export function isPresentOutputField(value: unknown): boolean {
   return false;
 }
 
+/**
+ * The size of handed-on context: the UTF-8 bytes of `fields` as JSON (`JSON.stringify`, no spacing). One measure for
+ * a step's context budget and for the handoff sizes an evaluation records, so the two can be compared.
+ */
+export function contextBytesOf(fields: Readonly<Record<string, OutputFieldValue>>): number {
+  return Buffer.byteLength(JSON.stringify(fields), "utf8");
+}
+
 const idPattern = (prefix: string) => new RegExp(`^${prefix}_[a-z0-9]+$`);
 
 const stepIdSchema = z.string().regex(STEP_ID);
@@ -136,7 +144,7 @@ export const NetworkRequestSchema = z
 /**
  * What a retry tells the coding agent about why the step's last attempt failed: the failing parts of its
  * verification, trimmed to what the agent may see (shared refs it changed among them: only AHP performs external
- * actions), the findings of the review that sent it back, or the reason a person rejected its result at an approval
+ * actions; and output fields over the step's context budget), the findings of the review that sent it back, or the reason a person rejected its result at an approval
  * gate. AHP extension: no A2A counterpart. A new kind is a protocol change.
  */
 export const HandoffEvidenceSchema = z
@@ -203,6 +211,11 @@ export const HandoffEvidenceSchema = z
         .describe("The shared repository's refs that changed while the attempt ran. Only AHP pushes, opens or merges."),
       truncated: z.boolean().describe("True when `changed` lists only the first of more."),
     }),
+    z.strictObject({
+      kind: z.literal("context_over_budget"),
+      bytes: z.int().min(0).describe("The UTF-8 bytes of the output fields the attempt would have handed on, as JSON (`contextBytesOf`)."),
+      maxBytes: z.int().min(1).describe("The step's context budget."),
+    }),
   ])
   .describe("One failing part of the verification of the attempt this revision follows.");
 
@@ -240,6 +253,13 @@ export const HandoffRevisionSchema = z
         acceptance: z.strictObject({
           verificationCommand: z.string().min(1).nullable(),
           requiredOutputFields: z.array(fieldNameSchema).describe("Fields the attempt must report to pass."),
+          contextBudget: z
+            .strictObject({ maxBytes: z.int().min(1) })
+            .nullable()
+            .describe(
+              "The most the required output fields may come to, in UTF-8 bytes of their JSON, since they are what the next step " +
+                "is handed; more fails verification. Null when the step has no budget.",
+            ),
         }),
       })
       .describe("The recipient step's contract. AHP extension: acceptance criteria."),

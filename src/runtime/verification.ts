@@ -1,8 +1,11 @@
 import { spawn } from "node:child_process";
 import { OWN_PROCESS_GROUP, terminateTree } from "../process/index.ts";
 import {
+  contextBytesOf,
   isPresentOutputField,
   reviewVerdictOf,
+  type ContextBudget,
+  type ContextOverBudgetEvidence,
   type EvidenceItem,
   type OutputFieldValue,
   type RequiredOutputFieldsEvidence,
@@ -104,6 +107,16 @@ export function checkReviewVerdict(reported: Readonly<Record<string, OutputField
 }
 
 /**
+ * Checks what an attempt would hand on against its step's context budget: the step's required output fields as
+ * reported (`handedOn`), measured by `contextBytesOf`. Null when the step has no budget or the fields fit.
+ */
+export function checkContextBudget(budget: ContextBudget | undefined, handedOn: Readonly<Record<string, OutputFieldValue>>): ContextOverBudgetEvidence | null {
+  if (budget === undefined) return null;
+  const bytes = contextBytesOf(handedOn);
+  return bytes > budget.maxBytes ? { kind: "context_over_budget", bytes, maxBytes: budget.maxBytes } : null;
+}
+
+/**
  * Exit codes by which the shell, or a validator that knows it is broken, says the command could not be run:
  * 126 (found but not executable) and 127 (not found). Together with a process that ended on a signal they are
  * the only evidence that the validator, not the attempt, is at fault. Any other non-zero exit is a failure. On
@@ -130,6 +143,8 @@ export function evidenceVerdict(item: EvidenceItem): Verdict {
       return item.violations.length === 0 ? "pass" : "fail";
     case "forbidden_external_action_detected":
       return item.changed.length === 0 ? "pass" : "fail";
+    case "context_over_budget":
+      return item.bytes > item.maxBytes ? "fail" : "pass";
   }
 }
 

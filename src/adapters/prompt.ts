@@ -23,6 +23,8 @@ function evidenceText(item: HandoffEvidence): string {
       return `You changed paths this step must not change:\n${item.violations.map((violation) => `- ${violation.path} (${violation.change})`).join("\n")}${item.truncated ? "\n- and more" : ""}`;
     case "forbidden_external_action_detected":
       return `You changed shared refs, which only AHP may do:\n${item.changed.map((ref) => `- ${ref.name}`).join("\n")}${item.truncated ? "\n- and more" : ""}`;
+    case "context_over_budget":
+      return `The fields you reported came to ${item.bytes} bytes as JSON, over this step's budget of ${item.maxBytes} bytes. Keep them within it this time.`;
   }
 }
 
@@ -63,13 +65,20 @@ export function promptFor(
   const limits = handoff.capabilities.map(limitText);
   if (limits.length > 0) sections.push(`## Limits on this step\n\n${limits.map((limit) => `- ${limit}`).join("\n")}`);
 
-  const fields = [...new Set([...handoff.contract.acceptance.requiredOutputFields, ...reportFields])];
+  const required = handoff.contract.acceptance.requiredOutputFields;
+  // `?? null`: a handoff issued under protocol 0.1.0 has no budget at all.
+  const budget = handoff.contract.acceptance.contextBudget ?? null;
+  const fields = [...new Set([...required, ...reportFields])];
   if (fields.length > 0) {
     sections.push(
       `## Report\n\nWhen you are done, report these fields ${reportHow}: ${fields.join(", ")}. ` +
         "Each is text, or a list of text items. Report what you actually did and found." +
         // A verdict is read as exactly one of these words, never interpreted (a smoke run's "approve: ..." was refused).
-        (fields.includes("verdict") ? ` \`verdict\` is exactly one of these words and nothing else: ${REVIEW_VERDICTS.join(", ")}; put your reasons in \`findings\`.` : ""),
+        (fields.includes("verdict") ? ` \`verdict\` is exactly one of these words and nothing else: ${REVIEW_VERDICTS.join(", ")}; put your reasons in \`findings\`.` : "") +
+        // Checked by verification, so said here for every step that has one, whatever its instructions say.
+        (budget
+          ? ` Together, ${required.join(", ")} must come to at most ${budget.maxBytes} bytes as JSON (UTF-8): they are all the next step is handed, and more fails this step.`
+          : ""),
     );
   }
   return `${sections.join("\n\n")}\n`;

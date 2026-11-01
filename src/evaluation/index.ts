@@ -56,6 +56,7 @@ export {
   type BaselineReport,
   type ConditionComparison,
   type ConditionReport,
+  type ContextReport,
   type EvaluationReport,
   type FailureOutcome,
   type InvalidCell,

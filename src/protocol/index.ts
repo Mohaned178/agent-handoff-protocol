@@ -247,6 +247,12 @@ export interface NetworkDefinition {
   require?: EnforcementLevel;
 }
 
+/** A byte budget on the context a step hands on (`StepDefinition.contextBudget`). */
+export interface ContextBudget {
+  /** A whole number of bytes, above 0. */
+  maxBytes: number;
+}
+
 export interface StepDefinition {
   id: string;
   agent: AgentRef;
@@ -274,6 +280,13 @@ export interface StepDefinition {
   recovery?: RecoveryPolicy;
   /** What the step is to do, in the words the coding agent receives it in; carried in the handoff's contract. */
   instructions?: string;
+  /**
+   * The most the step's required output fields (what the next step is handed) may come to, in UTF-8 bytes of their JSON
+   * (`contextBytesOf`). Carried in the handoff's contract, so the agent is told it; more fails verification
+   * (`context_over_budget`), retried as `verification_failed`. Needs required output fields (a review's `verdict` and
+   * `findings` count). Off by default.
+   */
+  contextBudget?: ContextBudget;
   /**
    * Repository-relative paths of files this step hands to the next one. The next step's handoff references them
    * with the SHA-256 of their committed content in this step's snapshot. A path that is not a file there makes
@@ -501,6 +514,18 @@ export interface ForbiddenExternalActionEvidence {
   truncated: boolean;
 }
 
+/**
+ * The output fields the attempt would hand on came to more than the step's context budget: a fail. Recorded only then
+ * (the kind names the failure, as `forbidden_external_action_detected` does); the command still runs, since the budget
+ * says nothing about the work.
+ */
+export interface ContextOverBudgetEvidence {
+  kind: "context_over_budget";
+  /** UTF-8 bytes of the step's required output fields as reported, as JSON (`contextBytesOf`). */
+  bytes: number;
+  maxBytes: number;
+}
+
 export type EvidenceItem =
   | TestOutputEvidence
   | RequiredOutputFieldsEvidence
@@ -508,6 +533,7 @@ export type EvidenceItem =
   | DiffScopeEvidence
   | ProtectedPathsEvidence
   | ForbiddenExternalActionEvidence
+  | ContextOverBudgetEvidence
   | ValidatorErrorEvidence;
 
 /**

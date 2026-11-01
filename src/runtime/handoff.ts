@@ -47,11 +47,7 @@ export interface BuildHandoffInput {
 export async function buildHandoff(input: BuildHandoffInput): Promise<HandoffRevision> {
   const { repo, runId, handoffId, step, sender, baseCommit } = input;
   const handedOnFields = sender ? requiredOutputFieldsOf(sender.step) : [];
-  const fields: Record<string, OutputFieldValue> = {};
-  for (const name of handedOnFields) {
-    const value = sender?.reportedOutput[name];
-    if (value !== undefined && isPresentOutputField(value)) fields[name] = value;
-  }
+  const fields = sender ? handedOnFieldsOf(sender.step, sender.reportedOutput) : {};
   const handedOnArtifacts = sender?.step.artifacts ?? [];
   const artifacts: ArtifactReference[] = [];
   for (const path of handedOnArtifacts) {
@@ -72,6 +68,7 @@ export async function buildHandoff(input: BuildHandoffInput): Promise<HandoffRev
       acceptance: {
         verificationCommand: step.verification.command ?? null,
         requiredOutputFields: requiredOutputFieldsOf(step),
+        contextBudget: step.contextBudget ? { maxBytes: step.contextBudget.maxBytes } : null,
       },
     },
     ...requestsOf(step),
@@ -80,6 +77,19 @@ export async function buildHandoff(input: BuildHandoffInput): Promise<HandoffRev
     evidence: [],
     requires: { fields: [...handedOnFields], artifacts: [...handedOnArtifacts] },
   };
+}
+
+/**
+ * What `step` hands on of an attempt's reported output: its required output fields that hold something, in the order
+ * the step lists them. The next handoff's context, and what the step's context budget is measured on.
+ */
+export function handedOnFieldsOf(step: StepDefinition, reportedOutput: Readonly<Record<string, OutputFieldValue>>): Record<string, OutputFieldValue> {
+  const fields: Record<string, OutputFieldValue> = {};
+  for (const name of requiredOutputFieldsOf(step)) {
+    const value = reportedOutput[name];
+    if (value !== undefined && isPresentOutputField(value)) fields[name] = value;
+  }
+  return fields;
 }
 
 /** How much of a command's output a retry shows the agent: the end, where failures are reported. */
@@ -120,6 +130,9 @@ export function retryEvidence(evidence: readonly EvidenceItem[], options: { hidd
       case "forbidden_external_action_detected":
         shown.push({ kind: "forbidden_external_action_detected", changed: item.changed.map((c) => ({ ...c })), truncated: item.truncated });
         break;
+      case "context_over_budget":
+        shown.push({ kind: "context_over_budget", bytes: item.bytes, maxBytes: item.maxBytes });
+        break;
       default:
         // The other kinds are never failing evidence.
         break;
@@ -138,6 +151,10 @@ export function reviseHandoff(
   change: { evidence: HandoffEvidence[]; to?: { adapter: string; requestedModel: string | null } },
 ): HandoffRevision {
   const next = structuredClone(previous);
+  // A run recorded by an older AHP and picked up by this one: its revisions are issued under the current protocol,
+  // which only added to the document (0.2.0: the context budget, none for a step defined before there was one).
+  next.schemaVersion = PROTOCOL_VERSION;
+  next.contract.acceptance.contextBudget ??= null;
   next.revision = previous.revision + 1;
   next.supersedes = previous.revision;
   next.evidence = change.evidence;

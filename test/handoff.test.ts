@@ -38,7 +38,7 @@ describe("handoffs between steps", () => {
       const [view] = s.handoffs;
       expect(view).toMatchObject({ revision: 1, supersedes: null, state: "accepted", rejection: null });
       expect(view?.handoff).toMatchObject({
-        schemaVersion: "0.1.0",
+        schemaVersion: "0.2.0",
         revision: 1,
         supersedes: null,
         contextId: runId,

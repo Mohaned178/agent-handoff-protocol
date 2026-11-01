@@ -139,7 +139,7 @@ describe("each task, scored by the validators on the mock adapter's reference ed
 });
 
 /** Every condition but the matched-budget baseline, whose trials are drawn in only as C3 trials are scored; in report order. */
-const TRIAL_CONDITIONS = ["C0", "C0V", "C1", "C2", "C3min", "C3"];
+const TRIAL_CONDITIONS: string[] = CONDITIONS.filter((condition) => condition !== "baseline");
 
 /** The conditions the pilot suites run, in report order. */
 const PILOT_CONDITIONS = ["C0", "C0V", "C1", "C3min", "C3"];

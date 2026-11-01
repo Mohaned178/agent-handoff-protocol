@@ -31,7 +31,8 @@ export class WorkflowValidationError extends Error {
 }
 
 const WORKFLOW_KEYS = ["name", "steps"];
-const STEP_KEYS = ["id", "agent", "verification", "artifacts", "instructions", "retry", "reroute", "recovery", "review", "capabilities", "network", "timeout"];
+const STEP_KEYS = ["id", "agent", "verification", "artifacts", "instructions", "retry", "reroute", "recovery", "review", "capabilities", "network", "timeout", "contextBudget"];
+const CONTEXT_BUDGET_KEYS = ["maxBytes"];
 const CAPABILITY_KEYS: Record<CapabilityKind, string[]> = {
   read_only: ["kind", "require"],
   write_scope: ["kind", "paths", "require"],
@@ -469,6 +470,21 @@ function validateStep(step: unknown, index: number, seen: Set<string>, positions
 
   if (step.instructions !== undefined && (typeof step.instructions !== "string" || step.instructions.trim() === "")) {
     problem("`instructions` must be a non-empty string");
+  }
+
+  if (step.contextBudget !== undefined) {
+    const budget = step.contextBudget;
+    if (!isRecord(budget)) {
+      problem("`contextBudget` must be an object `{ maxBytes }`");
+    } else {
+      for (const key of Object.keys(budget)) if (!CONTEXT_BUDGET_KEYS.includes(key)) problem(`unknown property \`contextBudget.${key}\``);
+      if (!Number.isSafeInteger(budget.maxBytes) || (budget.maxBytes as number) < 1) problem("`contextBudget.maxBytes` must be a whole number of bytes above 0");
+      // A review's verdict and findings are handed on as well; anything else with no required field hands on nothing.
+      const fields = isRecord(verification) && Array.isArray(verification.requiredOutputFields) ? verification.requiredOutputFields : [];
+      if (fields.length === 0 && step.review === undefined) {
+        problem("`contextBudget` limits the output fields a step hands on, and this step requires none");
+      }
+    }
   }
 
   if (step.artifacts !== undefined && !Array.isArray(step.artifacts)) {

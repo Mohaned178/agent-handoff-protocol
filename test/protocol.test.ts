@@ -39,16 +39,17 @@ describe("the published protocol schemas", () => {
     }
   });
 
-  it("describe a handoff revision at schema version 0.1.0 that real handoffs conform to", async () => {
+  it("describe a handoff revision at schema version 0.2.0 that real handoffs conform to", async () => {
     const schema = protocolJsonSchemas()["handoff-revision.schema.json"];
     const validate = new Ajv2020({ strict: true }).compile(schema!);
     const handoff = (await issuedHandoff()) as Record<string, unknown>;
 
     expect(schema).toMatchObject({ $schema: "https://json-schema.org/draft/2020-12/schema", additionalProperties: false });
     expect(validate(handoff), JSON.stringify(validate.errors)).toBe(true);
-    expect(handoff.schemaVersion).toBe("0.1.0");
+    expect(handoff.schemaVersion).toBe("0.2.0");
 
-    expect(validate({ ...handoff, schemaVersion: "0.2.0" })).toBe(false);
+    expect(validate({ ...handoff, schemaVersion: "0.1.0" })).toBe(false);
+    expect(validate({ ...handoff, schemaVersion: "0.3.0" })).toBe(false);
     expect(validate({ ...handoff, extra: true })).toBe(false);
     expect(validate({ ...handoff, artifacts: [{ path: "PLAN.md", sha256: "not-a-hash" }] })).toBe(false);
     expect(validate({ ...handoff, context: { fields: { "bad name": "x" } } })).toBe(false);

@@ -39,6 +39,7 @@ function whyFailed(evidence: readonly EvidenceItem[]): string {
     if (item.kind === "test_output" && item.exitCode !== 0) return failingLineOf(item.output);
     if (item.kind === "required_output_fields" && item.missing.length > 0) return `it did not report ${item.missing.join(", ")}`;
     if (item.kind === "review_verdict" && item.verdict === null) return `its verdict was not understood (${JSON.stringify(item.reported)})`;
+    if (item.kind === "context_over_budget") return `what it hands on came to ${item.bytes} bytes, over its budget of ${item.maxBytes}`;
   }
   return "its verification failed";
 }

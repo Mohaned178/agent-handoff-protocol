@@ -257,7 +257,7 @@ function handoffFor(commit: string, adapter: string, requestedModel: string | nu
     base: { commit },
     contract: {
       instructions: "Conformance suite attempt: do what the adapter's options say.",
-      acceptance: { verificationCommand: null, requiredOutputFields: [] },
+      acceptance: { verificationCommand: null, requiredOutputFields: [], contextBudget: null },
     },
     capabilities: applied.capabilities.map(({ level: _level, ...request }) => request),
     network: { stance: applied.network.stance, require: applied.network.require },

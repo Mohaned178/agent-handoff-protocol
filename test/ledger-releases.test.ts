@@ -45,8 +45,8 @@ describe("ledgers recorded by released versions", () => {
 
 describe("a ledger recorded under a newer protocol", () => {
   it("is refused with both versions named, never misread", () => {
-    const created = { type: "run_created", seq: 1, runId: "run_future", protocolVersion: "0.2.0" } as unknown as LedgerEvent;
-    expect(() => applyEvent(undefined, created)).toThrow(`run run_future was recorded under AHP protocol 0.2.0, which this AHP (protocol ${PROTOCOL_VERSION}) cannot read: install a newer AHP`);
+    const created = { type: "run_created", seq: 1, runId: "run_future", protocolVersion: "0.3.0" } as unknown as LedgerEvent;
+    expect(() => applyEvent(undefined, created)).toThrow(`run run_future was recorded under AHP protocol 0.3.0, which this AHP (protocol ${PROTOCOL_VERSION}) cannot read: install a newer AHP`);
   });
 
   it("is newer at a higher major or, under 1.0, a higher minor; a newer patch and any older version are read", () => {

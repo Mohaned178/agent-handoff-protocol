@@ -49,7 +49,11 @@ _Avoid_: Message, prompt, chat dump
 A new version of a handoff, issued when a step's input changes (evidence attached on retry, a send-back, or a reroute); the earlier revision becomes `superseded`.
 
 **Handoff context**:
-The previous step's required output fields, carried in a handoff so early decisions are not lost. It is not A2A's `contextId`, which identifies the run.
+The previous step's required output fields, carried in a handoff so early decisions are not lost. It is not A2A's `contextId`, which identifies the run. Its size is the UTF-8 bytes of its fields as JSON.
+
+**Context budget**:
+A step's `contextBudget: { maxBytes }`: the most its required output fields, which are the next handoff's context, may come to in UTF-8 bytes of their JSON. Carried in the handoff's contract, so the agent is told it, and checked by verification: more fails the attempt with `context_over_budget` evidence, retried as `verification_failed`. A protocol change of 0.2.0.
+_Avoid_: Token budget (bytes are counted, never tokens)
 _Avoid_: Chat history, memory
 
 **Sender**:
@@ -269,7 +273,7 @@ An evaluation task whose directory was hashed and recorded in the evaluation's l
 _Avoid_: Locked, pinned
 
 **Condition**:
-How the same task is worked: C0, one coding agent doing the whole task in one step with no retry budget (only a `transient` failure is retried, as in every condition); C1, the plain-text pipeline (plan, implement, review by the same agents as C3, each handing the next one field of free text, `output`; no acceptance check, no retry); C2, the pipeline with AHP's handoffs (C3's structured fields under a validated handoff, C3's capability requests and words) but no verification command, acceptance check or protected paths, no retry, and a review that sends nothing back; C3, full AHP (C2 plus the task's acceptance check as the implement step's verification, bounded retry and send-back); C0V, C0 with C3's acceptance check and retry budget (one agent with a verify-and-retry loop, the comparison a pipeline must beat); C3min, C3 without its plan step (implement → review). No condition's workflow holds the hidden tests: they score trials only. The matched-budget baseline is listed with them as `baseline`. A condition builds an ordinary workflow, which the run API runs; it has agent steps only, so no approval gate and no external action, and recovers every `unknown` attempt by abort.
+How the same task is worked: C0, one coding agent doing the whole task in one step with no retry budget (only a `transient` failure is retried, as in every condition); C1, the plain-text pipeline (plan, implement, review by the same agents as C3, each handing the next one field of free text, `output`; no acceptance check, no retry); C2, the pipeline with AHP's handoffs (C3's structured fields under a validated handoff, C3's capability requests and words) but no verification command, acceptance check or protected paths, no retry, and a review that sends nothing back; C3, full AHP (C2 plus the task's acceptance check as the implement step's verification, bounded retry and send-back); C0V, C0 with C3's acceptance check and retry budget (one agent with a verify-and-retry loop, the comparison a pipeline must beat); C3min, C3 without its plan step (implement → review); C3c, C3 with a context budget on every step. No condition's workflow holds the hidden tests: they score trials only. The matched-budget baseline is listed with them as `baseline`. A condition builds an ordinary workflow, which the run API runs; it has agent steps only, so no approval gate and no external action, and recovers every `unknown` attempt by abort.
 
 **Matched-budget baseline**:
 For each scored C3 trial, as many independent C0 trials as attempts that trial made, on the same task in the same repeat: one **cell**, which passes if any of its trials passes. A cell with a trial not scored or not run is incomplete and left out of the rate. It tells structure apart from trying more, and is a ceiling rather than a rival: no developer can pick the attempt that passed the hidden tests.
@@ -311,7 +315,7 @@ The hash-chained ledger of one `ahp eval` invocation, written by the same writer
 What an attempt's agent process was sent on stdin and what it printed on stdout, byte for byte, kept by the process layer in files beside the run's ledger. Stderr is not kept. It holds whatever the tool printed, so a secret an agent printed is in it.
 
 **Compressed handoff (`C3c`)**:
-C3 with a byte budget on the fields a step hands on. Verification checks the budget, and context over it is a failed verification (`context_over_budget`), retried like any other. Every trial records each handoff's context size, whatever its condition.
+C3 with a context budget (2,048 bytes) on every step. Verification checks the budget, and context over it is a failed verification (`context_over_budget`), retried like any other. Every trial records each handoff's context size, whatever its condition.
 _Avoid_: Summary (a summary is one field; compression is a checked size)
 
 **Reflection step (`C3r`)**:

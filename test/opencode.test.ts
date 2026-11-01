@@ -32,7 +32,7 @@ function handoffOf(applied: AppliedCapabilities, parts: { instructions?: string;
     from: null,
     to: { stepId: "review", adapter: "opencode", requestedModel: null },
     base: { commit: "a".repeat(40) },
-    contract: { instructions: parts.instructions ?? "Review the change.", acceptance: { verificationCommand: "node hidden-secret-test.mjs", requiredOutputFields: parts.requiredOutputFields ?? [] } },
+    contract: { instructions: parts.instructions ?? "Review the change.", acceptance: { verificationCommand: "node hidden-secret-test.mjs", requiredOutputFields: parts.requiredOutputFields ?? [], contextBudget: null } },
     capabilities: applied.capabilities.map(({ level: _level, ...request }) => request),
     network: { stance: applied.network.stance, require: applied.network.require },
     context: { fields: {} },

@@ -43,7 +43,16 @@ const PIPELINE = {
 };
 
 /** The conditions with an acceptance check and a retry budget: what C3 has that C0, C1 and C2 do not. */
-export const GATED_CONDITIONS: readonly ConditionId[] = ["C0V", "C3min", "C3"];
+export const GATED_CONDITIONS: readonly ConditionId[] = ["C0V", "C3min", "C3", "C3c"];
+
+/**
+ * C3c's context budget on every step, in UTF-8 bytes of the handed-on fields as JSON: about two pages of text, a quarter or
+ * less of what a plan of a pilot task runs to unchecked, so a step must compress what it hands on rather than restate all.
+ */
+export const C3C_CONTEXT_BUDGET = 2048;
+
+/** What C3c adds to each step's words: the budget, which verification also checks (the handoff's contract states it too). */
+const BUDGET_TEXT = `Keep what you report short: together your reported fields must come to at most ${C3C_CONTEXT_BUDGET} bytes as JSON, since they are all the next step is handed. Keep what it needs and leave out the rest.`;
 
 /** The retry budget of every step of `condition`: the suite's (default 2) for a gated condition, and none for any other. */
 export const retryBudgetOf = (condition: ConditionId, suite: EvaluationSuite): number =>
@@ -56,7 +65,7 @@ export const retryBudgetOf = (condition: ConditionId, suite: EvaluationSuite): n
  */
 function acceptanceOf(task: EvaluationTask, requiredOutputFields: string[]) {
   const { acceptance, install, protectedPaths } = task.verification;
-  if (acceptance === undefined) throw new Error("the task has no `verification.acceptance`, the check C0V, C3min and C3 run on an agent's result");
+  if (acceptance === undefined) throw new Error("the task has no `verification.acceptance`, the check C0V, C3min, C3 and C3c run on an agent's result");
   return { command: acceptance, ...(install !== undefined ? { install } : {}), protectedPaths, requiredOutputFields };
 }
 
@@ -72,6 +81,8 @@ function acceptanceOf(task: EvaluationTask, requiredOutputFields: string[]) {
  *   that sends `implement` back.
  * - C0V: C0 with C3's acceptance check and retry budget on its one step: a single agent with a verify-and-retry loop.
  * - C3min: C3 without its plan step: implement (told the task and its constraints) → review.
+ * - C3c: C3 with a context budget (`C3C_CONTEXT_BUDGET`) on every step, told to each in its words and checked by verification:
+ *   handed-on fields over it fail the step, which is retried with the bytes as evidence. Its words are C3's plus the budget.
  * Every pipeline step is told the same words in C1, C2, C3min and C3, and only the first is told the task and its constraints.
  */
 export function workflowFor(condition: ConditionId, task: EvaluationTask, suite: EvaluationSuite, slot: TrialSlot): WorkflowDefinition {
@@ -144,7 +155,8 @@ export function workflowFor(condition: ConditionId, task: EvaluationTask, suite:
     }
     case "C2":
     case "C3min":
-    case "C3": {
+    case "C3":
+    case "C3c": {
       const full = condition !== "C2";
       const retry = { budget: retryBudgetOf(condition, suite) };
       const reportKept = "Report your summary, your decisions, and every constraint you kept: restate each one.";
@@ -157,32 +169,34 @@ export function workflowFor(condition: ConditionId, task: EvaluationTask, suite:
         retry,
         ...common,
       });
-      return {
-        name: `${task.id}-${condition}`,
-        steps: [
-          ...(condition === "C3min" ? [] : [plan()]),
-          {
-            id: "implement",
-            agent: agent("implement"),
-            // With no plan step, the implementer is the first step: it is told the task and its constraints, as C0's agent is.
-            instructions: condition === "C3min" ? `${taskText(task)}\n\nDo the whole task in this workspace. ${reportKept}` : `${PIPELINE.implement} ${reportKept}`,
-            // In C3 and C3min the task's acceptance check is this step's; a failure sends it back with the evidence.
-            verification: full ? acceptanceOf(task, HANDED_ON) : { requiredOutputFields: HANDED_ON },
-            retry,
-            ...common,
-          },
-          {
-            id: "review",
-            agent: agent("review"),
-            instructions: `${PIPELINE.review} Report your verdict and your findings.`,
-            // C2's review reports the same fields, as an ordinary step: its verdict is not checked and sends nothing back.
-            ...(full ? { review: { sendBackTo: "implement" }, verification: {} } : { verification: { requiredOutputFields: [...REVIEW_OUTPUT_FIELDS] } }),
-            capabilities: [{ kind: "read_only" }],
-            retry,
-            ...common,
-          },
-        ],
-      };
+      const steps: StepDefinition[] = [
+        ...(condition === "C3min" ? [] : [plan()]),
+        {
+          id: "implement",
+          agent: agent("implement"),
+          // With no plan step, the implementer is the first step: it is told the task and its constraints, as C0's agent is.
+          instructions: condition === "C3min" ? `${taskText(task)}\n\nDo the whole task in this workspace. ${reportKept}` : `${PIPELINE.implement} ${reportKept}`,
+          // In C3 and C3min the task's acceptance check is this step's; a failure sends it back with the evidence.
+          verification: full ? acceptanceOf(task, HANDED_ON) : { requiredOutputFields: HANDED_ON },
+          retry,
+          ...common,
+        },
+        {
+          id: "review",
+          agent: agent("review"),
+          instructions: `${PIPELINE.review} Report your verdict and your findings.`,
+          // C2's review reports the same fields, as an ordinary step: its verdict is not checked and sends nothing back.
+          ...(full ? { review: { sendBackTo: "implement" }, verification: {} } : { verification: { requiredOutputFields: [...REVIEW_OUTPUT_FIELDS] } }),
+          capabilities: [{ kind: "read_only" }],
+          retry,
+          ...common,
+        },
+      ];
+      // C3c: C3's steps, each held to the budget and told it in its words (the handoff's contract states it as well).
+      const budgeted = condition === "C3c"
+        ? steps.map((step) => ({ ...step, instructions: `${step.instructions!} ${BUDGET_TEXT}`, contextBudget: { maxBytes: C3C_CONTEXT_BUDGET } }))
+        : steps;
+      return { name: `${task.id}-${condition}`, steps: budgeted };
     }
   }
 }

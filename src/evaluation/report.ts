@@ -30,6 +30,20 @@ export interface WallTime {
   meanMs: number | null;
 }
 
+/**
+ * The context a condition's steps handed on, over its scored trials that recorded their handoffs: each handoff with a sender
+ * at revision 1, so a context built from a step's result counts once, however many retries carried it again. Bytes are
+ * `contextBytesOf` of the handoff's `context.fields`.
+ */
+export interface ContextReport {
+  /** The scored trials that recorded their handoffs (a ledger from before they were recorded did not). */
+  trials: number;
+  handoffs: number;
+  /** Null with no handoff. */
+  medianBytes: number | null;
+  totalBytes: number;
+}
+
 /** Trials that did not end in a score, which no rate counts. */
 interface Exclusions {
   /** Trials ended by an `unknown` attempt: excluded from every count and reported apart (glossary: harness incident). */
@@ -121,6 +135,8 @@ export interface ConditionReport extends Exclusions {
   /** Lines of work over the scored trials whose work was counted (`TrialWork`). */
   work: { trials: number; result: number; duplicated: number; reverted: number };
   wallTime: WallTime;
+  /** What the steps handed on, over the scored trials. */
+  context: ContextReport;
   /** Over every trial that ended. */
   usage: UsageSummary[];
   /** Over every trial that ended, per adapter, from the tool-call logs that were kept (`ToolCallSummary`). */
@@ -185,7 +201,7 @@ export interface ConditionComparison extends PairedComparison {
 /**
  * The comparisons a report makes, `a` against `b`, when the evaluation ran both. First what a pipeline adds beyond one agent
  * with the same acceptance check and retry (C3min and C3 against C0V), what that check and retry add to one agent (C0V
- * against C0) and what the plan step adds (C3 against C3min); then full AHP against each other alternative, and each step of
+ * against C0) and what the plan step adds (C3 against C3min); what compressing the handoffs costs or gains (C3c against C3); then full AHP against each other alternative, and each step of
  * the ladder against the one below it (C2 against C1 is the envelope's effect, C3 against C2 the acceptance checks').
  */
 export const COMPARISONS: readonly (readonly [ConditionId, ConditionId])[] = [
@@ -193,6 +209,7 @@ export const COMPARISONS: readonly (readonly [ConditionId, ConditionId])[] = [
   ["C3", "C0V"],
   ["C0V", "C0"],
   ["C3", "C3min"],
+  ["C3c", "C3"],
   ["C3", "C0"],
   ["C3", "baseline"],
   ["C3", "C1"],
@@ -232,6 +249,19 @@ function wallTimeOf(times: readonly (number | null)[]): WallTime {
   const middle = Math.floor(measured.length / 2);
   const medianMs = measured.length % 2 === 1 ? measured[middle]! : (measured[middle - 1]! + measured[middle]!) / 2;
   return { measured: measured.length, medianMs, meanMs: measured.reduce((total, time) => total + time, 0) / measured.length };
+}
+
+function contextOf(trials: readonly TrialView[]): ContextReport {
+  // `?? null`: a ledger written before handoffs were recorded has none, which is no handoff of 0 bytes.
+  const recorded = trials.map((trial) => trial.ended?.handoffs ?? null).filter((handoffs) => handoffs !== null);
+  const bytes = recorded
+    .flat()
+    .filter((handoff) => handoff.fromStepId !== null && handoff.revision === 1)
+    .map((handoff) => handoff.bytes)
+    .sort((x, y) => x - y);
+  const middle = Math.floor(bytes.length / 2);
+  const medianBytes = bytes.length === 0 ? null : bytes.length % 2 === 1 ? bytes[middle]! : (bytes[middle - 1]! + bytes[middle]!) / 2;
+  return { trials: recorded.length, handoffs: bytes.length, medianBytes, totalBytes: bytes.reduce((total, size) => total + size, 0) };
 }
 
 function usageOf(trials: readonly TrialView[]): UsageSummary[] {
@@ -326,6 +356,7 @@ function conditionReportOf(view: EvaluationView, condition: TrialCondition, cons
     retriesPerSuccess: rateOf(retries, passes.length),
     work: { trials: counted.length, result: sum("result"), duplicated: sum("duplicated"), reverted: sum("reverted") },
     wallTime: wallTimeOf(scored.map((trial) => trial.ended!.wallTimeMs)),
+    context: contextOf(scored),
     usage: usageOf(ended),
     toolCalls: toolCallsSummaryOf(ended),
     ...exclusionsOf(ended, (view.pending ?? []).filter((trial) => trial.condition === condition).length),
@@ -474,6 +505,7 @@ const CONDITION_NAMES: Record<ConditionId, string> = {
   C2: "AHP handoffs, no acceptance checks or retry",
   C3min: "implement → review, with the acceptance check and retry",
   C3: "full AHP",
+  C3c: "full AHP with a context budget on every step",
   baseline: "matched-budget baseline: C0 as many times as C3 made attempts, a pass if any passed (a ceiling: no developer can pick a pass by the hidden tests)",
 };
 
@@ -574,6 +606,15 @@ export function formatReport(report: EvaluationReport): string {
       }
     }
     lines.push(wallTimeLine(condition.wallTime, "scored trials"));
+    const { context } = condition;
+    if (context.trials > 0) {
+      const over = `  context handed on, over ${plural(context.trials, "scored trial")}`;
+      lines.push(
+        context.medianBytes === null
+          ? `${over}: none: no step was handed another's result`
+          : `${over}: ${plural(context.handoffs, "handoff")}, median ${context.medianBytes} bytes, total ${context.totalBytes} bytes`,
+      );
+    }
     lines.push(...usageLines(condition.usage, USAGE_HEADING, "  "));
     for (const calls of condition.toolCalls) {
       lines.push(`  tool calls by ${calls.adapter}, from the logs of ${plural(calls.attempts, "attempt")} in ${plural(calls.trials, "trial")} that kept one (of ${plural(condition.trials, "trial")}): ${calls.total} (${calls.completed} completed, ${calls.failed} failed, ${calls.refused} refused)`);

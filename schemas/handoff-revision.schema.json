@@ -4,7 +4,7 @@
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "const": "0.1.0",
+      "const": "0.2.0",
       "description": "Version of this schema."
     },
     "handoffId": {
@@ -144,11 +144,34 @@
                 "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
               },
               "description": "Fields the attempt must report to pass."
+            },
+            "contextBudget": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "maxBytes": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "maxBytes"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The most the required output fields may come to, in UTF-8 bytes of their JSON, since they are what the next step is handed; more fails verification. Null when the step has no budget."
             }
           },
           "required": [
             "verificationCommand",
-            "requiredOutputFields"
+            "requiredOutputFields",
+            "contextBudget"
           ],
           "additionalProperties": false
         }
@@ -604,6 +627,33 @@
               "kind",
               "changed",
               "truncated"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "context_over_budget"
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "The UTF-8 bytes of the output fields the attempt would have handed on, as JSON (`contextBytesOf`)."
+              },
+              "maxBytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991,
+                "description": "The step's context budget."
+              }
+            },
+            "required": [
+              "kind",
+              "bytes",
+              "maxBytes"
             ],
             "additionalProperties": false
           }

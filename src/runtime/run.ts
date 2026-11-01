@@ -37,13 +37,14 @@ import { advanceCancelledExternalAction, advanceExternalAction } from "./externa
 import { classifyAttempt, decideAfterFailure, resolveRetryPolicy, verdictFailure, type FailureDecision } from "./failure.ts";
 import { git } from "./git.ts";
 import { introduceHiddenTests } from "./hidden-tests.ts";
-import { buildHandoff, retryEvidence, reviseHandoff, validateHandoffRevision } from "./handoff.ts";
+import { buildHandoff, handedOnFieldsOf, retryEvidence, reviseHandoff, validateHandoffRevision } from "./handoff.ts";
 import { ledgerPath, locateRepo, prepareWorktreeRoot, snapshotRef, toolCallLogPath, transcriptPaths, worktreePath, type RepoLocation } from "./paths.ts";
 import { githubCli, type PullRequestProvider } from "./pull-requests.ts";
 import { buildRecoveryReport, refChanges } from "./recovery.ts";
 import { sharedRefs } from "./refs.ts";
 import { bounded, changedPaths, checkProtectedPaths, diffScopeEvidence } from "./scope.ts";
 import {
+  checkContextBudget,
   checkRequiredOutputFields,
   checkReviewVerdict,
   installDependencies,
@@ -958,6 +959,8 @@ async function verifyAttempt(step: StepDefinition, index: number, attempt: Attem
   if (requiredFields.length > 0) evidence.push(checkRequiredOutputFields(requiredFields, attempt.reportedOutput));
   const reviewed = step.review ? checkReviewVerdict(attempt.reportedOutput) : null;
   if (reviewed) evidence.push(reviewed);
+  const overBudget = checkContextBudget(step.contextBudget, handedOnFieldsOf(step, attempt.reportedOutput));
+  if (overBudget) evidence.push(overBudget);
   const verdict = verdictOf(evidence);
   await record({ type: "verification_verdict", verificationId, verdict, evidence });
 }

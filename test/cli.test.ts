@@ -224,7 +224,7 @@ describe("ahp run and ahp inspect with handoffs", () => {
 
     expect(inspect.code).toBe(0);
     expect(inspect.stdout.match(/handoff hnd_[a-z0-9]+ revision 1: accepted/g)).toHaveLength(2);
-    expect(inspect.stdout).toContain('"schemaVersion": "0.1.0"');
+    expect(inspect.stdout).toContain('"schemaVersion": "0.2.0"');
     expect(inspect.stdout).toContain(`"contextId": "${runId}"`);
     expect(inspect.stdout).toContain('"instructions": "Plan the endpoint."');
     expect(inspect.stdout).toContain('"summary": "plan done"');

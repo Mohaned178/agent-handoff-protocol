@@ -1,5 +1,5 @@
 /** The protocol version; every schema carries it as `schemaVersion`. The protocol stays 0.x (design doc §3). */
-export const PROTOCOL_VERSION = "0.1.0";
+export const PROTOCOL_VERSION = "0.2.0";
 
 /**
  * Whether a run recorded under protocol `version` is newer than this AHP can read: a higher major, or, while the major

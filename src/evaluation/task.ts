@@ -44,7 +44,7 @@ export interface EvaluationTask {
     /**
      * The check a developer would have: run through the system shell on an agent's result, in a verification worktree with
      * no hidden tests in place (so over what the fixture holds, such as its visible tests), exit code 0 a pass. The
-     * conditions with an acceptance check (C0V, C3min, C3) need it; the hidden tests reach no agent and no workflow.
+     * conditions with an acceptance check (C0V, C3min, C3, C3c) need it; the hidden tests reach no agent and no workflow.
      */
     acceptance?: string;
     /** Repository-relative paths no trial may change; the hidden tests' paths are protected as well. */

@@ -187,6 +187,8 @@ function describeEvidence(item: EvidenceItem): string[] {
         ...item.changed.map((change) => `        | ${describeRefChange(change)}`),
         `        ${REF_CHANGE_NOTE}`,
       ];
+    case "context_over_budget":
+      return [`      evidence: context over budget: the fields it hands on came to ${item.bytes} bytes as JSON, over the step's ${item.maxBytes}`];
   }
 }
 

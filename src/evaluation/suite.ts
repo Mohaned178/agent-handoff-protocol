@@ -34,11 +34,11 @@ export interface EvaluationSuite {
   conditions?: ConditionId[];
   /**
    * The coding agent each role is cast as. `implement` is needed always, since C0 (and so C0V and the baseline) is that one
-   * agent alone; `plan` is needed when C1, C2 or C3 runs, and `review` when one of those or C3min does.
+   * agent alone; `plan` is needed when C1, C2, C3 or C3c runs, and `review` when one of those or C3min does.
    */
   agents: Partial<Record<EvaluationRole, AgentSource>>;
   /**
-   * The retry budget of each step of C0V, C3min and C3, shared by agent errors, failed verifications and review send-backs
+   * The retry budget of each step of C0V, C3min, C3 and C3c, shared by agent errors, failed verifications and review send-backs
    * (default 2). C0, C1 and C2 have none; their `transient` failures are retried as C3's are, since a rate limit is not something a
    * condition does.
    */
@@ -64,7 +64,7 @@ export interface EvaluationSuite {
 export const DEFAULT_RETRY_BUDGET = 2;
 
 /** The conditions that cast each role beside `implement`, which every condition casts: C3min has no plan step. */
-const CASTING: Record<Exclude<EvaluationRole, "implement">, readonly ConditionId[]> = { plan: ["C1", "C2", "C3"], review: ["C1", "C2", "C3min", "C3"] };
+const CASTING: Record<Exclude<EvaluationRole, "implement">, readonly ConditionId[]> = { plan: ["C1", "C2", "C3", "C3c"], review: ["C1", "C2", "C3min", "C3", "C3c"] };
 
 /** The roles `conditions` cast, in `EVALUATION_ROLES` order. */
 export const rolesFor = (conditions: readonly ConditionId[]): EvaluationRole[] =>

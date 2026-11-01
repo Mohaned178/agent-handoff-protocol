@@ -15,6 +15,7 @@ import { recordToolVersions } from "./tools.ts";
 import type { EvaluationSuite } from "./suite.ts";
 import type { LoadedTask } from "./task.ts";
 import { validateResult, type Validation } from "./validators.ts";
+import { handoffsOf } from "./handoffs.ts";
 import { toolCallsOf } from "./tool-calls.ts";
 import { workOf } from "./work.ts";
 
@@ -185,7 +186,9 @@ async function execute(ctx: TrialContext, loaded: LoadedTask, workflow: Workflow
   const attempts = attemptsOf(state);
   // A measure beside the score: a log that cannot be read leaves the count out and never changes how the trial ended.
   const toolCalls = await toolCallsOf(repo, runId, attempts).catch(() => null);
-  const endOf = (id: string, current: Progress, how: Parameters<typeof endTrial>[2]) => endTrial(id, current, { ...how, toolCalls });
+  // So is the size of each handoff, read from the run's ledger.
+  const handoffs = await handoffsOf(repo, runId).catch(() => null);
+  const endOf = (id: string, current: Progress, how: Parameters<typeof endTrial>[2]) => endTrial(id, current, { ...how, toolCalls, handoffs });
   const kept = (candidate: { commit: string } | null, validation: Validation | null) =>
     keepArtifacts({ ctx, place, runId, attempts, base, commit: candidate?.commit ?? null, validation });
 
@@ -236,7 +239,7 @@ async function resultOf(repo: string, runId: string, base: string): Promise<{ co
 }
 
 /** A `trial_ended` event from what the trial has shown so far and how it ended. */
-function endTrial(trialId: string, progress: Progress, how: Pick<TrialEndedBody, "outcome"> & Partial<Pick<TrialEndedBody, "unscored" | "score" | "result" | "work" | "toolCalls" | "artifacts">>): TrialEndedBody {
+function endTrial(trialId: string, progress: Progress, how: Pick<TrialEndedBody, "outcome"> & Partial<Pick<TrialEndedBody, "unscored" | "score" | "result" | "work" | "toolCalls" | "handoffs" | "artifacts">>): TrialEndedBody {
   const { state } = progress;
   const attempts = attemptsOf(state);
   const stepsAttempted = state?.steps.filter((step) => step.attempts.length > 0).length ?? 0;
@@ -253,6 +256,7 @@ function endTrial(trialId: string, progress: Progress, how: Pick<TrialEndedBody,
     usage: attempts.map((attempt) => ({ attemptId: attempt.id, adapter: attempt.adapter, reportedModel: attempt.reportedModel, usage: attempt.usage })),
     work: how.work ?? null,
     toolCalls: how.toolCalls ?? null,
+    handoffs: how.handoffs ?? null,
     unscored: how.unscored ?? null,
     result: how.result ?? null,
     score: how.score ?? null,

@@ -69,6 +69,7 @@ const CONDITION_NAMES: Record<ConditionId, string> = {
   C2: "C2  the same steps with structured handoffs, nothing checked",
   C3min: "C3min  implement → review, with the acceptance check, retry and send-back",
   C3: "C3  full AHP: validated handoffs, verification, retry, send-back",
+  C3c: "C3c  full AHP with a byte budget on what each step hands on",
   baseline: "baseline  one agent given as many attempts as C3 used (a ceiling)",
 };
 
