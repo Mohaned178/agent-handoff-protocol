@@ -26,6 +26,12 @@ describe("the published package", () => {
     expect(files).toContain("LICENSE");
   });
 
+  it("pins the terminal app's libraries exactly, and ships no test library", () => {
+    const dependencies = pkg.dependencies as Record<string, string>;
+    for (const name of ["ink", "react", "@types/react"]) expect(dependencies[name], name).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(dependencies["ink-testing-library"]).toBeUndefined();
+  });
+
   it("checks everything before a publish", () => {
     const scripts = pkg.scripts as Record<string, string>;
     expect(scripts.prepublishOnly).toBe("npm run typecheck && npm test && npm run build");

@@ -1,7 +1,8 @@
 # Spec: a new terminal app, from zero
 
-**Status:** draft (2026-10-31); decisions D1 to D10 wait for the maintainer ("go" adopts every recommendation); to be
-built after `.scratch/inference-evaluation/` (see "Build order")
+**Status:** agreed (2026-11-02): the maintainer said "go", adopting D1 to D10 as written. Built after
+`.scratch/inference-evaluation/` (see "Build order"): on 2026-11-02 local `main` was fast-forwarded to that branch's
+tickets 01 to 06, and ticket 00's spike (the maintainer's machine) and 07 stay open there
 
 Asked for by the maintainer on 2026-10-31:
 
