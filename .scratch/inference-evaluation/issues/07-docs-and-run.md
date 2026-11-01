@@ -35,3 +35,6 @@ Notes:
 2. `pilot/local/common.mjs` now lists C0, C0V, C3, C3c and C3r (maintainer: "complete it"), so the write-up can compare
    compression and reflection; 30 trials a repeat instead of 18. `test/pilot-local.test.ts` and `docs/pilot.md` follow.
 3. No engine was running on 2026-11-02 (ports 11434, 8001, 8002 empty), so no real run was started.
+4. 2026-11-02: real Ollama bench done (`bench/results/2026-11-02/ollama-report/report.json`); a partial write-up is in
+   `docs/results/inference-evaluation-2026-11-02.md`. The two boxes stay open: vLLM and SGLang were not measured, and the
+   Ollama evaluation was still running. The write-up says so.

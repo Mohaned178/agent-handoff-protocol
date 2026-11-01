@@ -289,7 +289,7 @@ AHP also measures whether its checks and handoffs help, and reports the answer w
 
 Trials are repeated in a seeded random order, and each one is scored by independent validators with hidden tests that no agent sees. **No result yet**: the [pilot suite](docs/pilot.md) is written but has not been run, so nothing here claims that handoffs beat a single agent. A negative result is a legitimate outcome. See [docs/evaluation.md](docs/evaluation.md).
 
-`ahp bench` compares local inference engines on one model, and `ahp eval` can run the pilot through OpenCode on each of them. **No result yet**: it needs a real run on a GPU. See [docs/inference-evaluation.md](docs/inference-evaluation.md).
+`ahp bench` compares local inference engines on one model, and `ahp eval` can run the pilot through OpenCode on each of them. **First partial result** (2026-11-02, Ollama only; vLLM and SGLang were not measured): see [docs/results/inference-evaluation-2026-11-02.md](docs/results/inference-evaluation-2026-11-02.md). Setup and how to read a report: [docs/inference-evaluation.md](docs/inference-evaluation.md).
 
 ## Versions and support
 

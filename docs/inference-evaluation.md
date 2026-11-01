@@ -8,7 +8,7 @@ AHP can compare local inference engines (Ollama, vLLM, SGLang, TensorRT-LLM) on 
 - **`ahp eval`** runs the pilot tasks through OpenCode backed by each engine (`pilot/local/<engine>.mjs`), so "task quality"
   means *verified success*: hidden tests that no agent sees, as in [docs/evaluation.md](evaluation.md).
 
-**No results exist yet.** Nothing in this repository claims that one engine is faster or better than another. The results
+**One partial result exists** ([2026-11-02](results/inference-evaluation-2026-11-02.md): Ollama only). Nothing in this repository claims that one engine is faster or better than another. The results
 write-up, `docs/results/inference-evaluation-<date>.md`, is written only from a real run on the maintainer's machine, and
 every number in it is copied from a named `report.json`. Output from a fake engine, a fake `nvidia-smi` or the mock adapter
 (which the tests use) is never evidence.
