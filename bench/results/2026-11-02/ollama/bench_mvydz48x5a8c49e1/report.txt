@@ -1,0 +1,41 @@
+bench report: local
+hardware: NVIDIA GeForce RTX 4060, 8188 MiB, driver 621.01; AMD Ryzen 5 5500 (12 cores); 15.9 GiB RAM; Windows
+prompts: fizzbuzz, flatten, group-by, lru-cache, merge-intervals, palindrome, parse-duration, roman; tool-call cases: create-issue, read-file, run-tests, search-code, weather
+settings: workloads latency, throughput, quality, tools; concurrency 1, 2, 4, 8; 3 repeats; max_tokens 512; warmup 2; timeout 120000 ms
+percentiles are p50 / p95 / p99, nearest-rank; with fewer than 100 values p99 is the slowest of them
+bench bench_mvydz48x5a8c49e1: completed, seed 20261101, engine ollama only
+
+Ollama (qwen2.5-coder:7b-instruct-q4_K_M, q4_K_M) 0.40.13
+  workloads: 21 of 21 ran to the end
+  latency (one request at a time; 24 ok of 24):
+    time to first token ms: 54.6 / 79.3 / 85.4 (n=24)
+    request latency ms:     2411 / 6289 / 6344 (n=24)
+    inter-chunk gap ms:     19.5 / 22.6 / 24.1 (n=4053)
+  throughput by concurrency:
+    c=1: 24 ok of 24 requests; requests/s 0.3 (0.3-0.3, 3 repeats); output tokens/s 49.0 (48.7-50.3, 3 repeats)
+        time to first token ms 53.2 / 63.4 / 64.2 (n=24); latency ms 2534 / 6425 / 6436 (n=24)
+    c=2: 24 ok of 24 requests; requests/s 0.3 (0.3-0.3, 3 repeats); output tokens/s 50.3 (50.3-50.5, 3 repeats)
+        time to first token ms 2361 / 6200 / 6458 (n=24); latency ms 7005 / 9157 / 10268 (n=24)
+    c=4: 48 ok of 48 requests; requests/s 0.3 (0.3-0.3, 3 repeats); output tokens/s 50.0 (48.1-50.1, 3 repeats)
+        time to first token ms 9482 / 14344 / 15582 (n=48); latency ms 13190 / 18318 / 19176 (n=48)
+    c=8: 96 ok of 96 requests; requests/s 0.3 (0.3-0.3, 3 repeats); output tokens/s 49.4 (49.4-49.8, 3 repeats)
+        time to first token ms 23478 / 26301 / 28538 (n=96); latency ms 27251 / 28901 / 30990 (n=96)
+  quality: pass 18/24 (75.0%); fail 6; 0 engine errors of 24 requests over 3 workloads
+    fizzbuzz: 3/3
+    flatten: 3/3
+    group-by: 0/3
+    lru-cache: 3/3
+    merge-intervals: 3/3
+    palindrome: 3/3
+    parse-duration: 0/3
+    roman: 3/3
+  tool calls: valid_call 0/15 (0.0%); no_call 15; 0 engine errors of 15 requests over 3 workloads
+    create-issue: 0/3
+    read-file: 0/3
+    run-tests: 0/3
+    search-code: 0/3
+    weather: 0/3
+  resources over 21 workloads; GPU memory before the first request 711 MiB:
+    GPU (nvidia-smi): utilization peak 98.0%, mean 94.0% (1677 samples); memory peak 6424 MiB, mean 6165 MiB (1677 samples); power n/a
+    whole machine (os): memory peak 8.8 GiB, mean 8.2 GiB (1667 samples); CPU peak 65.1%, mean 19.6% (1646 samples)
+    container: n/a (not a container: the bench file names none for this engine)
