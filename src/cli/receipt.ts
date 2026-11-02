@@ -1,10 +1,11 @@
-// The receipt at a run's end: what AHP's checks caught that an agent alone would not have said, read from the run's
-// state and nothing else. An agent's report is a claim, so the receipt says an agent "reported done", never that work
-// "was done"; and it says only what the ledger records: no "would have", no estimate of time or money saved.
+// The receipt at a run's end, as the old terminal layer prints it: rendered from `receiptOf` (`src/commands/receipt.ts`),
+// which reads the run's state and nothing else. The app's run screen renders the same data; this file goes in ticket 09.
 
-import { reviewVerdictOf, THIS_REPOSITORY, type AttemptView, type ChangedPath, type EvidenceItem, type RunView, type StepView } from "../protocol/index.ts";
-import { TOOLS } from "../doctor/index.ts";
+import type { RunView } from "../protocol/index.ts";
+import { failingLineOf, failureLineOf, nextStepOf, receiptOf, type Receipt, type ReceiptStep } from "../commands/receipt.ts";
 import { money, sourcesText, summarizeUsage, usageLines } from "../runtime/index.ts";
+
+export { failingLineOf, failureLineOf, nextStepOf };
 
 const RUN_USAGE_HEADING = "usage, as each tool reported it (per adapter, not summed across adapters; nothing is estimated):";
 
@@ -17,129 +18,52 @@ export function formatRunUsage(state: Readonly<RunView>, indent = ""): string | 
 const HEADING = "what the checks found (from the run's ledger: an agent's report is a claim, a check decides):";
 
 const times = (count: number) => (count === 1 ? "once" : `${count} times`);
-const changesOf = (changed: readonly ChangedPath[]) => changed.map(({ change, path }) => `${change} ${path}`).join(", ");
 
-/** The line of a failed check's output that says what failed: the first that looks like a failure, else the last. */
-export function failingLineOf(output: string): string {
-  const lines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  // A command that is not there says so first (cmd.exe over two lines: the first names it).
-  const missing = lines.find((line) => /not recognized as|command not found|not found|no such file/i.test(line));
-  return missing ?? lines.find((line) => /fail|error|assert|wrong|missing|expected|not ok|✗|×/i.test(line)) ?? lines.at(-1) ?? "(no output)";
-}
-
-/** Why an attempt's verification failed, in one line. */
-function whyFailed(evidence: readonly EvidenceItem[]): string {
-  for (const item of evidence) {
-    if (item.kind === "protected_paths" && item.violations.length > 0) return `refused: it changed a protected path (${changesOf(item.violations)}), so its check was not run`;
-    if (item.kind === "forbidden_external_action_detected") {
-      return `refused: a shared ref moved while it ran (${item.changed.map((change) => change.name).join(", ")}); only AHP may move one, so its check was not run (the agent, or someone working in this repository meanwhile, moved it)`;
-    }
-  }
-  for (const item of evidence) {
-    if (item.kind === "test_output" && item.exitCode !== 0) return failingLineOf(item.output);
-    if (item.kind === "required_output_fields" && item.missing.length > 0) return `it did not report ${item.missing.join(", ")}`;
-    if (item.kind === "review_verdict" && item.verdict === null) return `its verdict was not understood (${JSON.stringify(item.reported)})`;
-    if (item.kind === "context_over_budget") return `what it hands on came to ${item.bytes} bytes, over its budget of ${item.maxBytes}`;
-  }
-  return "its verification failed";
-}
-
-/** Why an attempt failed, in one line: the tool's error, or what its verification found; null when it did not fail. */
-export function failureLineOf(attempt: AttemptView): string | null {
-  if (attempt.error) {
-    const message = attempt.error.message.split(/\r?\n/)[0]!;
-    // A login or configuration problem is not retried: the fix is the person's, so it is named.
-    const tool = attempt.error.kind === "config_auth" ? TOOLS.find((candidate) => candidate.adapter === attempt.adapter) : undefined;
-    return tool ? `${message} · to log in: ${tool.logIn}` : message;
-  }
-  if (attempt.verification?.state === "fail") return whyFailed(attempt.verification.evidence);
-  return null;
-}
-
-/** The check command of a step: the last one its verifications ran, or null for a step that has none. */
-/** The check a step ran last, or the one its workflow gave it when none ran (the step ended before its check). */
-const commandOf = (step: StepView) => step.attempts.map((attempt) => attempt.verification?.command ?? null).filter((command) => command !== null).at(-1) ?? step.check ?? null;
-
-/** Whether a step's check ever ran: a step can fail before it does (a login, a usage limit, an agent error). */
-const checkRan = (step: StepView) => step.attempts.some((attempt) => attempt.verification?.command != null);
-
-function checkLines(step: StepView): string[] {
-  const command = commandOf(step);
+function checkLines(step: ReceiptStep): string[] {
   const lines: string[] = [];
-  if (command !== null && step.state === "succeeded") lines.push(`  ${step.id}: verified: \`${command}\` passed in a clean copy`);
-  if (command !== null && step.state === "failed") {
-    lines.push(checkRan(step) ? `  ${step.id}: not verified: \`${command}\` failed` : `  ${step.id}: not verified: the step ended (${step.failureClass ?? "failed"}) before \`${command}\` ran`);
-  }
-  const failed = step.attempts.filter((attempt) => attempt.verification?.state === "fail");
-  if (failed.length > 0) {
-    const passed = step.attempts.some((attempt) => attempt.verification?.state === "pass");
+  if (step.verdict === "verified") lines.push(`  ${step.stepId}: verified: \`${step.command}\` passed in a clean copy`);
+  if (step.verdict === "not_verified") lines.push(`  ${step.stepId}: not verified: \`${step.command}\` failed`);
+  if (step.verdict === "ended_before_check") lines.push(`  ${step.stepId}: not verified: the step ended (${step.failureClass ?? "failed"}) before \`${step.command}\` ran`);
+  if (step.reportedDone.length > 0) {
     lines.push(
-      passed
-        ? `  ${step.id}: the agent reported done ${times(failed.length)} before its check passed:`
-        : `  ${step.id}: the agent reported done ${times(failed.length)}; its check never passed:`,
-      ...failed.map((attempt) => `    attempt ${attempt.number}: ${whyFailed(attempt.verification!.evidence)}`),
+      step.passedAfter
+        ? `  ${step.stepId}: the agent reported done ${times(step.reportedDone.length)} before its check passed:`
+        : `  ${step.stepId}: the agent reported done ${times(step.reportedDone.length)}; its check never passed:`,
+      ...step.reportedDone.map(({ attempt, why }) => `    attempt ${attempt}: ${why}`),
     );
   }
   return lines;
 }
 
-/** What became of a revision a review sent back: what the review's next attempt concluded, if it ran. */
-function afterReview(review: StepView | undefined, sentBackBy: string): string {
-  const index = review?.attempts.findIndex((attempt) => attempt.id === sentBackBy) ?? -1;
-  const next: AttemptView | undefined = index < 0 ? undefined : review!.attempts.slice(index + 1).find((attempt) => attempt.state === "exited");
-  if (!next) return "the revision has not been reviewed again";
-  const verdict = next.verification?.state === "pass" ? reviewVerdictOf(next.reportedOutput) : null;
-  if (verdict === "approved") return "the next review approved the revision";
-  if (verdict === "changes_requested") return "the next review asked for changes again";
-  return "the next review did not reach a verdict";
-}
+const sendBackLines = (step: ReceiptStep): string[] =>
+  step.sendBacks.flatMap((sent) =>
+    sent.kind === "review"
+      ? [`  ${step.stepId}: sent back by ${sent.by} (attempt ${sent.attempt}):`, ...sent.findings.map((finding) => `    | ${finding}`), `    ${sent.after}`]
+      : [`  ${step.stepId}: rejected at ${sent.by} by ${sent.user} (attempt ${sent.attempt}):`, ...sent.reason.split(/\r?\n/).map((line) => `    | ${line}`), `    ${sent.after}`],
+  );
 
-/** What a gate's next decision on the revision a person rejected was. */
-function afterRejection(gate: StepView | undefined, decidedAt: string): string {
-  const next = gate?.approvals.find((approval) => approval.requestedAt > decidedAt)?.decision ?? null;
-  if (next === null) return "the revision has not been decided again";
-  return next.decision === "approved" ? "the revision was approved at the gate" : "the revision was rejected again";
-}
-
-function sendBackLines(step: StepView, state: Readonly<RunView>): string[] {
-  return step.attempts.flatMap((attempt) => {
-    const sent = attempt.sentBack;
-    if (sent === null) return [];
-    const by = state.steps.find((candidate) => candidate.id === (sent.kind === "review" ? sent.reviewStepId : sent.gateStepId));
-    return sent.kind === "review"
-      ? [`  ${step.id}: sent back by ${sent.reviewStepId} (attempt ${attempt.number}):`, ...sent.findings.map((finding) => `    | ${finding}`), `    ${afterReview(by, sent.reviewAttemptId)}`]
-      : [`  ${step.id}: rejected at ${sent.gateStepId} by ${sent.user} (attempt ${attempt.number}):`, ...sent.reason.split(/\r?\n/).map((line) => `    | ${line}`), `    ${afterRejection(by, sent.decidedAt)}`];
-  });
-}
-
-const rejectionLines = (step: StepView) =>
-  step.handoffs.flatMap((handoff) => (handoff.rejection ?? []).map((reason) => `  ${step.id}: refused: its handoff (revision ${handoff.revision}): ${reason.message}`));
+const rejectionLines = (step: ReceiptStep) => step.handoffRefusals.map(({ revision, message }) => `  ${step.stepId}: refused: its handoff (revision ${revision}): ${message}`);
 
 const count = (n: number, word: string) => `${n === 1 ? "one" : n} ${word}${n === 1 ? "" : "s"}`;
 const thousands = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k` : String(n));
 
 /** One step's check in a line: passed or failed, with how many attempts failed it first and what review sent back. */
-function briefCheck(step: StepView, state: Readonly<RunView>): string | null {
-  const command = commandOf(step);
-  if (command === null || (step.state !== "succeeded" && step.state !== "failed")) return null;
-  if (step.state === "failed" && !checkRan(step)) return `✗ ${step.id}: ended (${step.failureClass ?? "failed"}) before \`${command}\` ran`;
-  if (step.state === "failed") return `✗ ${step.id}: \`${command}\` failed on ${count(step.attempts.filter((attempt) => attempt.verification?.state === "fail").length, "attempt")}`;
-  const parts = [`✓ ${step.id}: \`${command}\` passed`];
-  const failed = step.attempts.filter((attempt) => attempt.verification?.state === "fail").length;
-  if (failed > 0) parts.push(`after ${count(failed, "failed attempt")}`);
-  const sent = step.attempts.filter((attempt) => attempt.sentBack !== null);
-  if (sent.length > 0) {
-    const last = sent.at(-1)!.sentBack!;
-    const by = state.steps.find((candidate) => candidate.id === (last.kind === "review" ? last.reviewStepId : last.gateStepId));
-    const after = last.kind === "review" ? afterReview(by, last.reviewAttemptId) : afterRejection(by, last.decidedAt);
-    parts.push(`sent back ${sent.length === 1 ? "once" : `${sent.length} times`}${after.includes("approved") ? ", approved after" : ""}`);
+function briefCheck(step: ReceiptStep): string | null {
+  if (step.verdict === null) return null;
+  if (step.verdict === "ended_before_check") return `✗ ${step.stepId}: ended (${step.failureClass ?? "failed"}) before \`${step.command}\` ran`;
+  if (step.verdict === "not_verified") return `✗ ${step.stepId}: \`${step.command}\` failed on ${count(step.reportedDone.length, "attempt")}`;
+  const parts = [`✓ ${step.stepId}: \`${step.command}\` passed`];
+  if (step.reportedDone.length > 0) parts.push(`after ${count(step.reportedDone.length, "failed attempt")}`);
+  if (step.sendBacks.length > 0) {
+    const n = step.sendBacks.length;
+    parts.push(`sent back ${n === 1 ? "once" : `${n} times`}${step.sendBacks.at(-1)!.approvedAfter ? ", approved after" : ""}`);
   }
   return parts.join(" · ");
 }
 
 /** What each tool reported using, one line per adapter: shortened numbers, and the source they came from. */
-function briefUsage(state: Readonly<RunView>): string[] {
-  return summarizeUsage(state.steps.flatMap((step) => step.attempts)).map((summary) => {
+function briefUsage(receipt: Receipt): string[] {
+  return receipt.usage.map((summary) => {
     if (summary.reported === 0) return `usage: ${summary.adapter} reported none`;
     const counts = [
       ...(summary.counts.inputTokens.attempts > 0 ? [`${thousands(summary.counts.inputTokens.sum)} in`] : []),
@@ -156,50 +80,27 @@ function briefUsage(state: Readonly<RunView>): string[] {
  * tool. The full receipt, with every failing line and finding, is `ahp inspect`'s.
  */
 export function formatBriefReceipt(state: Readonly<RunView>): string[] {
-  const agentSteps = state.steps.filter((step) => step.kind === "agent" || step.kind === "review");
+  const receipt = receiptOf(state);
   const lines: string[] = [];
-  if (!agentSteps.some((step) => commandOf(step) !== null)) lines.push("! not verified: no check command");
-  for (const step of agentSteps) {
-    const check = briefCheck(step, state);
+  if (!receipt.checked) lines.push("! not verified: no check command");
+  for (const step of receipt.steps) {
+    const check = briefCheck(step);
     if (check) lines.push(check);
-    for (const attempt of step.attempts) {
-      const why = attempt.verification?.state === "fail" ? whyFailed(attempt.verification.evidence) : "";
-      if (why.startsWith("refused: it ")) lines.push(`! ${step.id}: attempt ${attempt.number} ${why.slice("refused: it ".length)}`);
-      else if (why.startsWith("refused: ")) lines.push(`! ${step.id}: attempt ${attempt.number}: ${why.slice("refused: ".length)}`);
+    for (const { attempt, why, refused } of step.reportedDone) {
+      if (!refused) continue;
+      lines.push(why.startsWith("refused: it ") ? `! ${step.stepId}: attempt ${attempt} ${why.slice("refused: it ".length)}` : `! ${step.stepId}: attempt ${attempt}: ${why.slice("refused: ".length)}`);
     }
     for (const line of rejectionLines(step)) lines.push(`! ${line.trim()}`);
   }
-  return [...lines, ...briefUsage(state)];
-}
-
-/** The one command to run next for a run in `state`, or null when there is nothing to do or it was said already. */
-export function nextStepOf(state: Readonly<RunView>): string | null {
-  switch (state.state) {
-    case "succeeded": {
-      const push = state.steps.map((step) => step.action?.target).filter((target) => target?.kind === "push_branch").at(-1);
-      if (!push) return null;
-      return push.remote === THIS_REPOSITORY ? `git merge ${push.branch}` : `open a pull request from ${push.branch} on ${push.remote}`;
-    }
-    case "failed":
-      return `ahp inspect ${state.runId} shows every attempt and its evidence`;
-    case "needs_recovery": {
-      const awaiting = state.steps.flatMap((step) => step.attempts).filter((attempt) => attempt.recovery?.awaited && attempt.recovery.decision === null);
-      return awaiting.length > 0 ? awaiting.map((attempt) => `ahp recover ${attempt.id} --policy adopt|abort`).join("; ") : `ahp recover ${state.runId}`;
-    }
-    case "pending":
-    case "running":
-      return `ahp recover ${state.runId} resumes it`;
-    default:
-      return null;
-  }
+  return [...lines, ...briefUsage(receipt)];
 }
 
 /** The receipt of a run in `state`: the checks, what agents reported before them, what review sent back, what was refused, and usage. */
 export function formatReceipt(state: Readonly<RunView>): string {
-  const agentSteps = state.steps.filter((step) => step.kind === "agent" || step.kind === "review");
+  const receipt = receiptOf(state);
   const lines = [HEADING];
-  if (!agentSteps.some((step) => commandOf(step) !== null)) lines.push("  not verified: no check command");
-  for (const step of agentSteps) lines.push(...checkLines(step), ...sendBackLines(step, state), ...rejectionLines(step));
+  if (!receipt.checked) lines.push("  not verified: no check command");
+  for (const step of receipt.steps) lines.push(...checkLines(step), ...sendBackLines(step), ...rejectionLines(step));
   const usage = formatRunUsage(state);
   if (usage) lines.push(usage);
   return lines.join("\n");

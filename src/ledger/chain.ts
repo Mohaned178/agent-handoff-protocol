@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { open, readFile } from "node:fs/promises";
 import type { LedgerEventBody } from "../protocol/index.ts";
 import { whileBusy } from "./busy.ts";
 
@@ -73,7 +73,58 @@ export class LedgerCorruptError extends Error {
  * previous event's hash, and its own hash. Reading stops at the first event that does not check out.
  */
 export async function readLedger<B extends EventBody = LedgerEventBody>(path: string): Promise<LedgerRead<B>> {
-  const bytes = await whileBusy(() => readFile(path));
+  return parseLedger<B>(await whileBusy(() => readFile(path)), undefined, 1);
+}
+
+/** How far a ledger has been read: the bytes its checked events take up, and the last of them. */
+export interface LedgerCursor<B extends EventBody = LedgerEventBody> {
+  offset: number;
+  /** The last event read; undefined before the first. */
+  last: ChainedEvent<B> | undefined;
+  /** How many events were read. */
+  events: number;
+}
+
+/** A run ledger's cursor before anything was read; `ledgerStart()` for a ledger of other events. */
+export const LEDGER_START: LedgerCursor = { offset: 0, last: undefined, events: 0 };
+export const ledgerStart = <B extends EventBody>(): LedgerCursor<B> => ({ offset: 0, last: undefined, events: 0 });
+
+/**
+ * Reads what a ledger gained since `cursor`, checking each new event against the one before it as `readLedger` does (so
+ * a reader that follows a growing ledger reads each byte once). `validBytes` counts from the cursor's offset, and a torn
+ * tail is left out to be read again once its write finishes. Null when the file is shorter than the cursor: it was not
+ * appended to, so the caller reads it again from the start.
+ */
+export async function readLedgerFrom<B extends EventBody = LedgerEventBody>(path: string, cursor: LedgerCursor<B>): Promise<LedgerRead<B> | null> {
+  const bytes = await whileBusy(async () => {
+    const handle = await open(path, "r");
+    try {
+      const { size } = await handle.stat();
+      if (size < cursor.offset) return null;
+      const buffer = Buffer.alloc(size - cursor.offset);
+      let read = 0;
+      while (read < buffer.length) {
+        const { bytesRead } = await handle.read(buffer, read, buffer.length - read, cursor.offset + read);
+        if (bytesRead === 0) break;
+        read += bytesRead;
+      }
+      return buffer.subarray(0, read);
+    } finally {
+      await handle.close();
+    }
+  });
+  return bytes === null ? null : parseLedger<B>(bytes, cursor.last, cursor.events + 1);
+}
+
+/** The cursor after `read`, which was read from `cursor`. */
+export const advanceCursor = <B extends EventBody>(cursor: LedgerCursor<B>, read: LedgerRead<B>): LedgerCursor<B> => ({
+  offset: cursor.offset + read.validBytes,
+  last: read.events.at(-1) ?? cursor.last,
+  events: cursor.events + read.events.length,
+});
+
+/** The events of `bytes`, the first of which follows `previous` and is on line `firstLine` of the file. */
+function parseLedger<B extends EventBody>(bytes: Buffer, previous: ChainedEvent<EventBody> | undefined, firstLine: number): LedgerRead<B> {
   const events: ChainedEvent<B>[] = [];
   let offset = 0;
   const result = (found: Partial<LedgerRead<B>>): LedgerRead<B> => ({
@@ -84,7 +135,7 @@ export async function readLedger<B extends EventBody = LedgerEventBody>(path: st
     ...found,
   });
   while (offset < bytes.length) {
-    const line = events.length + 1;
+    const line = firstLine + events.length;
     const newline = bytes.indexOf(0x0a, offset);
     // Each event is written with its newline in one write, so a line without one is a write that did not finish.
     if (newline === -1) return result({ tornTail: { bytes: bytes.length - offset } });
@@ -95,7 +146,7 @@ export async function readLedger<B extends EventBody = LedgerEventBody>(path: st
       if (newline === bytes.length - 1) return result({ tornTail: { bytes: bytes.length - offset } });
       return result({ corruption: { line, kind: "unreadable", message: `line ${line} is not valid JSON` } });
     }
-    const corruption = checkEvent(parsed, line, events.at(-1));
+    const corruption = checkEvent(parsed, line, events.at(-1) ?? previous);
     if (corruption) return result({ corruption });
     events.push(parsed as ChainedEvent<B>);
     offset = newline + 1;

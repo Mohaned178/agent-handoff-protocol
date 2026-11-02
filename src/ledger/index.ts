@@ -1,4 +1,16 @@
-export { LedgerCorruptError, readCheckedLedger, readLedger, type ChainedEvent, type EventBody, type LedgerCorruption, type LedgerRead } from "./chain.ts";
+export {
+  advanceCursor,
+  LEDGER_START,
+  LedgerCorruptError,
+  readCheckedLedger,
+  readLedger,
+  readLedgerFrom,
+  type ChainedEvent,
+  type EventBody,
+  type LedgerCorruption,
+  type LedgerCursor,
+  type LedgerRead,
+} from "./chain.ts";
 export {
   clearStaleLock,
   LedgerLockedError,

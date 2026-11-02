@@ -6,6 +6,8 @@ import type { Screen } from "./router.ts";
 
 export interface Nav {
   open: (screen: Screen) => void;
+  /** Opens the run screen on a run. */
+  openRun: (runId: string) => void;
   back: () => void;
   quit: () => void;
 }

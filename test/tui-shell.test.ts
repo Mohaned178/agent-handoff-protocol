@@ -250,7 +250,7 @@ describe("the prompt", () => {
 
 describe("the footer", () => {
   const nothing = () => {};
-  const nav = { open: nothing, back: nothing, quit: nothing };
+  const nav = { open: nothing, openRun: nothing, back: nothing, quit: nothing };
   const shown = (frame: string) => footerOf(frame);
   const expected = (value: string) =>
     footerKeys(homeKeys({ prompt: { ...emptyPrompt(), value, cursor: value.length }, menu: value.startsWith("/") ? [] : null, selected: 0, edit: nothing, select: nothing, runCommand: nothing, submit: nothing, nav }))

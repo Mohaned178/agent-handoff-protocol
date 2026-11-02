@@ -108,7 +108,7 @@ export function homeKeys(context: HomeKeyContext): KeyBinding[] {
 /** Every key home has, in any state, once each: what the help screen lists. Read from `homeKeys` itself. */
 export function allHomeKeys(): KeyBinding[] {
   const nothing = () => {};
-  const nav: Nav = { open: nothing, back: nothing, quit: nothing };
+  const nav: Nav = { open: nothing, openRun: nothing, back: nothing, quit: nothing };
   const context = (value: string, history: string[]): HomeKeyContext => {
     const query = commandQuery(value);
     return { prompt: { ...emptyPrompt(history), value, cursor: value.length }, menu: query === null ? null : filterByName(COMMANDS, (command) => command.name, query), selected: 0, edit: nothing, select: nothing, runCommand: nothing, submit: nothing, nav };

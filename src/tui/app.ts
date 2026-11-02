@@ -12,6 +12,7 @@ import { currentScreen, route, startAt, type Screen } from "./router.ts";
 import { Help } from "./screens/help.ts";
 import { Home, homeSources, type HomeSources } from "./screens/home.ts";
 import { Placeholder } from "./screens/placeholder.ts";
+import { RunScreen, type RunSources } from "./screens/run.ts";
 import { ThemeContext, useTheme, type Theme } from "./theme.ts";
 
 export interface AppProps {
@@ -20,7 +21,11 @@ export interface AppProps {
   theme: Theme;
   /** Where home reads from; default the real repository, runs and tools around `cwd`. */
   sources?: HomeSources;
+  /** Where the run screen reads from; default the repository around `cwd`, the system clock and this process. */
+  runSources?: RunSources;
   start?: Screen;
+  /** The run the run screen opens on, when the app starts there. */
+  runId?: string;
 }
 
 function TooSmall({ layout, quit }: { layout: Layout; quit: () => void }) {
@@ -30,15 +35,21 @@ function TooSmall({ layout, quit }: { layout: Layout; quit: () => void }) {
   return h(Canvas, { layout }, h(Box, { paddingX: 1, paddingY: 1 }, h(Text, { color: theme.color("warn"), wrap: "wrap" }, TOO_SMALL)));
 }
 
-function Screens({ cwd, sources, start }: Omit<AppProps, "theme">) {
+function Screens({ cwd, sources, runSources, start, runId: startRun }: Omit<AppProps, "theme">) {
   const { exit } = useApp();
   const { columns, rows } = useWindowSize();
   const layout = layoutOf(columns, rows);
   const [router, setRouter] = useState(() => startAt(start));
+  const [runId, setRunId] = useState<string | null>(startRun ?? null);
   const homeFrom = useMemo(() => sources ?? homeSources(cwd), [sources, cwd]);
+  const runFrom = useMemo(() => runSources ?? { repo: cwd, now: () => Date.now(), pid: process.pid }, [runSources, cwd]);
   const nav: Nav = useMemo(
     () => ({
       open: (screen) => setRouter((state) => route(state, { type: "open", screen })),
+      openRun: (id) => {
+        setRunId(id);
+        setRouter((state) => route(state, { type: "open", screen: "run" }));
+      },
       back: () => setRouter((state) => route(state, { type: "back" })),
       quit: () => exit(),
     }),
@@ -46,13 +57,15 @@ function Screens({ cwd, sources, start }: Omit<AppProps, "theme">) {
   );
   const screen = currentScreen(router);
   const shown = (name: Screen) => layout.fits && screen === name;
+  const placeholder = screen !== "home" && screen !== "help" && !(screen === "run" && runId !== null);
   return h(
     Box,
     { flexDirection: "column" },
     layout.fits ? null : h(TooSmall, { layout, quit: nav.quit }),
     h(Box, { display: shown("home") ? "flex" : "none" }, h(Home, { layout, sources: homeFrom, nav, active: shown("home") })),
     screen === "help" ? h(Box, { display: shown("help") ? "flex" : "none" }, h(Help, { layout, nav, active: shown("help") })) : null,
-    screen !== "home" && screen !== "help" ? h(Box, { display: layout.fits ? "flex" : "none" }, h(Placeholder, { layout, nav, screen, active: layout.fits })) : null,
+    screen === "run" && runId !== null ? h(Box, { display: shown("run") ? "flex" : "none" }, h(RunScreen, { key: runId, layout, sources: runFrom, runId, nav, active: shown("run") })) : null,
+    placeholder ? h(Box, { display: layout.fits ? "flex" : "none" }, h(Placeholder, { layout, nav, screen, active: layout.fits })) : null,
   );
 }
 
