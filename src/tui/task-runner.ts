@@ -4,8 +4,18 @@
 // is starting (no ID until its first event is written), that this process is cancelling it, and why `runWorkflow` threw.
 
 import type { Clock } from "../runtime/clock.ts";
-import type { RunState, WorkflowDefinition } from "../protocol/index.ts";
-import { runWorkflow } from "../sdk/index.ts";
+import type { RunState, RunView, WorkflowDefinition } from "../protocol/index.ts";
+import { approveStep, recoverAttempt, rejectStep, resumeRun, runWorkflow } from "../sdk/index.ts";
+import type { DecisionRequest } from "../commands/decision.ts";
+
+export interface DecideSpec {
+  repo: string;
+  runId: string;
+  /** The workflow's name. */
+  name: string;
+  mock: boolean;
+  request: DecisionRequest;
+}
 
 export interface RunSpec {
   workflow: WorkflowDefinition;
@@ -93,6 +103,49 @@ export class TaskRunner {
     }).then(
       (result) => {
         this.set({ ...this.active!, runId: result.runId, phase: "ended", outcome: result.state.state });
+      },
+      (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.set({ ...this.active!, phase: "ended", error: message.split("\n")[0]! });
+      },
+    );
+  }
+
+  /**
+   * Takes a run that waits for a person on from where it stopped: approves or rejects its gate, decides an unknown
+   * attempt, or resumes a run whose process stopped. It goes on in this process under the same `signal` as a run started
+   * here, until it ends or stops for a person again; returns at once. A refusal (decided elsewhere, a lock held by a
+   * live process) ends it with `error`, one line, and writes nothing. Throws if a run started here is still going.
+   */
+  decide({ repo, runId, name, mock, request }: DecideSpec): void {
+    if (this.going()) throw new Error("a run is already going in this window");
+    const controller = new AbortController();
+    this.controller = controller;
+    this.set({ name, mock, runId, phase: "running", outcome: null, error: null });
+    const shared = {
+      repo,
+      signal: controller.signal,
+      ...(this.options.clock ? { clock: this.options.clock } : {}),
+      ...(this.options.cancelGraceMs === undefined ? {} : { cancelGraceMs: this.options.cancelGraceMs }),
+    };
+    const go = async (): Promise<{ state: RunView; note: string | null }> => {
+      switch (request.type) {
+        case "approve":
+          return { ...(await approveStep({ ...shared, runId, stepId: request.stepId })), note: null };
+        case "reject":
+          return { ...(await rejectStep({ ...shared, runId, stepId: request.stepId, reason: request.reason })), note: null };
+        case "adopt":
+        case "abort":
+          return { ...(await recoverAttempt({ ...shared, attemptId: request.attemptId, policy: request.type })), note: null };
+        case "resume": {
+          const result = await resumeRun({ ...shared, runId });
+          return { state: result.state, note: result.resumed ? null : `nothing to resume: the run is ${result.state.state}` };
+        }
+      }
+    };
+    this.finished = go().then(
+      ({ state, note }) => {
+        this.set({ ...this.active!, phase: "ended", outcome: state.state, error: note });
       },
       (error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);

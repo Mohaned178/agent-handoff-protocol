@@ -6,6 +6,7 @@ import type { RoleAssignment } from "../../doctor/init.ts";
 import { TOOLS } from "../../doctor/tools.ts";
 import { THIS_REPOSITORY, type RunView, type StepView } from "../../protocol/index.ts";
 import type { RunListing } from "../../sdk/run.ts";
+import { waitingDetail } from "../../commands/runs.ts";
 import { sessionCasting, sessionChanges, type TaskSession } from "../../commands/task.ts";
 import { SYMBOLS, type Token } from "../theme.ts";
 
@@ -82,20 +83,8 @@ function failedDetail(state: RunView): string {
 
 const mockNote = (state: RunView) => (state.mock ? " · mock" : "");
 
-function waitingDetail(listing: RunListing, state: RunView): string | null {
-  if (state.state === "waiting_approval") {
-    const gate = state.steps.find((step) => step.state === "waiting_approval");
-    return `waiting for your approval${gate ? ` at ${gate.id}` : ""}`;
-  }
-  if (state.state === "needs_recovery") {
-    const step = state.steps.find((candidate) => candidate.state === "needs_recovery");
-    return `needs recovery${step ? ` at ${step.id}` : ""}: an attempt's outcome is unknown`;
-  }
-  if ((state.state === "pending" || state.state === "running") && listing.lock.state !== "held" && listing.lock.state !== "other_host") return "its process stopped partway";
-  return null;
-}
-
-function rowOf(listing: RunListing, now: number): { row: HomeRow; waiting: boolean } {
+/** One run as a row, and whether it waits for a person. */
+export function rowOf(listing: RunListing, now: number): { row: HomeRow; waiting: boolean } {
   const { runId, state } = listing;
   if (!state) return { row: { runId, symbol: SYMBOLS.fail, tone: "error", title: runId, when: "", detail: `cannot be read: ${listing.problem ?? "unknown problem"}` }, waiting: false };
   const base = { runId, title: state.workflowName, when: ago(state.endedAt ?? state.createdAt, now) };

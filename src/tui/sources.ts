@@ -11,7 +11,9 @@ import { castRoles, inferCommands, type ProjectCommands, type RoleDefault, type 
 import { modelsFor, type ModelList } from "../setup/models.ts";
 import { precheck, type Precheck } from "../setup/precheck.ts";
 import { inspectRepository, prepareRepository, type RepositoryState } from "../setup/repository.ts";
-import { markFirstOpenDone, markRealAgentsNoticed, readSettings, saveStepDefault, type SettingsRead } from "../setup/settings.ts";
+import { clearStepDefault, clearStepDefaults, markFirstOpenDone, markRealAgentsNoticed, readSettings, saveStepDefault, type SettingsRead } from "../setup/settings.ts";
+import type { TaskRun } from "../setup/task.ts";
+import { saveTaskWorkflow } from "../commands/workflow-file.ts";
 import type { ToolId } from "../doctor/tools.ts";
 
 /** What a task needs to know about the project and the machine before it is summarised. */
@@ -43,6 +45,13 @@ export interface TaskSources {
   /** Marks the first-open screens done, keeping the steps the person changed there. */
   finishFirstOpen: (chosen: RoleDefaults) => Promise<void>;
   saveDefault: (role: Role, chosen: RoleDefault) => Promise<void>;
+  /** The saved defaults as the file holds them (a broken entry is left out, and `problem` says so). */
+  settings: () => Promise<SettingsRead>;
+  /** Forgets one step's saved default, or all of them; the first-open flag stays. */
+  clearDefault: (role: Role) => Promise<void>;
+  clearDefaults: () => Promise<void>;
+  /** Writes the task's workflow to a file in the repository, refusing one that exists; returns its path. */
+  saveWorkflow: (name: string, run: TaskRun) => Promise<string>;
   /** Records that the first run with real agents said what they do. */
   noticedRealAgents: () => Promise<void>;
   /** Makes the folder a repository with a commit (`git init`, the first commit); returns the repository. */
@@ -77,6 +86,10 @@ export function taskSources(cwd: string, env: NodeJS.ProcessEnv = process.env): 
     precheck,
     finishFirstOpen: (chosen) => markFirstOpenDone(settingsPath(), chosen),
     saveDefault: (role, chosen) => saveStepDefault(settingsPath(), role, chosen),
+    settings: () => readSettings(settingsPath()),
+    clearDefault: (role) => clearStepDefault(settingsPath(), role),
+    clearDefaults: () => clearStepDefaults(settingsPath()),
+    saveWorkflow: async (name, run) => saveTaskWorkflow((await locateRepo(cwd)).repo, name, run),
     noticedRealAgents: () => markRealAgentsNoticed(settingsPath()),
     prepareRepository,
     inspectRepository: () => inspectRepository(cwd),

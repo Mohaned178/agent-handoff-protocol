@@ -90,6 +90,10 @@ export interface HomeKeyContext {
   /** Whether a run started in this window is going, and the key that opens its screen. */
   running?: boolean;
   openRun?: () => void;
+  /** How many runs wait for a person, and the key that opens the picked one on its decision. */
+  waiting?: number;
+  openWaiting?: () => void;
+  nextWaiting?: () => void;
 }
 
 /** Home's keys: what the footer shows and what the input handler dispatches through. Typing goes to the prompt. */
@@ -101,6 +105,8 @@ export function homeKeys(context: HomeKeyContext): KeyBinding[] {
     { keys: "enter", label: "run command", when: menuOpen, match: is.enter, run: () => context.runCommand(menu?.[selected] ?? null) },
     { keys: "enter", label: "run task", when: !menuOpen && typed, match: is.enter, run: context.submit },
     { keys: "enter", label: "open the run", when: !menuOpen && !typed && context.running === true, match: is.enter, run: () => context.openRun?.() },
+    { keys: "enter", label: "decide", when: !menuOpen && !typed && context.running !== true && (context.waiting ?? 0) > 0, match: is.enter, run: () => context.openWaiting?.() },
+    { keys: "tab", label: "next waiting run", footer: false, when: !menuOpen && !typed && (context.waiting ?? 0) > 1, match: is.tab, run: () => context.nextWaiting?.() },
     { keys: "↑↓", label: "move", when: menuOpen, match: is.upOrDown, run: (_, key) => context.select(Math.max(0, Math.min((menu?.length ?? 1) - 1, selected + (key.upArrow ? -1 : 1)))) },
     { keys: "↑↓", label: "history", when: !menuOpen && browsingHistory(prompt), match: is.upOrDown, run: (_, key) => edit({ type: key.upArrow ? "up" : "down" }) },
     { keys: "esc", label: "close", when: menuOpen, match: is.escape, run: () => edit({ type: "clear" }) },
@@ -121,17 +127,19 @@ export function allHomeKeys(): KeyBinding[] {
     return { prompt: { ...emptyPrompt(history), value, cursor: value.length }, menu: query === null ? null : filterByName(COMMANDS, (command) => command.name, query), selected: 0, edit: nothing, select: nothing, runCommand: nothing, submit: nothing, nav };
   };
   const seen = new Map<string, KeyBinding>();
-  for (const keys of [homeKeys({ ...context("", ["a task"]), running: true }), homeKeys(context("", ["a task"])), homeKeys(context("a task", [])), homeKeys(context("/", []))]) {
+  for (const keys of [homeKeys({ ...context("", ["a task"]), running: true }), homeKeys({ ...context("", ["a task"]), waiting: 2 }), homeKeys(context("", ["a task"])), homeKeys(context("a task", [])), homeKeys(context("/", []))]) {
     for (const binding of keys) if (binding.when !== false && !seen.has(`${binding.keys} ${binding.label}`)) seen.set(`${binding.keys} ${binding.label}`, binding);
   }
   return [...seen.values()];
 }
 
-function RunRow({ row, layout }: { row: HomeRow; layout: Layout }) {
+/** `pick` is set where the person chooses among rows: the one `enter` opens is marked with ›. */
+function RunRow({ row, layout, pick }: { row: HomeRow; layout: Layout; pick?: boolean }) {
   const theme = useTheme();
   return h(
     Box,
     null,
+    pick === undefined ? null : h(Box, { width: 2, flexShrink: 0 }, h(Text, { color: theme.color("accent") }, pick ? "›" : " ")),
     h(Box, { width: 2, flexShrink: 0 }, h(Text, { color: theme.color(row.tone) }, row.symbol)),
     h(Box, { width: layout.wide ? 32 : 24, flexShrink: 0, marginRight: 2 }, h(Text, { color: theme.color("text"), wrap: "truncate-end" }, row.title)),
     h(Box, { width: 10, flexShrink: 0 }, h(Text, { color: theme.color("muted") }, row.when)),
@@ -187,13 +195,15 @@ export function Home({ layout, sources, nav, active, task, session, setSession, 
     };
     // Read again when the run started here ends or stops for a person: it then belongs in the lists.
   }, [active, sources, running?.phase]);
+  // Read again when home comes back: `/settings` may have changed a default meanwhile.
   useEffect(() => {
+    if (!active) return;
     let live = true;
     void settle(sources.roles(), setRoles, () => live);
     return () => {
       live = false;
     };
-  }, [sources]);
+  }, [sources, active]);
 
   const query = commandQuery(prompt.value);
   const menu = query === null ? null : filterByName(COMMANDS, (command) => command.name, query);
@@ -226,7 +236,7 @@ export function Home({ layout, sources, nav, active, task, session, setSession, 
     setNotice(null);
     if (command.name === "help") return nav.open("help");
     if (command.name === "quit") return nav.quit();
-    if (command.name === "runs" || command.name === "tools" || command.name === "settings") return nav.open(command.name);
+    if (command.name === "runs" || command.name === "tools" || command.name === "settings" || command.name === "clean") return nav.open(command.name);
     if ((RUN_COMMANDS as readonly string[]).includes(command.name)) return changeNextRun(command.name, argument);
     setNotice({ text: `/${command.name} comes in ticket ${command.comesIn}.`, tone: "muted" });
   };
@@ -251,7 +261,18 @@ export function Home({ layout, sources, nav, active, task, session, setSession, 
     onTask(line);
   };
   const openRunning = () => running?.runId != null && nav.openRun(running.runId);
-  const keys = homeKeys({ prompt, menu, selected: chosen, edit, select: setSelected, runCommand, submit, nav, running: going && running?.runId != null, openRun: openRunning });
+  // The run going in this window is shown once, at the top.
+  const model = runs.state === "ready" ? homeModel(going && running?.runId ? runs.value.filter((listing) => listing.runId !== running.runId) : runs.value, sources.now()) : null;
+  const waitingRows = model?.waiting ?? [];
+  const [waitingPicked, setWaitingPicked] = useState(0);
+  const picked = Math.min(waitingPicked, Math.max(0, waitingRows.length - 1));
+  const keys = homeKeys({
+    prompt, menu, selected: chosen, edit, select: setSelected, runCommand, submit, nav,
+    running: going && running?.runId != null, openRun: openRunning,
+    waiting: waitingRows.length,
+    openWaiting: () => waitingRows[picked] && nav.openRun(waitingRows[picked]!.runId),
+    nextWaiting: () => setWaitingPicked((picked + 1) % Math.max(1, waitingRows.length)),
+  });
 
   useInput(
     (input, key) => {
@@ -289,18 +310,16 @@ export function Home({ layout, sources, nav, active, task, session, setSession, 
   if (runs.state === "loading") body.push(h(Spinner, { key: "loading", label: "reading the runs" }));
   else if (runs.state === "failed") body.push(h(Text, { key: "failed", color: theme.color("error"), wrap: "truncate-end" }, `The runs could not be listed: ${runs.message}`));
   else {
-    // The run going in this window is shown once, at the top.
-    const model = homeModel(going && running?.runId ? runs.value.filter((listing) => listing.runId !== running.runId) : runs.value, sources.now());
-    if (model.waiting.length > 0) {
+    if (model && model.waiting.length > 0) {
       body.push(h(Heading, { key: "waiting", text: "Waiting for you", tone: "warn" }));
-      for (const row of model.waiting) body.push(h(RunRow, { key: `w-${row.runId}`, row, layout }));
+      model.waiting.forEach((row, index) => body.push(h(RunRow, { key: `w-${row.runId}`, row, layout, pick: model.waiting.length > 1 && !going ? index === picked : undefined })));
       body.push(h(Text, { key: "gap" }, " "));
     }
-    if (model.recent.length > 0) {
+    if (model && model.recent.length > 0) {
       body.push(h(Heading, { key: "recent", text: "Recent", tone: "text" }));
       for (const row of model.recent) body.push(h(RunRow, { key: `r-${row.runId}`, row, layout }));
       if (model.older > 0) body.push(h(Text, { key: "older", color: theme.color("muted") }, `${model.older} older ${model.older === 1 ? "run" : "runs"}: /runs lists them`));
-    } else if (model.waiting.length === 0) {
+    } else if (model && model.waiting.length === 0) {
       body.push(h(Text, { key: "empty", color: theme.color("muted") }, "No runs here yet. Describe a task below to start one."));
     }
   }

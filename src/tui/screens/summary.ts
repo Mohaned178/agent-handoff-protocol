@@ -25,7 +25,7 @@ import type { TaskContext, TaskSources } from "../sources.ts";
 import { defaultOf } from "../step-choice-model.ts";
 import { MOCK_NOTICE, REAL_AGENTS_NOTICE, summaryRows } from "../summary-model.ts";
 import type { TaskRunner } from "../task-runner.ts";
-import { useTheme } from "../theme.ts";
+import { SYMBOLS, useTheme } from "../theme.ts";
 import { useRunner } from "../use-runner.ts";
 
 export interface SummaryProps {
@@ -59,6 +59,9 @@ export function Summary({ layout, sources, runner, nav, active, task, session, s
   const [failing, setFailing] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [typing, setTyping] = useState<PromptState | null>(null);
+  // "Save as workflow": the file's name being typed, and the path once it is written.
+  const [naming, setNaming] = useState<PromptState | null>(null);
+  const [savedTo, setSavedTo] = useState<string | null>(null);
   const attempt = useRef(0);
   const going = useRunner(runner);
 
@@ -143,6 +146,15 @@ export function Summary({ layout, sources, runner, nav, active, task, session, s
   };
   const nextStep = () => setSelected((current) => (roles.length === 0 ? null : current === null ? roles[0]! : (roles[roles.indexOf(current) + 1] ?? null)));
   const typeCheck = (action: Parameters<typeof editPrompt>[1]) => setTyping((current) => (current ? editPrompt(current, action).state : current));
+  const typeName = (action: Parameters<typeof editPrompt>[1]) => setNaming((current) => (current ? editPrompt(current, action).state : current));
+  const saveWorkflow = () => {
+    if (!draft || naming === null) return;
+    setProblem(null);
+    sources.saveWorkflow(naming.value, draft.run).then(
+      (path) => (setSavedTo(path), setNaming(null)),
+      (error: unknown) => setProblem(error instanceof Error ? error.message : String(error)),
+    );
+  };
 
   const ready = draft !== null && !draft.needsCheck && !draft.noTool;
   let keys: KeyBinding[];
@@ -154,7 +166,12 @@ export function Summary({ layout, sources, runner, nav, active, task, session, s
       { keys: "esc", label: "back", match: is.escape, run: leaveCheck },
     ];
   } else if (phase === "starting") keys = [];
-  else if (typing !== null) {
+  else if (naming !== null) {
+    keys = [
+      { keys: "enter", label: "save", when: naming.value.trim() !== "", match: is.enter, run: saveWorkflow },
+      { keys: "esc", label: "cancel", match: is.escape, run: () => (setProblem(null), setNaming(null)) },
+    ];
+  } else if (typing !== null) {
     keys = [
       { keys: "enter", label: "use this check", when: typing.value.trim() !== "", match: is.enter, run: () => (setSession((current) => ({ ...current, check: { command: typing.value.trim(), source: CHECK_TYPED } })), setTyping(null)) },
       { keys: "esc", label: "cancel", match: is.escape, run: () => setTyping(null) },
@@ -167,6 +184,7 @@ export function Summary({ layout, sources, runner, nav, active, task, session, s
       { keys: "p", label: session.plan ? "remove the plan step" : "add a plan step", when: draft !== null && !draft.noTool, match: is.char("p"), run: () => (setSelected((current) => (current === "plan" ? null : current)), setSession((current) => ({ ...current, plan: !current.plan }))) },
       { keys: "t", label: "type a check", when: draft?.needsCheck === true, match: is.char("t"), run: () => setTyping(emptyPrompt()) },
       { keys: "n", label: "no check: review only", when: draft?.needsCheck === true, match: is.char("n"), run: () => setSession((current) => ({ ...current, check: "none" })) },
+      { keys: "w", label: "save as workflow", when: ready, match: is.char("w"), run: () => (setSavedTo(null), setProblem(null), setNaming(emptyPrompt())) },
       { keys: "m", label: "try it on the mock", when: draft?.noTool === true, match: is.char("m"), run: () => setSession((current) => ({ ...current, mock: true })) },
       { keys: "esc", label: selected === null ? "edit" : "unpick", match: is.escape, run: () => (selected === null ? onEdit() : setSelected(null)) },
       { keys: "?", label: "help", footer: false, match: is.char("?"), run: () => nav.open("help") },
@@ -179,11 +197,14 @@ export function Summary({ layout, sources, runner, nav, active, task, session, s
       if (typing !== null) {
         const action = promptActionOf(input, key);
         if (action) typeCheck(action);
+      } else if (naming !== null) {
+        const action = promptActionOf(input, key);
+        if (action) typeName(action);
       }
     },
     { isActive: active && !choosing.active },
   );
-  usePaste((text) => typeCheck({ type: "insert", text }), { isActive: active && typing !== null });
+  usePaste((text) => (naming !== null ? typeName({ type: "insert", text }) : typeCheck({ type: "insert", text })), { isActive: active && (typing !== null || naming !== null) });
 
   const body: ReturnType<typeof h>[] = [];
   if (loaded.state === "loading") body.push(h(Spinner, { key: "loading", label: "reading the project" }));
@@ -205,6 +226,8 @@ export function Summary({ layout, sources, runner, nav, active, task, session, s
         ),
       );
     }
+    if (naming !== null) body.push(h(Box, { key: "naming", flexDirection: "column", marginTop: 1 }, h(Text, { color: theme.color("text") }, "Save this task's workflow as (in the repository, .mjs; an existing file is not replaced):"), h(Prompt, { state: naming, placeholder: "e.g. password-reset.mjs", focused: true })));
+    else if (savedTo !== null) body.push(h(Text, { key: "saved", color: theme.color("accent"), wrap: "wrap" }, `${SYMBOLS.ok} saved ${savedTo}: ahp run ${savedTo} runs it again`));
     if (typing !== null) body.push(h(Box, { key: "typing", flexDirection: "column", marginTop: 1 }, h(Text, { color: theme.color("text") }, "The command that checks the work (exit code 0 means done):"), h(Prompt, { state: typing, placeholder: "e.g. npm test", focused: true })));
     else if (draft.needsCheck) body.push(h(Text, { key: "ask", color: theme.color("warn"), wrap: "wrap" }, "What checks this work? t type a command, n none (a reviewing agent reads it; it is labelled not verified)"));
     if (draft.noTool) {

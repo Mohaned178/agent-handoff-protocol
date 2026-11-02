@@ -5,6 +5,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Box, Text, useApp, useInput, useWindowSize } from "ink";
+import { cleanRuns } from "../commands/clean.ts";
 import { afterRun, freshSession, type TaskSession } from "../commands/task.ts";
 import type { RoleDefaults } from "../setup/infer.ts";
 import type { OpenCodeAccess } from "../setup/models.ts";
@@ -20,10 +21,14 @@ import { CANCEL_QUESTION, Confirm, QUIT_QUESTION } from "./screens/confirm.ts";
 import { Help } from "./screens/help.ts";
 import { Home, homeSources, type HomeSources } from "./screens/home.ts";
 import { Placeholder } from "./screens/placeholder.ts";
+import { Clean } from "./screens/clean.ts";
 import { Ready } from "./screens/ready.ts";
 import { Roles } from "./screens/roles.ts";
 import { RunScreen, type RunSources } from "./screens/run.ts";
+import { Runs } from "./screens/runs.ts";
+import { Settings } from "./screens/settings.ts";
 import { Summary } from "./screens/summary.ts";
+import { Tools } from "./screens/tools.ts";
 import { Welcome } from "./screens/welcome.ts";
 import { taskSources, type TaskSources } from "./sources.ts";
 import { TaskRunner } from "./task-runner.ts";
@@ -113,7 +118,8 @@ function Screens({ cwd, sources, runSources, task, runner, start, runId: startRu
   const shown = (name: Screen) => layout.fits && !covered && screen === name;
   const inStack = (name: Screen) => router.stack.includes(name);
   const owns = running !== null && running.phase !== "ended" && running.runId !== null && running.runId === runId;
-  const placeholder = ["runs", "tools", "settings"].includes(screen) || (screen === "run" && runId === null);
+  const placeholder = screen === "run" && runId === null;
+  const clean = useMemo(() => (dryRun: boolean) => cleanRuns({ repo: runFrom.repo, dryRun }), [runFrom]);
 
   const finishFirstOpen = async (chosen: RoleDefaults, mock: boolean) => {
     await taskFrom.finishFirstOpen(chosen);
@@ -204,8 +210,12 @@ function Screens({ cwd, sources, runSources, task, runner, start, runId: startRu
         )
       : null,
     screen === "run" && runId !== null
-      ? h(Box, { display: shown("run") ? "flex" : "none" }, h(RunScreen, { key: runId, layout, sources: runFrom, runId, nav, active: shown("run"), cancel: owns ? () => setConfirm("cancel") : undefined }))
+      ? h(Box, { display: shown("run") ? "flex" : "none" }, h(RunScreen, { key: runId, layout, sources: runFrom, runId, nav, active: shown("run"), cancel: owns ? () => setConfirm("cancel") : undefined, running, decide: (spec) => started.decide({ repo: runFrom.repo, ...spec }) }))
       : null,
+    screen === "runs" ? h(Box, { display: shown("runs") ? "flex" : "none" }, h(Runs, { layout, sources: homeFrom, nav, active: shown("runs") })) : null,
+    screen === "tools" ? h(Box, { display: shown("tools") ? "flex" : "none" }, h(Tools, { layout, tools: taskFrom.tools, nav, active: shown("tools") })) : null,
+    screen === "settings" ? h(Box, { display: shown("settings") ? "flex" : "none" }, h(Settings, { layout, sources: taskFrom, nav, active: shown("settings"), access, setAccess })) : null,
+    screen === "clean" ? h(Box, { display: shown("clean") ? "flex" : "none" }, h(Clean, { layout, clean, nav, active: shown("clean") })) : null,
     placeholder ? h(Box, { display: layout.fits && !covered ? "flex" : "none" }, h(Placeholder, { layout, nav, screen, active: layout.fits && !covered })) : null,
     confirm !== null
       ? h(Confirm, {

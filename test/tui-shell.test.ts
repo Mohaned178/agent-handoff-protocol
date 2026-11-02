@@ -187,9 +187,9 @@ describe("the command menu", () => {
     await tui.press("enter");
     // /effort with no step is not a guess: it says how to write it.
     expect(tui.frame()).toContain("usage: /effort <step> <level>");
-    await tui.type("/clean");
+    await tui.type("/mock");
     await tui.press("enter");
-    expect(tui.frame()).toContain("/clean comes in ticket 07.");
+    expect(tui.frame()).toContain("No command /mock: type / to see them.");
     await tui.type("/");
     await tui.press("escape");
     expect(tui.frame()).not.toContain("❯ /effort");
@@ -201,13 +201,13 @@ describe("the command menu", () => {
     expect(colorAt(tui.raw(), "No command")).toContain("error");
   });
 
-  it("opens the screens a later ticket builds, which say so", async () => {
+  it("opens /runs, and Esc comes back to home", async () => {
     const tui = await home();
     await tui.type("/runs");
     await tui.press("enter");
-    await tui.waitFor("This screen comes in ticket 07.");
+    await tui.waitFor("type to filter");
     await tui.press("escape");
-    await tui.waitFor("Recent");
+    await tui.waitFor("No runs here yet");
   });
 });
 
@@ -312,7 +312,7 @@ describe("the footer", () => {
   it("does nothing for a key the table does not hold", async () => {
     const tui = await home();
     const before = tui.frame();
-    await tui.press("tab");
+    await tui.press("ctrl+s");
     expect(tui.frame()).toBe(before);
   });
 });

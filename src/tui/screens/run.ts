@@ -1,15 +1,24 @@
 // The run screen (spec "Run: live coding"): a view over the files the runtime owns. The ledger and the activity logs are
 // followed from their last offsets (`follow.ts`), the running attempt's worktree is diffed at most once a second, and
 // everything shown is `runModel`'s reading of them. The screen keeps only the selection, what is folded and its scroll.
-// Read only: deciding a gate or an unknown attempt is ticket 06.
+// What the run waits for a person to decide is decided here with one key (`decision.ts` says what, the runner carries it out
+// through the SDK): a gate (a approve, r reject with a reason), an unknown attempt (a adopt, x abort), a run whose process
+// stopped (enter resumes it). A refusal is one error line; the ledger is followed as before.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Text, useInput, usePaste } from "ink";
+import { decisionOf, type DecisionRequest } from "../../commands/decision.ts";
 import type { LockState } from "../../ledger/lock.ts";
 import { transcriptPaths } from "../../runtime/paths.ts";
+import { pendingApprovalOf } from "../../runtime/index.ts";
+import type { RunView } from "../../protocol/index.ts";
 import { Frame } from "../components/frame.ts";
+import { Prompt } from "../components/prompt.ts";
+import { approvalLines, recoveryLines, type ApprovalDiff } from "../decision-model.ts";
+import { editPrompt, emptyPrompt, promptActionOf, type PromptState } from "../prompt-model.ts";
+import type { ActiveRun } from "../task-runner.ts";
 import { Spinner } from "../components/spinner.ts";
-import type { DiffFile } from "../diff-model.ts";
+import { parseUnifiedDiff, type DiffFile } from "../diff-model.ts";
 import { followRun, type FollowedRun } from "../follow.ts";
 import { h } from "../h.ts";
 import { dispatch, is, type KeyBinding } from "../keys.ts";
@@ -171,12 +180,17 @@ function Sidebar({ sections, height }: { sections: readonly SidebarSection[]; he
 type Row = { key: string; block: number | null; header?: Block; line?: Line; prefix?: string };
 
 /** The timeline's rows, `width` columns wide: the receipt's lines wrap rather than lose a fact to "…". */
-function timelineRows(model: RunModel, width: number): Row[] {
+function timelineRows(model: RunModel, width: number, decision: Line[] | null): Row[] {
   const rows: Row[] = [];
   model.blocks.forEach((block, index) => {
     rows.push({ key: `h-${block.stepId}`, block: index, header: block });
     for (const line of bodyOf(block)) rows.push({ key: `l-${block.stepId}-${line.key}`, block: index, line, prefix: "  │ " });
   });
+  // What the person is asked to decide is the timeline's last block.
+  if (decision) {
+    rows.push({ key: "decision-gap", block: null, line: { key: "gap", segments: [{ text: "", tone: "text" }] } });
+    for (const line of decision) for (const row of wrapLine(line, width - 1)) rows.push({ key: `${line.key === "d-head" ? "decision-head" : "x"}-${row.key}`, block: null, line: row, prefix: " " });
+  }
   if (model.receipt) {
     rows.push({ key: "receipt-gap", block: null, line: { key: "gap", segments: [{ text: "", tone: "text" }] } });
     rows.push({ key: "receipt-head", block: null, line: { key: "head", segments: [{ text: "Receipt", tone: "text", bold: true }, { text: "  from the run's ledger: an agent's report is a claim, a check decides", tone: "muted" }] } });
@@ -195,12 +209,50 @@ export interface RunScreenProps {
   active: boolean;
   /** Cancels the run through its signal, when this process runs it (ticket 05); without it, ctrl+c quits. */
   cancel?: () => void;
+  /** The run started or continued in this window, going or ended: a decision in progress, and why one was refused. */
+  running?: ActiveRun | null;
+  /** Carries out a decision in this process; throws when it cannot start. Without it the screen only shows. */
+  decide?: (spec: { runId: string; name: string; mock: boolean; request: DecisionRequest }) => void;
+}
+
+/** The diff a gate asks to approve, read once from its pinned commit (never a worktree) while the gate is open. */
+function useApprovalDiff(state: RunView | null, gateKey: string | null): ApprovalDiff | null {
+  const [diff, setDiff] = useState<{ key: string; value: ApprovalDiff } | null>(null);
+  useEffect(() => {
+    if (state === null || gateKey === null) return;
+    let live = true;
+    pendingApprovalOf(state).then(
+      (pending) => live && setDiff({ key: gateKey, value: { files: pending?.diff ? parseUnifiedDiff(pending.diff) : [], truncated: pending?.diffTruncated ?? false, error: pending?.diffError ?? null } }),
+      (error: unknown) => live && setDiff({ key: gateKey, value: { files: [], truncated: false, error: error instanceof Error ? error.message : String(error) } }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [gateKey]);
+  return gateKey !== null && diff?.key === gateKey ? diff.value : null;
+}
+
+/** An unknown attempt's workspace against its base, read once (read only); null while reading or when it cannot be read. */
+function useWorkspaceDiff(worktree: string | null, base: string | null, key: string | null): DiffFile[] | null {
+  const [diff, setDiff] = useState<{ key: string; files: DiffFile[] } | null>(null);
+  useEffect(() => {
+    if (worktree === null || base === null || key === null) return;
+    let live = true;
+    readLiveDiff(worktree, base).then(
+      (files) => live && setDiff({ key, files }),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [key]);
+  return key !== null && diff?.key === key ? diff.files : null;
 }
 
 const diffViewLines = (files: readonly DiffFile[]): Line[] =>
   files.flatMap((file) => [fileLine(file, `f-${file.path}`), ...(file.binary || file.huge ? [] : file.lines.map((line, index) => diffLine(line, `f-${file.path}-${index}`)))]);
 
-export function RunScreen({ layout, sources, runId, nav, active, cancel }: RunScreenProps) {
+export function RunScreen({ layout, sources, runId, nav, active, cancel, running = null, decide }: RunScreenProps) {
   const theme = useTheme();
   const loaded = useFollowedRun(sources, runId, active);
   const run = loaded.state === "ready" ? loaded.run : null;
@@ -209,19 +261,35 @@ export function RunScreen({ layout, sources, runId, nav, active, cancel }: RunSc
   const [usageShown, setUsageShown] = useState(false);
   const [view, setView] = useState<View>({ kind: "timeline" });
   const [notice, setNotice] = useState<string | null>(null);
+  const [reason, setReason] = useState<{ prompt: PromptState; error: string | null } | null>(null);
+  const [offset, setOffset] = useState(0);
   const ended = run?.state?.endedAt != null;
   const now = useNow(sources.now, active && !ended);
 
   const lock: LockState | null = run?.lock ?? null;
+  // A decision going on in this process holds the lock itself; until the screen has read that, it must not offer another.
+  const mine = running !== null && running.runId === runId;
+  const deciding = mine && running.phase !== "ended";
+  const decision = run?.state && !deciding ? decisionOf(run.state, lock) : null;
+  const refusal = mine && running.phase === "ended" ? running.error : null;
+  const openApproval = decision?.kind === "gate" ? decision.step.approvals.at(-1) : undefined;
+  const approvalDiff = useApprovalDiff(run?.state ?? null, decision?.kind === "gate" && openApproval ? `${decision.step.id}:${openApproval.commit}` : null);
+  const unknownAttempt = decision?.kind === "unknown" ? decision.attempt : null;
+  const workspaceDiff = useWorkspaceDiff(unknownAttempt?.workspace ?? null, unknownAttempt && run?.state ? attemptBase(run.state, unknownAttempt.id) : null, unknownAttempt?.id ?? null);
   const diff = useLiveDiff(run, run?.state ? runningAttemptOf(run.state, lock, sources.pid) : null, active);
-  const model = run?.state ? runModel({ events: run.events, state: run.state, activity: run.activity, diff, lastOutput: run.lastOutput, lock }, { now, pid: sources.pid, toggled }) : null;
+  const model = run?.state ? runModel({ events: run.events, state: run.state, activity: run.activity, diff, lastOutput: run.lastOutput, lock }, { now, pid: sources.pid, toggled, decide: decision !== null && decide !== undefined }) : null;
 
   const selectedIndex = model ? Math.max(0, selected === null ? model.active : model.blocks.findIndex((block) => block.stepId === selected)) : 0;
   const block = model?.blocks[selectedIndex];
   const step = block && run?.state ? run.state.steps.find((candidate) => candidate.id === block.stepId) : undefined;
   const lastAttempt = step?.attempts.at(-1);
 
-  const height = Math.max(1, layout.rows - 3 - (model?.notice ? 1 : 0) - (notice ? 1 : 0));
+  const height = Math.max(1, layout.rows - 3 - (model?.notice ? 1 : 0) - (notice ? 1 : 0) - (refusal ? 1 : 0) - (deciding ? 1 : 0) - (reason ? 5 + (reason.error ? 1 : 0) : 0));
+  const scrolls = decide !== undefined && (decision?.kind === "gate" || decision?.kind === "unknown");
+  const decisionRows = decision?.kind === "gate" ? approvalLines(approvalDiff) : decision?.kind === "unknown" ? recoveryLines(decision.attempt, workspaceDiff) : null;
+  const rows = model ? timelineRows(model, layout.columns - 2 - (layout.wide ? SIDEBAR_COLUMNS : 0), decisionRows) : [];
+  const decisionAt = Math.max(0, rows.findIndex((row) => row.key.startsWith("decision-head")));
+  const lastStart = Math.max(0, rows.length - height);
   const sidebarBeside = layout.wide;
 
   // The log view follows the transcript while it is open.
@@ -265,6 +333,25 @@ export function RunScreen({ layout, sources, runId, nav, active, cancel }: RunSc
       return next;
     });
   };
+  const scrollDecision = (by: number) => setOffset((current) => Math.max(-decisionAt, Math.min(lastStart - decisionAt, Math.min(current, lastStart - decisionAt) + by)));
+  const request = (what: DecisionRequest) => {
+    if (!run?.state || !decide) return;
+    setNotice(null);
+    try {
+      decide({ runId, name: run.state.workflowName, mock: run.state.mock, request: what });
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message.split("\n")[0]! : String(error));
+      return;
+    }
+    setOffset(0);
+  };
+  const submitReason = () => {
+    if (!reason || decision?.kind !== "gate") return;
+    const text = reason.prompt.value.trim();
+    if (text === "") return setReason({ ...reason, error: "a reason is needed: the agent is given it" });
+    setReason(null);
+    request({ type: "reject", stepId: decision.step.id, reason: text });
+  };
   const scroll = (by: number) =>
     setView((current) => {
       if (current.kind === "timeline") return current;
@@ -279,13 +366,26 @@ export function RunScreen({ layout, sources, runId, nav, active, cancel }: RunSc
       ? { keys: "ctrl+c", label: "cancel", match: is.ctrl("c"), run: cancel }
       : { keys: "ctrl+c", label: "quit", match: is.ctrl("c"), run: nav.quit };
   const canDiff = Boolean(lastAttempt && ((diff && diff.attemptId === lastAttempt.id) || lastAttempt.snapshot));
+  const stopped = decide !== undefined && decision?.kind === "stopped";
   const keys: KeyBinding[] =
-    view.kind === "timeline"
+    reason !== null
       ? [
-          { keys: "↑↓", label: "step", when: (model?.blocks.length ?? 0) > 1, match: is.upOrDown, run: (_, key) => move(key.upArrow ? -1 : 1) },
-          { keys: "enter", label: block?.expanded ? "fold" : "expand", when: block !== undefined, match: is.enter, run: toggle },
-          { keys: "d", label: "full diff", when: canDiff, match: is.char("d"), run: openDiff },
-          { keys: "l", label: "raw log", when: lastAttempt !== undefined, match: is.char("l"), run: () => setView({ kind: "log", title: `${step!.id}: attempt ${lastAttempt!.number}'s raw output`, lines: null, offset: 0 }) },
+          { keys: "enter", label: "reject", match: is.enter, run: submitReason },
+          { keys: "esc", label: "back", match: is.escape, run: () => setReason(null) },
+          quitOrCancel,
+        ]
+      : view.kind === "timeline"
+        ? [
+          { keys: "a", label: "approve", when: scrolls && decision?.kind === "gate", match: is.char("a"), run: () => decision?.kind === "gate" && request({ type: "approve", stepId: decision.step.id }) },
+          { keys: "r", label: "reject", when: scrolls && decision?.kind === "gate", match: is.char("r"), run: () => setReason({ prompt: emptyPrompt(), error: null }) },
+          { keys: "a", label: "adopt", when: scrolls && decision?.kind === "unknown", match: is.char("a"), run: () => decision?.kind === "unknown" && request({ type: "adopt", attemptId: decision.attempt.id }) },
+          { keys: "x", label: "abort", when: scrolls && decision?.kind === "unknown", match: is.char("x"), run: () => decision?.kind === "unknown" && request({ type: "abort", attemptId: decision.attempt.id }) },
+          { keys: "enter", label: "resume", when: stopped, match: is.enter, run: () => request({ type: "resume" }) },
+          { keys: "↑↓", label: "scroll", when: scrolls, match: is.upOrDown, run: (_, key) => scrollDecision(key.upArrow ? -1 : 1) },
+          { keys: "↑↓", label: "step", when: !scrolls && (model?.blocks.length ?? 0) > 1, match: is.upOrDown, run: (_, key) => move(key.upArrow ? -1 : 1) },
+          { keys: "enter", label: block?.expanded ? "fold" : "expand", when: block !== undefined && !stopped && !scrolls, match: is.enter, run: toggle },
+          { keys: "d", label: "full diff", when: canDiff && !scrolls, match: is.char("d"), run: openDiff },
+          { keys: "l", label: "raw log", when: lastAttempt !== undefined && !scrolls, match: is.char("l"), run: () => setView({ kind: "log", title: `${step!.id}: attempt ${lastAttempt!.number}'s raw output`, lines: null, offset: 0 }) },
           { keys: "u", label: usageShown ? "timeline" : "usage", when: !sidebarBeside, match: is.char("u"), run: () => setUsageShown((shown) => !shown) },
           { keys: "esc", label: "back", match: is.escape, run: nav.back },
           { keys: "?", label: "help", match: is.char("?"), run: () => nav.open("help"), footer: false },
@@ -297,12 +397,22 @@ export function RunScreen({ layout, sources, runId, nav, active, cancel }: RunSc
           { keys: "esc", label: "timeline", match: is.escape, run: () => setView({ kind: "timeline" }) },
           quitOrCancel,
         ];
-  useInput((input, key) => void dispatch(keys, input, key), { isActive: active });
+  useInput(
+    (input, key) => {
+      if (dispatch(keys, input, key) || reason === null) return;
+      const action = promptActionOf(input, key);
+      if (action) setReason({ prompt: editPrompt(reason.prompt, action).state, error: null });
+    },
+    { isActive: active },
+  );
+  usePaste((text) => reason && setReason({ prompt: editPrompt(reason.prompt, { type: "insert", text }).state, error: null }), { isActive: active && reason !== null });
 
   const title = model?.title ?? `run ${runId}`;
   const body: ReturnType<typeof h>[] = [];
   if (model?.notice) body.push(h(LineView, { key: "notice", line: model.notice }));
   if (notice) body.push(h(Text, { key: "screen-notice", color: theme.color("error"), wrap: "truncate-end" }, notice));
+  if (refusal) body.push(h(Text, { key: "refusal", color: theme.color("error"), wrap: "truncate-end" }, refusal));
+  if (deciding) body.push(h(Spinner, { key: "deciding", label: "going on with the run…" }));
   if (run?.problem) body.push(h(Text, { key: "problem", color: theme.color("error"), wrap: "truncate-end" }, run.problem));
 
   if (loaded.state === "loading") body.push(h(Spinner, { key: "loading", label: "reading the run" }));
@@ -318,12 +428,16 @@ export function RunScreen({ layout, sources, runId, nav, active, cancel }: RunSc
     for (const line of lines.slice(offset, offset + height - 1)) body.push(h(LineView, { key: `v-${line.key}`, line }));
   } else {
     // The frame's padding, and the sidebar beside the timeline.
-    const rows = timelineRows(model, layout.columns - 2 - (sidebarBeside ? SIDEBAR_COLUMNS : 0));
     const from = rows.findIndex((row) => row.block === selectedIndex);
     let to = from;
     while (to + 1 < rows.length && rows[to + 1]!.block === selectedIndex) to += 1;
     // With nothing selected beyond the last block (the run ended), the receipt stays in view.
-    const start = ended && selectedIndex === model.active && selected === null ? Math.max(0, rows.length - height) : windowStart(rows.length, height, Math.max(0, from), Math.max(0, to));
+    // A decision to make is in view from its heading; the person scrolls from there.
+    const start = scrolls
+      ? Math.max(0, Math.min(lastStart, decisionAt + offset))
+      : ended && selectedIndex === model.active && selected === null
+        ? Math.max(0, rows.length - height)
+        : windowStart(rows.length, height, Math.max(0, from), Math.max(0, to));
     const timeline = h(
       Box,
       { key: "timeline", flexDirection: "column", flexGrow: 1, flexShrink: 1, overflow: "hidden" },
@@ -338,6 +452,11 @@ export function RunScreen({ layout, sources, runId, nav, active, cancel }: RunSc
     );
     if (sidebarBeside) body.push(h(Box, { key: "panes", flexDirection: "row", flexGrow: 1 }, timeline, sidebar));
     else body.push(usageShown ? sidebar : timeline);
+    if (reason) {
+      body.push(h(Text, { key: "reason-ask", color: theme.color("warn") }, "Why reject? The agent is given this with the step sent back."));
+      if (reason.error) body.push(h(Text, { key: "reason-error", color: theme.color("error") }, reason.error));
+      body.push(h(Prompt, { key: "reason", state: reason.prompt, placeholder: "what to change", focused: true }));
+    }
   }
 
   return h(Frame, { layout, title, right: ended ? undefined : model?.live ? "live" : undefined, keys }, ...body);

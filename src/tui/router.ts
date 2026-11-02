@@ -1,7 +1,7 @@
 // The screens and how one gets from one to another: a stack, so `esc` goes back where you came from. Home is the bottom
 // of the stack and nothing goes back past it.
 
-export const SCREENS = ["welcome", "roles", "ready", "home", "summary", "run", "runs", "tools", "settings", "help"] as const;
+export const SCREENS = ["welcome", "roles", "ready", "home", "summary", "run", "runs", "tools", "settings", "clean", "help"] as const;
 export type Screen = (typeof SCREENS)[number];
 
 export interface RouterState {

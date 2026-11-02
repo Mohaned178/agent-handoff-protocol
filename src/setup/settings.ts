@@ -84,6 +84,19 @@ export async function saveStepDefault(path: string, role: Role, chosen: RoleDefa
   await writeSettings(path, settings);
 }
 
+/** Forgets `role`'s saved default and keeps everything else the file holds (the first-open and notice flags, the other steps). */
+export async function clearStepDefault(path: string, role: Role): Promise<void> {
+  const { settings } = await readSettings(path);
+  delete settings.steps[role];
+  await writeSettings(path, settings);
+}
+
+/** Forgets every saved step default, keeping the first-open and notice flags: the welcome screens do not come back. */
+export async function clearStepDefaults(path: string): Promise<void> {
+  const { settings } = await readSettings(path);
+  await writeSettings(path, { ...settings, steps: {} });
+}
+
 /** Records that the first run with real agents said what they do here, so it is said once. */
 export async function markRealAgentsNoticed(path: string): Promise<void> {
   const { settings } = await readSettings(path);

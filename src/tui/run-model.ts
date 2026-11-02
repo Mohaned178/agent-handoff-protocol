@@ -63,6 +63,8 @@ export interface RunModelOptions {
   pid?: number;
   /** How many activity lines a block shows, newest last; older ones are counted. */
   maxActivity?: number;
+  /** True when the screen offers the person a key for what the run waits for: the lines that name the `ahp` command to run are left out. */
+  decide?: boolean;
 }
 
 /** A piece of a line in one colour. */
@@ -311,7 +313,7 @@ function markOf(step: StepView, live: boolean): Mark {
 
 const RUNS_A_COMMAND = /exec|bash|shell|command|terminal/i;
 
-function toolCallLines(entries: readonly ActivityEntry[]): { at: number; line: Line }[] {
+export function toolCallLines(entries: readonly ActivityEntry[]): { at: number; line: Line }[] {
   // One line per call, where it first appeared, in the state the tool last reported.
   const calls = new Map<string, { at: number; index: number; entry: Extract<ActivityEntry, { type: "tool_call" }>; permission: "allowed" | "rejected" | null }>();
   const out: { at: number; index: number; line: Line | null; id?: string }[] = [];
@@ -441,12 +443,13 @@ function retryLines(step: StepView, budget: { budget: number; transientBudget: n
 }
 
 /** What became of an attempt: reported done and verified, being checked, failed, unknown. */
-function outcomeLines(step: StepView, attempt: AttemptView): Line[] {
+function outcomeLines(step: StepView, attempt: AttemptView, decide: boolean): Line[] {
   const key = `o${attempt.id}`;
   if (attempt.state === "unknown") {
     const lines = [line(key, seg(`${SYMBOLS.wait} `, "warn"), seg(`outcome unknown: ${oneLine(attempt.recovery?.detail ?? "")}`, "warn"))];
-    if (attempt.recovery?.awaited && attempt.recovery.decision === null) lines.push(line(`${key}:next`, seg(`  decide: ahp recover ${attempt.id} --policy adopt|abort`, "muted")));
-    else if (attempt.recovery?.decision) lines.push(line(`${key}:next`, seg(`  decided: ${attempt.recovery.decision.policy}`, "muted")));
+    if (attempt.recovery?.awaited && attempt.recovery.decision === null) {
+      if (!decide) lines.push(line(`${key}:next`, seg(`  decide: ahp recover ${attempt.id} --policy adopt|abort`, "muted")));
+    } else if (attempt.recovery?.decision) lines.push(line(`${key}:next`, seg(`  decided: ${attempt.recovery.decision.policy}`, "muted")));
     return lines;
   }
   if (attempt.state === "exited" && attempt.outcome === "cancelled") return [line(key, seg(`${SYMBOLS.fail} `, "muted"), seg("cancelled", "muted"))];
@@ -495,7 +498,7 @@ function agentBlock(step: StepView, index: number, files: RunFiles, context: Blo
     if (timed.length > max) lines.push(line(`more${last.id}`, seg(`… ${timed.length - max} earlier lines: l shows the raw log`, "muted")));
     for (const item of timed.slice(-max)) lines.push(item.line);
     if (running && entries.length === 0 && timed.length === 0) lines.push(line(`wait${last.id}`, seg(last.state === "dispatching" ? "starting the agent…" : "working; nothing reported yet", "muted")));
-    lines.push(...outcomeLines(step, last));
+    lines.push(...outcomeLines(step, last, context.decide));
   } else if (step.state === "ready" || step.state === "in_progress") {
     lines.push(line(`h${step.id}`, seg("handing over…", "muted")));
   }
@@ -524,7 +527,7 @@ function gateBlock(step: StepView, index: number, context: BlockContext): Omit<B
       lines.push(line(key, seg(`${SYMBOLS.wait} `, "warn"), seg(`waiting for your approval: ${approval.changed.length}${approval.truncated ? "+" : ""} changed ${approval.changed.length === 1 ? "file" : "files"}`, "warn")));
       for (const changed of approval.changed.slice(0, 10)) lines.push(line(`${key}:${changed.path}`, seg("  ✎ ", "accent"), seg(changed.path, "text"), seg(`  ${changed.change}`, "muted")));
       if (approval.changed.length > 10) lines.push(line(`${key}:more`, seg(`  … ${approval.changed.length - 10} more`, "muted")));
-      lines.push(line(`${key}:how`, seg(`  decide: ahp approve ${context.runId} ${step.id}, or ahp reject ${context.runId} ${step.id} --reason <text>`, "muted")));
+      if (!context.decide) lines.push(line(`${key}:how`, seg(`  decide: ahp approve ${context.runId} ${step.id}, or ahp reject ${context.runId} ${step.id} --reason <text>`, "muted")));
     } else if (approval.decision.decision === "approved") {
       lines.push(line(key, seg(`${SYMBOLS.ok} `, "accent"), seg(`approved by ${approval.decision.user}`, "text")));
     } else {
@@ -568,6 +571,7 @@ interface BlockContext {
   now: number;
   live: boolean;
   maxActivity: number;
+  decide: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -696,7 +700,7 @@ function receiptLines(state: RunView): Line[] {
 // The whole screen.
 
 /** Who is writing the run, as this screen can tell from the lock: null when it is this screen's own process, or it ended. */
-function noticeOf(state: RunView, lock: LockState | null, pid: number | undefined): { notice: Line | null; live: boolean } {
+function noticeOf(state: RunView, lock: LockState | null, pid: number | undefined, decide = false): { notice: Line | null; live: boolean } {
   if (state.endedAt !== null) return { notice: null, live: false };
   const waiting = state.state === "waiting_approval" || state.state === "needs_recovery";
   if (lock?.state === "held") {
@@ -706,7 +710,7 @@ function noticeOf(state: RunView, lock: LockState | null, pid: number | undefine
   if (lock?.state === "other_host") return { notice: line("notice", seg(`run ${state.runId} is running on ${lock.owner.host}; this screen only watches it`, "muted")), live: true };
   if (waiting) return { notice: null, live: false };
   if (lock === null) return { notice: null, live: true };
-  return { notice: line("notice", seg(`${SYMBOLS.wait} `, "warn"), seg(`its process stopped partway: ahp recover ${state.runId} resumes it`, "warn")), live: false };
+  return { notice: line("notice", seg(`${SYMBOLS.wait} `, "warn"), seg(decide ? "its process stopped partway: enter resumes it" : `its process stopped partway: ahp recover ${state.runId} resumes it`, "warn")), live: false };
 }
 
 /** The attempt whose worktree the live diff reads: one running while a process writes the run; null otherwise. */
@@ -719,8 +723,8 @@ export function runModel(files: RunFiles, options: RunModelOptions): RunModel {
   const { state, events } = files;
   const workflow = workflowOf(events);
   const times = timesOf(events);
-  const { notice, live } = noticeOf(state, files.lock, options.pid);
-  const context: BlockContext = { runId: state.runId, state, workflow, times, now: options.now, live, maxActivity: options.maxActivity ?? 60 };
+  const { notice, live } = noticeOf(state, files.lock, options.pid, options.decide === true);
+  const context: BlockContext = { runId: state.runId, state, workflow, times, now: options.now, live, maxActivity: options.maxActivity ?? 60, decide: options.decide === true };
 
   const shown = state.steps.map((step, index) => ({ step, index })).filter(({ step }) => step.kind !== "external_action");
   const partial = shown.map(({ step, index }) => (step.kind === "approval_gate" || (workflow && isApprovalGate(workflow.steps[index]!)) ? gateBlock(step, index, context) : agentBlock(step, index, files, context)));

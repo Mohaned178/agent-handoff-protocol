@@ -130,24 +130,25 @@ describe("the run screen over a run that ended", () => {
     expect(frame).toContain(`implement: attempt 1's raw output`);
   });
 
-  it("says when a gate waits, with the changed files and how to decide, and shows no receipt yet", async () => {
+  it("says when a gate waits, with the changed files and the keys that decide it, and shows no receipt yet", async () => {
     const tui = runApp(runs.gate.runId);
     const frame = await tui.waitFor("waiting for your approval");
 
     expect(frame).toMatch(/! approve/);
     expect(frame).toContain("waiting for your approval: 2 changed files");
     expect(frame).toContain("✎ greeting.txt  added");
-    expect(frame).toContain(`decide: ahp approve ${runs.gate.runId} approve`);
+    expect(frame).toContain("What you are approving");
+    expect(footerOf(frame)).toBe("a approve  r reject  ↑↓ scroll  esc back  ctrl+c quit");
     expect(frame).not.toContain("Receipt");
     expect(colorAt(tui.raw(), "! approve")).toContain("warn");
   });
 
-  it("says when an attempt's outcome is unknown, with the command that decides it", async () => {
+  it("says when an attempt's outcome is unknown, with the keys that decide it", async () => {
     const tui = runApp(runs.unknown.runId);
-    const unknown = runs.unknown.state.steps[0]!.attempts[1]!;
     const frame = await tui.waitFor("outcome unknown");
 
-    expect(frame).toContain(`decide: ahp recover ${unknown.id} --policy adopt|abort`);
+    expect(frame).toContain("What happened to attempt 2");
+    expect(footerOf(frame)).toBe("a adopt  x abort  ↑↓ scroll  esc back  ctrl+c quit");
   });
 
   it("below 110 columns folds the sidebar away, and u shows it over the timeline", async () => {

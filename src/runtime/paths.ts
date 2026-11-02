@@ -60,6 +60,11 @@ export function demosRoot(): string {
   return join(ahpHome(), "demos");
 }
 
+/** The directory that holds every AHP worktree, one directory per run; read only, it may not exist yet. */
+export function worktreeRoot(): string {
+  return join(ahpHome(), "worktrees");
+}
+
 /** Creates the directory that holds every AHP worktree and returns its canonical path. */
 export async function prepareWorktreeRoot(): Promise<string> {
   const root = join(ahpHome(), "worktrees");
