@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { DoctorReport } from "../../doctor/doctor.ts";
 import { ROLES, type Role } from "../../doctor/init.ts";
-import { YOUR_DEFAULT } from "../../setup/infer.ts";
+import { castRoles, YOUR_DEFAULT } from "../../setup/infer.ts";
 import type { OpenCodeAccess } from "../../setup/models.ts";
 import type { SettingsRead } from "../../setup/settings.ts";
 import { Frame } from "../components/frame.ts";
@@ -81,7 +81,7 @@ export function Settings({ layout, sources, nav, active, access, setAccess }: Se
     },
   });
 
-  const model = loaded.state === "ready" ? settingsModel(loaded.read) : null;
+  const model = loaded.state === "ready" ? settingsModel(loaded.read, report ? castRoles(report) : null) : null;
   const role: Role = ROLES[cursor]!;
   const savedHere = model?.rows.find((row) => row.role === role)?.saved != null;
   const anySaved = model?.rows.some((row) => row.saved !== null) === true;

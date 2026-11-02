@@ -42,7 +42,8 @@ describe("first open with every tool ready", () => {
     frame = await tui.waitFor("Who does what?");
     expect(frame).toMatch(/plan +Claude Code · default model/);
     expect(frame).toMatch(/implement +Codex CLI · default model/);
-    expect(frame).toMatch(/review +OpenCode · default model/);
+    // OpenCode's login cannot be checked and Claude Code's was: review goes to Claude Code (ticket 10).
+    expect(frame).toMatch(/review +Claude Code · default model/);
     expect(frame).toContain("enter continue");
 
     await tui.press("enter");

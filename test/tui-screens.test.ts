@@ -70,6 +70,20 @@ describe("saved defaults", () => {
     ]);
   });
 
+  it("say beside 'automatic' who it casts the step to now, once the tools are read, and keep it 'automatic' (ticket 10)", () => {
+    const cast = [
+      { role: "plan", adapter: "claude-code", tool: "claude-code", reason: "" },
+      { role: "implement", adapter: "codex", tool: "codex", reason: "" },
+      { role: "review", adapter: "mock", tool: null, reason: "" },
+    ] as const;
+    const model = settingsModel(read({ implement: { tool: "claude-code", model: "sonnet" } }), cast);
+    expect(model.rows.map((row) => [row.role, row.text, row.saved === null])).toEqual([
+      ["plan", "automatic (Claude Code now)", true],
+      ["implement", "Claude Code, model sonnet", false],
+      ["review", "automatic (the scripted mock now)", true],
+    ]);
+  });
+
   it("forgetting one keeps the others and the flags; forgetting all keeps the flags, so the first-open screens do not come back", async () => {
     forgetSettings();
     await markFirstOpenDone(settingsPath());

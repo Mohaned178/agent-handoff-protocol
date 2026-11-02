@@ -215,7 +215,8 @@ describe("choosing per step", () => {
 
     const frame = await tui.waitFor("you changed it");
     expect(frame).toMatch(/implement +Claude Code · opus · high +you changed it/);
-    expect(frame).toMatch(/review +OpenCode · default model +installed here/);
+    // OpenCode's login cannot be checked, so review goes to a tool whose login was (ticket 10).
+    expect(frame).toMatch(/review +Claude Code · default model/);
     expect((await saved()).steps).toEqual({});
   });
 

@@ -90,6 +90,18 @@ describe("castRoles", () => {
     expect(assignments[2]).toMatchObject({ tool: "claude-code", effort: "high", reason: "your default" });
   });
 
+  it("casts a role away from a tool whose login cannot be checked when another's login was confirmed (ticket 10)", () => {
+    const logins = (states: Partial<Record<ToolId, "logged_in" | "unknown">>): DoctorReport =>
+      ({ tools: (["claude-code", "codex", "opencode"] as const).map((id) => ({ id, usable: id in states, login: { state: states[id], detail: "" } })) }) as unknown as DoctorReport;
+
+    const moved = castRoles(logins({ "claude-code": "logged_in", codex: "logged_in", opencode: "unknown" }));
+    expect(cast(moved)).toEqual(["plan=claude-code", "implement=codex", "review=claude-code"]);
+    expect(moved[2]!.reason).toBe("OpenCode's login cannot be checked; Claude Code is logged in");
+    // Nothing confirmed: OpenCode keeps the role; a default still wins.
+    expect(cast(castRoles(logins({ opencode: "unknown" })))).toEqual(["plan=opencode", "implement=opencode", "review=opencode"]);
+    expect(cast(castRoles(logins({ "claude-code": "logged_in", opencode: "unknown" }), { review: { tool: "opencode" } }))).toEqual(["plan=claude-code", "implement=claude-code", "review=opencode"]);
+  });
+
   it("keeps its own casting for a role whose default tool is not usable here, and says why", () => {
     const [, , review] = castRoles(report("codex"), { review: { tool: "claude-code", model: "opus" } });
 

@@ -5,7 +5,7 @@ import { defineWorkflow, mock, readRunEvents, rejectStep, runWorkflow, type Mock
 import { replay } from "../src/ledger/replay.ts";
 import type { ActivityEntry, LedgerEvent } from "../src/protocol/index.ts";
 import { parseUnifiedDiff, untrackedFile, type DiffFile } from "../src/tui/diff-model.ts";
-import { bodyOf, duration, limitText, runModel, windowStart, type Block, type Line, type RunFiles, type RunModel } from "../src/tui/run-model.ts";
+import { bodyOf, costBasisOf, duration, limitText, runModel, windowStart, type Block, type Line, type RunFiles, type RunModel } from "../src/tui/run-model.ts";
 import { homeModel } from "../src/tui/screens/home-model.ts";
 import { gatedWorkflow, gateStep } from "./helpers/approval.ts";
 import { createTempRepo, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
@@ -202,6 +202,21 @@ describe("the run model while an attempt works", () => {
     expect(lines).toContain("● src\\cart.mjs");
   });
 
+  it("leaves out a message that is only a review's verdict as JSON, and keeps any other (ticket 10)", () => {
+    const said: ActivityEntry[] = [
+      { type: "message", time: time(2), text: '{"verdict":"approved","findings":["src/cart.mjs:3 now multiplies' },
+      { type: "message", time: time(3), text: "I'll review the change." },
+    ];
+    expect(texts(blockOf(modelOf({ ...running, activity: { [attemptId]: said } }), "implement").lines)).toEqual(['"I\'ll review the change."']);
+  });
+
+  it("says what a reported cost is, from the tool's own source note (ticket 10)", () => {
+    expect(costBasisOf(["claude stream-json result event (usage, total_cost_usd); cost is a list-price figure from the tool, not a charge; apiKeySource none"])).toBe("list price, not a charge");
+    expect(costBasisOf(["opencode acp session/prompt result (usage); cost is the last usage_update's"])).toBe("as the tool figured it");
+    expect(costBasisOf(["a; cost is a list-price figure from the tool, not a charge", "b; cost is the tool's own figure, its basis not stated"])).toBe("as the tool figured it");
+    expect(costBasisOf(["codex turn.completed usage"])).toBeNull();
+  });
+
   it("keeps the newest activity lines and counts the older ones", () => {
     const many: ActivityEntry[] = Array.from({ length: 500 }, (_, i) => ({ type: "message", time: time(i), text: `step ${i}` }));
     const block = blockOf(runModel({ ...running, activity: { [attemptId]: many } }, { now: NOW, pid: PID, maxActivity: 20 }), "implement");
@@ -259,7 +274,10 @@ describe("home's row for a run that failed before its check", () => {
     const { runId, state } = await runWorkflow(retryWorkflow([limited]), { repo });
     const [row] = homeModel([{ runId, state, lock: { state: "free" }, problem: null }], NOW).recent;
     expect(row!.detail).toBe("implement: You've hit your usage limit. Upgrade to Plus to continue. · mock");
-    expect(texts(modelOf(await filesOf(runId)).receipt!)[0]).toBe("✗ implement: not verified: the step ended before `node verify.mjs` ran: You've hit your usage limit. Upgrade to Plus to continue.");
+    const receipt = texts(modelOf(await filesOf(runId)).receipt!);
+    expect(receipt[0]).toBe("✗ implement: not verified: the step ended before `node verify.mjs` ran: You've hit your usage limit. Upgrade to Plus to continue.");
+    // /model lasts one run: the receipt names the command that makes another tool stick.
+    expect(receipt).toContain("or /model implement <tool> for the next run, /settings for every run");
   });
 });
 

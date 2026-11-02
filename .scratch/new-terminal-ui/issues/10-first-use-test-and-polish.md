@@ -159,9 +159,19 @@ checked; "going on with the run…" stood over every run started in the window (
 5. "going on with the run…" shows only after a decision (`ActiveRun.decided`); a run started here has its step spinner.
 6. A `cd` into the attempt's own worktree (a path ending in its `att_` ID) is left off a command line; any other `cd`
    stays. A path titled with backslashes is not repeated.
-7. Not changed, for the maintainer: finding 4 above (one-run `/model`, "automatic" unnamed), the unexplained numbers
-   (cost and cache notes could go in the sidebar), `/runs`' number style, the review's raw JSON message, and first open
-   casting a tool whose login is unknown.
+7. Left for the maintainer, then adopted ("do recommendation", 2026-11-02):
+   - `/model` stays one run; after a `config_auth` failure the app's receipt adds "or /model <step> <tool> for the next
+     run, /settings for every run" (app only: the plain commands have neither).
+   - `/settings` writes "automatic (Codex CLI now)": AHP's casting without the person's defaults, beside the word,
+     which still says no default is saved.
+   - The sidebar puts the cost's basis under it, from the tool's own source note: "list price, not a charge" only when
+     every note says so (Claude Code's), else "as the tool figured it"; nothing when no note says.
+   - A message that is a review's output object (`{"verdict": …`) is left off the timeline; the verdict line and its
+     findings say the same.
+   - `castRoles` moves a role off a tool whose login cannot be checked (OpenCode) to the first tool, in `TOOLS` order,
+     whose login was confirmed, with that as the reason; when none was confirmed OpenCode keeps it, and a saved default
+     still wins. `assignRoles` (and so `ahp init`'s reference workflow) is unchanged.
+   Still open: `/runs`' number style (`1,256` and adapter IDs where the run screen writes `1.3k` and tool names).
 
 ## Done before the test (2026-11-02)
 

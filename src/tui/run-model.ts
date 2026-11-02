@@ -313,6 +313,8 @@ function markOf(step: StepView, live: boolean): Mark {
 // Activity lines.
 
 const RUNS_A_COMMAND = /exec|bash|shell|command|terminal/i;
+/** A message that is a review's output object: `{"verdict": …` (the log keeps 300 characters, so it may be cut). */
+const VERDICT_JSON = /^\s*\{\s*"verdict"\s*:/;
 /** `cd "<…>/att_…" && ` at the start of a command: into an attempt's worktree, whose path ends in its attempt ID. */
 const INTO_WORKTREE = /^cd\s+(?:"[^"]*[\\/]att_[a-z0-9]+[\\/]?"|'[^']*[\\/]att_[a-z0-9]+[\\/]?'|\S*[\\/]att_[a-z0-9]+[\\/]?)\s*(?:&&|;)\s*/i;
 
@@ -331,6 +333,8 @@ export function toolCallLines(entries: readonly ActivityEntry[]): { at: number; 
       calls.set(entry.toolCallId, { at: Date.parse(entry.time), index, entry, permission: entry.permission });
       out.push({ at: Date.parse(entry.time), index, line: null, id: entry.toolCallId });
     } else if (entry.type === "message") {
+      // A review's verdict sent as its message, JSON and all: the verdict line and findings say it (ticket 10).
+      if (VERDICT_JSON.test(entry.text)) return;
       out.push({ at: Date.parse(entry.time), index, line: line(`m${index}`, seg(`"${oneLine(entry.text)}"`, "text")) });
     }
   });
@@ -607,6 +611,17 @@ export function limitText(entry: Extract<ActivityEntry, { type: "limit" }>): str
   return `context ${used} / ${size}`;
 }
 
+/**
+ * What a reported cost is, in a few words, from the tool's own source note ("cost is a list-price figure from the tool,
+ * not a charge"): a subscription's run shows a cost, and the person asks whether they were charged (ticket 10).
+ */
+export function costBasisOf(sources: readonly string[]): string | null {
+  const notes = sources.flatMap((source) => source.split(/;\s*/)).filter((part) => part.trim().startsWith("cost is"));
+  if (notes.length === 0) return null;
+  if (notes.every((note) => note.includes("not a charge"))) return "list price, not a charge";
+  return "as the tool figured it";
+}
+
 function usageSection(adapter: string, attempts: readonly AttemptView[], files: RunFiles): SidebarSection {
   const summary = summarizeUsage(attempts.map((attempt) => ({ adapter, usage: usageSoFar(attempt, files.activity[attempt.id]) })))[0]!;
   const running = attempts.find((attempt) => attempt.state === "running" || attempt.state === "dispatching");
@@ -621,6 +636,8 @@ function usageSection(adapter: string, attempts: readonly AttemptView[], files: 
       line(`${key}:cached`, ...countSegments("cached", summary.counts.cachedInputTokens)),
       line(`${key}:cost`, ...cost),
     );
+    const basis = summary.cost.length > 0 ? costBasisOf(summary.sources) : null;
+    if (basis) lines.push(line(`${key}:basis`, seg(`  ${basis}`, "muted")));
     if (summary.reported < summary.attempts) lines.push(line(`${key}:of`, seg(`${summary.reported} of ${summary.attempts} attempts reported`, "muted")));
     lines.push(line(`${key}:src`, seg(`source: ${sourcesText(summary.sources)}`, "muted")));
   }
@@ -703,6 +720,9 @@ function receiptLines(state: RunView): Line[] {
     }
   }
   if (receipt.next) lines.push(line("rc:next", seg("next ", "muted"), seg(receipt.next, "accent")));
+  // A login or usage limit is the person's to fix, and /model lasts one run: say which command makes another tool stick (ticket 10).
+  const stuck = receipt.steps.find((step) => step.failureClass === "config_auth");
+  if (stuck) lines.push(line("rc:switch", seg("or ", "muted"), seg(`/model ${stuck.stepId} <tool> for the next run, /settings for every run`, "text")));
   if (receipt.mock) lines.push(line("rc:mock", seg(MOCK_RECEIPT_LINE, "warn")));
   return lines;
 }
