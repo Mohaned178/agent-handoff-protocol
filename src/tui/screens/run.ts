@@ -403,11 +403,11 @@ export function RunScreen({ layout, sources, runId, nav, active, cancel, running
     (input, key) => {
       if (dispatch(keys, input, key) || reason === null) return;
       const action = promptActionOf(input, key);
-      if (action) setReason({ prompt: editPrompt(reason.prompt, action).state, error: null });
+      if (action) setReason((current) => current && { prompt: editPrompt(current.prompt, action).state, error: null });
     },
     { isActive: active },
   );
-  usePaste((text) => reason && setReason({ prompt: editPrompt(reason.prompt, { type: "insert", text }).state, error: null }), { isActive: active && reason !== null });
+  usePaste((text) => setReason((current) => current && { prompt: editPrompt(current.prompt, { type: "insert", text }).state, error: null }), { isActive: active && reason !== null });
 
   const title = model?.title ?? `run ${runId}`;
   const body: ReturnType<typeof h>[] = [];

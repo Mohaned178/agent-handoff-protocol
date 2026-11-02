@@ -211,10 +211,10 @@ export function Home({ layout, sources, nav, active, task, session, setSession, 
   const menu = query === null ? null : filterByName(COMMANDS, (command) => command.name, query);
   const chosen = menu === null ? 0 : Math.min(selected, Math.max(0, menu.length - 1));
 
+  // From the latest state, not this render's: keys typed fast or sent at once come in several chunks before the next render.
   const edit = (action: PromptAction) => {
-    const result = editPrompt(prompt, action);
-    setPrompt(result.state);
-    if (result.state.value !== prompt.value) setSelected(0);
+    setPrompt((current) => editPrompt(current, action).state);
+    if (action.type !== "left" && action.type !== "right" && action.type !== "home" && action.type !== "end") setSelected(0);
   };
   const going = running !== null && running.phase !== "ended";
   const alive = useRef(true);

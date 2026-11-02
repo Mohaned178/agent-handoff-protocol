@@ -180,7 +180,7 @@ export function useStepChoice(options: StepChoiceOptions): StepChoiceApi {
       if (dispatch(keys, input, key)) return;
       if (phase === "typed") {
         const action = promptActionOf(input, key);
-        if (action) setTyped(editPrompt(typed, action).state);
+        if (action) setTyped((current) => editPrompt(current, action).state);
         return;
       }
       const letter = filterText(input, key);
@@ -188,7 +188,7 @@ export function useStepChoice(options: StepChoiceOptions): StepChoiceApi {
     },
     { isActive: options.isActive && choice !== null },
   );
-  usePaste((text) => setTyped(editPrompt(typed, { type: "insert", text }).state), { isActive: options.isActive && phase === "typed" });
+  usePaste((text) => setTyped((current) => editPrompt(current, { type: "insert", text }).state), { isActive: options.isActive && phase === "typed" });
 
   let body: ReactNode = null;
   if (choice !== null) {

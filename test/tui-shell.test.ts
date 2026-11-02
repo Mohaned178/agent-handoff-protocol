@@ -146,6 +146,14 @@ describe("the home screen", () => {
     await tui.waitFor("No runs here yet. Describe a task below to start one.");
   });
 
+  it("keeps every chunk of text that comes in before the next frame", async () => {
+    const tui = await home();
+    // Fast typing (or keys sent by a program) reaches the app in several chunks between two renders.
+    tui.stdin.write("fix the bug ");
+    tui.stdin.write("where the cart total ignores quantity");
+    await tui.waitFor("❯ fix the bug where the cart total ignores quantity");
+  });
+
   it("answers a task with its summary, and esc brings the task back into the prompt", async () => {
     const tui = await home();
     await tui.type("fix the failing login test");
