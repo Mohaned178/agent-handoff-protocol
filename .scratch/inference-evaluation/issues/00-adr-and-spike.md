@@ -13,7 +13,8 @@ what each engine can do with the chosen model.
       OpenCode's custom provider, and only `src/inference/` speaks HTTP to a local engine.
 - [x] `docs/design/ahp-v2-direction.md`, CLAUDE.md and `GLOSSARY.md` updated
 - [x] `bench/engines/`: Compose files with pinned images for vLLM, SGLang and TensorRT-LLM, and `ollama.md`
-- [ ] Spike, run by the maintainer: for each engine, record in `docs/spikes/2026-11-xx-local-engines.md`:
+- [ ] Spike, run by the maintainer (Ollama, vLLM and SGLang only; TensorRT-LLM dropped from the spike 2026-11-01, Docker
+      optional, WSL2 allowed): for each engine, record in `docs/spikes/2026-11-xx-local-engines.md`:
   - does it serve Qwen2.5-Coder-7B int4
   - the largest context that fits
   - the tool-call parser
