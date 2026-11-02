@@ -171,7 +171,7 @@ checked; "going on with the run…" stood over every run started in the window (
    - `castRoles` moves a role off a tool whose login cannot be checked (OpenCode) to the first tool, in `TOOLS` order,
      whose login was confirmed, with that as the reason; when none was confirmed OpenCode keeps it, and a saved default
      still wins. `assignRoles` (and so `ahp init`'s reference workflow) is unchanged.
-   Still open: `/runs`' number style (`1,256` and adapter IDs where the run screen writes `1.3k` and tool names).
+   `/runs` now writes usage as the run screen does: tool names and short counts ("Claude Code 1.3k in").
 
 ## Done before the test (2026-11-02)
 

@@ -30,16 +30,18 @@ describe("the usage of a run, as each tool reported it", () => {
 
   it("names the tool before every number, and never adds one tool's to another's", () => {
     const summaries = summarizeUsage([attempt("claude-code", { input: 1200, output: 30 }), attempt("codex", { input: 5000, output: 70 }), attempt("claude-code", { input: 800, output: 20 })]);
-    expect(summaries.map(usageSegment)).toEqual(["claude-code 2,000 in · 50 out", "codex 5,000 in · 70 out"]);
+    // Tool names and short counts, as the run screen writes them (ticket 10).
+    expect(summaries.map(usageSegment)).toEqual(["Claude Code 2k in · 50 out", "Codex CLI 5k in · 70 out"]);
+    expect(usageSegment(summarizeUsage([attempt("claude-code", { input: 1256, output: 30 })])[0]!)).toBe("Claude Code 1.3k in · 30 out");
   });
 
   it("says 'not reported' for a tool that reported nothing, never 0, and how many attempts did when only some did", () => {
     const [none] = summarizeUsage([attempt("opencode", null), attempt("opencode", null)]);
-    expect(usageSegment(none!)).toBe("opencode not reported");
+    expect(usageSegment(none!)).toBe("OpenCode not reported");
     const [some] = summarizeUsage([attempt("codex", { input: 100, output: 5 }), attempt("codex", null), attempt("codex", null)]);
-    expect(usageSegment(some!)).toBe("codex 100 in · 5 out (1 of 3 attempts)");
+    expect(usageSegment(some!)).toBe("Codex CLI 100 in · 5 out (1 of 3 attempts)");
     const [total] = summarizeUsage([attempt("codex", { input: null, output: null, total: 900 })]);
-    expect(usageSegment(total!)).toBe("codex 900 tokens");
+    expect(usageSegment(total!)).toBe("Codex CLI 900 tokens");
   });
 });
 

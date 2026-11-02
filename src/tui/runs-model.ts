@@ -4,20 +4,21 @@
 
 import type { RunListing } from "../sdk/run.ts";
 import { money, summarizeUsage, type UsageSummary } from "../runtime/usage.ts";
+import { TOOLS } from "../doctor/tools.ts";
+import { thousands } from "./run-model.ts";
 import { rowOf, type HomeRow } from "./screens/home-model.ts";
 
 export interface RunsRow extends HomeRow {
-  /** One line, a segment per tool: "codex 12,300 in · 800 out"; "" when no attempt ran. */
+  /** One line, a segment per tool: "Codex CLI 12.3k in · 800 out"; "" when no attempt ran. */
   usage: string;
   /** False for a run whose ledger cannot be read: `enter` does not open it. */
   openable: boolean;
 }
 
-const thousands = (count: number) => count.toLocaleString("en-US");
-
-/** One tool's segment: its name first, so a cut line never leaves a bare number. */
+/** One tool's segment: its name first, so a cut line never leaves a bare number. Written as the run screen writes it,
+ * "Claude Code 1.3k out", so a run reads the same in both places (ticket 10); `ahp inspect` keeps the exact counts. */
 export function usageSegment(summary: UsageSummary): string {
-  const who = summary.adapter;
+  const who = summary.adapter === "mock" ? "mock" : (TOOLS.find((tool) => tool.adapter === summary.adapter)?.name ?? summary.adapter);
   if (summary.reported === 0) return `${who} not reported`;
   const counts = [
     ...(summary.counts.inputTokens.attempts > 0 ? [`${thousands(summary.counts.inputTokens.sum)} in`] : []),
