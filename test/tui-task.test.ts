@@ -335,6 +335,21 @@ describe("the same from the prompt", () => {
     expect(tui.frame()).toContain("next run:");
   });
 
+  it("/model picked from the menu waits in the prompt for its words, with the whole usage as a hint (ticket 10)", async () => {
+    const { tui } = await app({ claude: "ready", codex: "ready" });
+    await tui.type("/model");
+    await tui.press("enter");
+    const frame = await tui.waitFor("usage: /model <step> <tool> [model]");
+    expect(frame).toContain("❯ /model ");
+    // Wrapped, not cut: the tool names are the part a person needs.
+    expect(frame.replace(/\s+/g, " ")).toMatch(/tools: claude-code, codex, opencode\); \/model <step> <model> keeps the tool/);
+    expect(colorAt(tui.raw(), "usage: /model")).toContain("muted");
+
+    await tui.type("implement claude");
+    await tui.press("enter");
+    await tui.waitFor("implement: Claude Code, default model for the next run");
+  });
+
   it("refuses with a sentence that says how to write it right, in the error colour", async () => {
     const { tui } = await app({ claude: "ready", codex: "ready" });
     const refuse = async (line: string, text: string) => {
@@ -447,6 +462,9 @@ describe("a run going, cancelled and quit", () => {
   it("ctrl+c on the run screen asks 'Cancel the run? y/n'; n goes on, y records the cancel through the run's signal", async () => {
     const { tui, runner, frame, runId } = await startedRun();
     expect(lastLine(frame)).toContain("ctrl+c cancel");
+    // A run started here was decided by no one: the step at work has the spinner, and nothing says "going on" (ticket 10).
+    expect(frame).not.toContain("going on with the run");
+    expect(runner.current()?.decided).toBe(false);
 
     await tui.press("ctrl+c");
     let asked = await tui.waitFor("Cancel the run? y/n");

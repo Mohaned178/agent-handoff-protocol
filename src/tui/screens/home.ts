@@ -29,7 +29,9 @@ import { useTheme, type Token } from "../theme.ts";
 import { homeModel, statusOf, type HomeRow } from "./home-model.ts";
 
 export const PLACEHOLDER = 'describe a task, e.g. "fix the failing login test"';
-export const RUN_GOING = "A run is going in this window: enter opens it, ctrl+c cancels it from there.";
+/** The commands that change the next run and say nothing without words after them (`/plan` alone turns the plan step over). */
+const NEEDS_WORDS = ["model", "effort", "check", "push"] as const;
+export const RUN_GOING ="A run is going in this window: enter opens it, ctrl+c cancels it from there.";
 
 /** Where home reads what it shows. Tests give their own environment (a PATH with no coding tool). */
 export interface HomeSources {
@@ -217,8 +219,8 @@ export function Home({ layout, sources, nav, active, task, session, setSession, 
   const going = running !== null && running.phase !== "ended";
   const alive = useRef(true);
   useEffect(() => () => void (alive.current = false), []);
-  /** `/model`, `/effort`, `/plan`, `/check` and `/push`: change the next run, and say so. */
-  const changeNextRun = (name: string, argument: string) => {
+  /** `/model`, `/effort`, `/plan`, `/check` and `/push`: change the next run, and say so. `hint`: a refusal is only how to write it. */
+  const changeNextRun = (name: string, argument: string, hint = false) => {
     void (async () => {
       let outcome: ReturnType<typeof applySlash>;
       try {
@@ -229,7 +231,7 @@ export function Home({ layout, sources, nav, active, task, session, setSession, 
       }
       if (!alive.current) return;
       if (outcome.ok) setSession(() => outcome.session);
-      setNotice(outcome.ok ? { text: outcome.notice, tone: "text" } : { text: outcome.error, tone: "error" });
+      setNotice(outcome.ok ? { text: outcome.notice, tone: "text" } : { text: outcome.error, tone: hint ? "muted" : "error" });
     })();
   };
   const runNamed = (command: SlashCommand, argument: string) => {
@@ -243,6 +245,12 @@ export function Home({ layout, sources, nav, active, task, session, setSession, 
   const runCommand = (command: SlashCommand | null) => {
     setPrompt(editPrompt(prompt, { type: "clear" }).state);
     if (command === null) return setNotice({ text: `No command ${prompt.value}: type / to see them.`, tone: "error" });
+    // Picked from the menu, a command that needs words after it waits for them in the prompt, with how to write them.
+    if ((NEEDS_WORDS as readonly string[]).includes(command.name)) {
+      setNotice(null);
+      setPrompt(editPrompt(prompt, { type: "set", value: `/${command.name} ` }).state);
+      return changeNextRun(command.name, "", true);
+    }
     runNamed(command, "");
   };
   const submit = () => {
@@ -306,7 +314,7 @@ export function Home({ layout, sources, nav, active, task, session, setSession, 
     );
     body.push(h(Text, { key: "running-gap" }, " "));
   } else if (running?.error) body.push(h(Text, { key: "run-error", color: theme.color("error"), wrap: "truncate-end" }, `The last run stopped: ${running.error}`));
-  if (notice) body.push(h(Text, { key: "notice", color: theme.color(notice.tone), wrap: "truncate-end" }, notice.text));
+  if (notice) body.push(h(Text, { key: "notice", color: theme.color(notice.tone), wrap: "wrap" }, notice.text));
   if (runs.state === "loading") body.push(h(Spinner, { key: "loading", label: "reading the runs" }));
   else if (runs.state === "failed") body.push(h(Text, { key: "failed", color: theme.color("error"), wrap: "truncate-end" }, `The runs could not be listed: ${runs.message}`));
   else {

@@ -2,7 +2,7 @@
 // run's state and nothing else. The app's run screen renders the same data.
 
 import type { RunView } from "../protocol/index.ts";
-import { receiptOf, type Receipt, type ReceiptStep } from "./receipt.ts";
+import { endedWhy, receiptOf, type Receipt, type ReceiptStep } from "./receipt.ts";
 import { money, sourcesText, summarizeUsage, usageLines } from "../runtime/index.ts";
 
 const RUN_USAGE_HEADING = "usage, as each tool reported it (per adapter, not summed across adapters; nothing is estimated):";
@@ -21,7 +21,7 @@ function checkLines(step: ReceiptStep): string[] {
   const lines: string[] = [];
   if (step.verdict === "verified") lines.push(`  ${step.stepId}: verified: \`${step.command}\` passed in a clean copy`);
   if (step.verdict === "not_verified") lines.push(`  ${step.stepId}: not verified: \`${step.command}\` failed`);
-  if (step.verdict === "ended_before_check") lines.push(`  ${step.stepId}: not verified: the step ended (${step.failureClass ?? "failed"}) before \`${step.command}\` ran`);
+  if (step.verdict === "ended_before_check") lines.push(`  ${step.stepId}: not verified: the step ended before \`${step.command}\` ran: ${endedWhy(step)}`);
   if (step.reportedDone.length > 0) {
     lines.push(
       step.passedAfter
@@ -48,7 +48,7 @@ const thousands = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1).replace(/
 /** One step's check in a line: passed or failed, with how many attempts failed it first and what review sent back. */
 function briefCheck(step: ReceiptStep): string | null {
   if (step.verdict === null) return null;
-  if (step.verdict === "ended_before_check") return `✗ ${step.stepId}: ended (${step.failureClass ?? "failed"}) before \`${step.command}\` ran`;
+  if (step.verdict === "ended_before_check") return `✗ ${step.stepId}: ended before \`${step.command}\` ran: ${endedWhy(step)}`;
   if (step.verdict === "not_verified") return `✗ ${step.stepId}: \`${step.command}\` failed on ${count(step.reportedDone.length, "attempt")}`;
   const parts = [`✓ ${step.stepId}: \`${step.command}\` passed`];
   if (step.reportedDone.length > 0) parts.push(`after ${count(step.reportedDone.length, "failed attempt")}`);

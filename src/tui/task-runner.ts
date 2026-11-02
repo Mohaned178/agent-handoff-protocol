@@ -33,6 +33,8 @@ export interface ActiveRun {
   runId: string | null;
   /** `starting` until the first event, `running` after, `cancelling` once a cancel was asked, `ended` when `runWorkflow` returned or threw. */
   phase: "starting" | "running" | "cancelling" | "ended";
+  /** True when a person's decision took the run on (`decide`); false for a run started here. */
+  decided: boolean;
   /** How the run ended or stopped for a person (`waiting_approval`, `needs_recovery`, `succeeded`...), once `ended`. */
   outcome: RunState | null;
   /** Why `runWorkflow` threw, once `ended` by a throw; one line. */
@@ -89,7 +91,7 @@ export class TaskRunner {
     const controller = new AbortController();
     this.controller = controller;
     const name = workflow.name;
-    this.set({ name, mock, runId: null, phase: "starting", outcome: null, error: null });
+    this.set({ name, mock, runId: null, phase: "starting", decided: false, outcome: null, error: null });
     const run = this.options.run ?? runWorkflow;
     this.finished = run(workflow, {
       repo,
@@ -121,7 +123,7 @@ export class TaskRunner {
     if (this.going()) throw new Error("a run is already going in this window");
     const controller = new AbortController();
     this.controller = controller;
-    this.set({ name, mock, runId, phase: "running", outcome: null, error: null });
+    this.set({ name, mock, runId, phase: "running", decided: true, outcome: null, error: null });
     const shared = {
       repo,
       signal: controller.signal,

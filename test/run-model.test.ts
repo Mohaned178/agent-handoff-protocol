@@ -1,12 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { formatBriefReceipt, formatReceipt } from "../src/commands/receipt-text.ts";
 import { receiptOf } from "../src/commands/receipt.ts";
-import { defineWorkflow, mock, readRunEvents, runWorkflow, type MockAttemptScript } from "../src/index.ts";
+import { defineWorkflow, mock, readRunEvents, rejectStep, runWorkflow, type MockAttemptScript } from "../src/index.ts";
 import { replay } from "../src/ledger/replay.ts";
 import type { ActivityEntry, LedgerEvent } from "../src/protocol/index.ts";
 import { parseUnifiedDiff, untrackedFile, type DiffFile } from "../src/tui/diff-model.ts";
 import { bodyOf, duration, limitText, runModel, windowStart, type Block, type Line, type RunFiles, type RunModel } from "../src/tui/run-model.ts";
-import { gatedWorkflow } from "./helpers/approval.ts";
+import { homeModel } from "../src/tui/screens/home-model.ts";
+import { gatedWorkflow, gateStep } from "./helpers/approval.ts";
 import { createTempRepo, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
 import { goodbye, hello, retryWorkflow } from "./helpers/retry.ts";
 import { approved, changesRequested, implemented, implementStep, reviewedWorkflow, reviewStep } from "./helpers/review.ts";
@@ -58,7 +59,8 @@ describe("the run model: each step's block", () => {
 
     const folded = blockOf(modelOf(files), "implement");
     expect(folded.mark).toBe("ok");
-    expect(texts(bodyOf(folded))).toEqual(["↻ attempt 1: greeting missing or wrong, retrying (retry 1 of 2)"]);
+    // Folded, the retry and how it ended: a retry line alone reads as still failing (ticket 10).
+    expect(texts(bodyOf(folded))).toEqual(["↻ attempt 1: greeting missing or wrong, retrying (retry 1 of 2)", "✓ reported done · verified: `node verify.mjs` passed in a clean copy"]);
 
     const expanded = blockOf(modelOf(files, ["implement"]), "implement");
     // The check's own output, its last lines: VERIFY_GREETING prints where it ran, then what is wrong.
@@ -74,10 +76,25 @@ describe("the run model: each step's block", () => {
     const { runId } = await runWorkflow(reviewedWorkflow(implementStep([implemented(1), implemented(2)]), reviewStep([changesRequested("rename the greeting", "add a test"), approved()])), { repo });
     const model = modelOf(await filesOf(runId), ["implement", "review"]);
 
-    expect(texts(blockOf(model, "implement").folded)).toEqual(["↻ sent back by review: rename the greeting (retry 1 of 2)"]);
+    expect(texts(blockOf(model, "implement").folded)).toEqual(["↻ sent back by review: rename the greeting (retry 1 of 2)", "✓ reported done · verified: `node verify.mjs` passed in a clean copy"]);
     expect(texts(blockOf(model, "implement").lines).slice(0, 3)).toEqual(["↻ sent back by review: rename the greeting (retry 1 of 2)", "    | rename the greeting", "    | add a test"]);
-    expect(texts(blockOf(model, "review").lines).at(-1)).toBe("✓ reported done · verified: its output is complete (a structural check, not of its quality) · verdict: approved");
+    expect(texts(blockOf(model, "review").lines).slice(-2)).toEqual(["✓ reported done · verified: its output is complete (a structural check, not of its quality) · verdict: approved", "    | nothing to change"]);
     expect(texts(model.receipt!)).toContain("  sent back by review (attempt 1): the next review approved the revision");
+  });
+
+  it("a rejection at the gate sends the review back: folded, its block shows the rejection and the review's answer (ticket 10)", async () => {
+    const workflow = defineWorkflow({ name: "reviewed-gate", steps: [implementStep([implemented(1)]), reviewStep([approved("looks right"), approved("the test already covers a cart with several items")]), gateStep()] });
+    const { runId } = await runWorkflow(workflow, { repo });
+    await rejectStep({ repo, runId, stepId: "approve", reason: "add a test for several items" });
+
+    const model = modelOf(await filesOf(runId));
+    expect(blockOf(model, "approve").mark).toBe("wait");
+    expect(blockOf(model, "review").expanded).toBe(false);
+    expect(texts(bodyOf(blockOf(model, "review")))).toEqual([
+      expect.stringMatching(/^↻ rejected at approve by .+: add a test for several items \(retry 1 of 2\)$/),
+      "✓ reported done · verified: its output is complete (a structural check, not of its quality) · verdict: approved",
+      "    | the test already covers a cart with several items",
+    ]);
   });
 
   it("a failure: ✗, expanded, the failing line; the receipt says not verified and what to run next", async () => {
@@ -172,6 +189,19 @@ describe("the run model while an attempt works", () => {
     expect(model.notice).toBeNull();
   });
 
+  it("leaves out a cd into the attempt's own worktree, and says a backslashed path once (ticket 10)", () => {
+    const calls: ActivityEntry[] = [
+      { type: "tool_call", time: time(2), toolCallId: "c1", kind: "execute", title: `cd "C:\\Users\\me\\ahp\\worktrees\\run_abc\\${attemptId}" && npm test`, status: "completed", paths: [], permission: null },
+      { type: "tool_call", time: time(3), toolCallId: "c2", kind: "execute", title: "cd ../elsewhere && rm -rf build", status: "completed", paths: [], permission: null },
+      { type: "tool_call", time: time(4), toolCallId: "c3", kind: "read", title: "src\\cart.mjs", status: "completed", paths: ["src/cart.mjs"], permission: null },
+    ];
+    const lines = texts(blockOf(modelOf({ ...running, activity: { [attemptId]: calls } }), "implement").lines);
+    expect(lines).toContain("$ npm test");
+    // A cd anywhere else is part of what the agent did, and stays.
+    expect(lines).toContain("$ cd ../elsewhere && rm -rf build");
+    expect(lines).toContain("● src\\cart.mjs");
+  });
+
   it("keeps the newest activity lines and counts the older ones", () => {
     const many: ActivityEntry[] = Array.from({ length: 500 }, (_, i) => ({ type: "message", time: time(i), text: `step ${i}` }));
     const block = blockOf(runModel({ ...running, activity: { [attemptId]: many } }, { now: NOW, pid: PID, maxActivity: 20 }), "implement");
@@ -220,6 +250,16 @@ describe("the run model while an attempt works", () => {
     }
     // Ten frames' worth: well under a 100 ms redraw each.
     expect((performance.now() - started) / 10).toBeLessThan(50);
+  });
+});
+
+describe("home's row for a run that failed before its check", () => {
+  it("says what the tool said, not a class name: a usage limit is not a login problem (ticket 10)", async () => {
+    const limited: MockAttemptScript = { exitCode: 1, error: { kind: "config_auth", message: "You've hit your usage limit. Upgrade to Plus to continue." } };
+    const { runId, state } = await runWorkflow(retryWorkflow([limited]), { repo });
+    const [row] = homeModel([{ runId, state, lock: { state: "free" }, problem: null }], NOW).recent;
+    expect(row!.detail).toBe("implement: You've hit your usage limit. Upgrade to Plus to continue. · mock");
+    expect(texts(modelOf(await filesOf(runId)).receipt!)[0]).toBe("✗ implement: not verified: the step ended before `node verify.mjs` ran: You've hit your usage limit. Upgrade to Plus to continue.");
   });
 });
 

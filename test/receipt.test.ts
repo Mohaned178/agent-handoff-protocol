@@ -167,8 +167,9 @@ describe("the short receipt a terminal shows", () => {
     const limited: MockAttemptScript = { exitCode: 1, error: { kind: "config_auth", message: "You've hit your usage limit." } };
     const { state } = await runWorkflow(retryWorkflow([limited]), { repo: repo() });
 
-    expect(checks(state)).toBe([HEADING, "  implement: not verified: the step ended (config_auth) before `node verify.mjs` ran"].join("\n"));
-    expect(formatBriefReceipt(state)[0]).toBe("✗ implement: ended (config_auth) before `node verify.mjs` ran");
+    // The tool's own words, not the class name: a usage limit is not fixed by logging in (ticket 10).
+    expect(checks(state)).toBe([HEADING, "  implement: not verified: the step ended before `node verify.mjs` ran: You've hit your usage limit."].join("\n"));
+    expect(formatBriefReceipt(state)[0]).toBe("✗ implement: ended before `node verify.mjs` ran: You've hit your usage limit.");
   });
 
   it("shortens reported numbers and keeps their source", async () => {

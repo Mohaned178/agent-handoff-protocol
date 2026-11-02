@@ -5,13 +5,14 @@
 // Honest numbers: usage only as each tool reported it, per tool, never summed across tools or estimated; "not reported"
 // where a tool said nothing. An agent "reported done"; only a passing check "verified".
 
-import { checkCommandOf, failureLineOf, MOCK_RECEIPT_LINE, receiptOf } from "../commands/receipt.ts";
+import { checkCommandOf, endedWhy, failureLineOf, MOCK_RECEIPT_LINE, receiptOf } from "../commands/receipt.ts";
 import { TOOLS } from "../doctor/tools.ts";
 import type { LockState } from "../ledger/lock.ts";
 import {
   isAgentStep,
   isApprovalGate,
   isExternalAction,
+  reviewFindingsOf,
   reviewVerdictOf,
   THIS_REPOSITORY,
   UNKNOWN_MODEL,
@@ -312,6 +313,8 @@ function markOf(step: StepView, live: boolean): Mark {
 // Activity lines.
 
 const RUNS_A_COMMAND = /exec|bash|shell|command|terminal/i;
+/** `cd "<…>/att_…" && ` at the start of a command: into an attempt's worktree, whose path ends in its attempt ID. */
+const INTO_WORKTREE = /^cd\s+(?:"[^"]*[\\/]att_[a-z0-9]+[\\/]?"|'[^']*[\\/]att_[a-z0-9]+[\\/]?'|\S*[\\/]att_[a-z0-9]+[\\/]?)\s*(?:&&|;)\s*/i;
 
 export function toolCallLines(entries: readonly ActivityEntry[]): { at: number; line: Line }[] {
   // One line per call, where it first appeared, in the state the tool last reported.
@@ -336,9 +339,12 @@ export function toolCallLines(entries: readonly ActivityEntry[]): { at: number; 
     const call = calls.get(item.id!)!;
     const { entry } = call;
     const command = RUNS_A_COMMAND.test(entry.kind ?? "");
-    const title = oneLine(entry.title ?? entry.kind ?? "tool call");
+    const said = oneLine(entry.title ?? entry.kind ?? "tool call");
+    // A command that first goes into the attempt's own worktree: the `cd` is the long part and says nothing (ticket 10).
+    const title = command ? said.replace(INTO_WORKTREE, "") : said;
     const path = entry.paths[0];
-    const label = path && !title.includes(path) ? `${title} ${path}${entry.paths.length > 1 ? ` +${entry.paths.length - 1}` : ""}` : title;
+    // Windows tools title a path with backslashes; the path itself has slashes, and is not said twice.
+    const label = path && !title.replaceAll("\\", "/").includes(path) ?`${title} ${path}${entry.paths.length > 1 ? ` +${entry.paths.length - 1}` : ""}` : title;
     const segments = [seg(command ? "$ " : "● ", command ? "accent" : "muted"), seg(label, entry.status === "completed" ? "text" : "muted")];
     if (entry.status === "failed") segments.push(seg("  ✗ failed", "error"));
     if (call.permission === "rejected") segments.push(seg("  refused by AHP", "warn"));
@@ -390,7 +396,7 @@ function diffLines(files: readonly DiffFile[]): { at: number; line: Line }[] {
 
 const FAILURE_WORDS: Record<string, string> = {
   rejected: "its handoff was refused",
-  config_auth: "a login or configuration problem",
+  config_auth: "a login, usage limit or configuration problem",
   transient: "a temporary error",
   agent_error: "the agent failed",
   verification_failed: "its check failed",
@@ -471,7 +477,9 @@ function outcomeLines(step: StepView, attempt: AttemptView, decide: boolean): Li
     const what = command ? `verified: \`${command}\` passed in a clean copy` : "verified: its output is complete (a structural check, not of its quality)";
     const segments = [seg(`${SYMBOLS.ok} `, "accent"), seg("reported done · ", "text"), seg(what, "accent")];
     if (verdict) segments.push(seg(` · verdict: ${verdict === "approved" ? "approved" : "changes requested"}`, "text"));
-    return [line(key, ...segments)];
+    // What the review found, under its verdict: after a rejection at a gate it is the review's answer (ticket 10).
+    const findings = step.kind === "review" ? reviewFindingsOf(attempt.reportedOutput) : [];
+    return [line(key, ...segments), ...findings.map((finding, i) => line(`${key}:f${i}`, seg(`    | ${oneLine(finding)}`, "muted")))];
   }
   if (attempt.retry) return [];
   return [line(key, seg(`${SYMBOLS.fail} `, "error"), seg("reported done · ", "text"), seg(`not verified: ${whyOf(attempt)}`, "error"))];
@@ -507,6 +515,9 @@ function agentBlock(step: StepView, index: number, files: RunFiles, context: Blo
   }
   const started = step.attempts[0] ? context.times.attempts.get(step.attempts[0].id)?.created : undefined;
   const ended = isActive(step) ? context.now : (context.times.ended.get(step.id) ?? (last ? context.times.attempts.get(last.id)?.exited : undefined));
+  // Folded after a retry or a send-back, a step that then passed says so: a retry line alone reads as still failing,
+  // and a step sent back from a gate would hide its answer to the person (ticket 10).
+  const answered = folded.length > 0 && last?.verification?.state === "pass" ? outcomeLines(step, last, context.decide) : [];
   return {
     stepId: step.id,
     mark: markOf(step, context.live),
@@ -515,7 +526,7 @@ function agentBlock(step: StepView, index: number, files: RunFiles, context: Blo
     time: started === undefined ? "" : duration((ended ?? context.now) - started),
     tokens: stepTokens(step, files),
     lines,
-    folded,
+    folded: [...folded, ...answered],
   };
 }
 
@@ -664,7 +675,7 @@ function receiptLines(state: RunView): Line[] {
     const key = `rc:${step.stepId}`;
     if (step.verdict === "verified") lines.push(line(key, seg(`${SYMBOLS.ok} `, "accent"), seg(`${step.stepId}: verified: \`${step.command}\` passed in a clean copy`, "text")));
     else if (step.verdict === "not_verified") lines.push(line(key, seg(`${SYMBOLS.fail} `, "error"), seg(`${step.stepId}: not verified: \`${step.command}\` failed`, "text")));
-    else if (step.verdict === "ended_before_check") lines.push(line(key, seg(`${SYMBOLS.fail} `, "error"), seg(`${step.stepId}: not verified: the step ended (${step.failureClass ?? "failed"}) before \`${step.command}\` ran`, "text")));
+    else if (step.verdict === "ended_before_check") lines.push(line(key, seg(`${SYMBOLS.fail} `, "error"), seg(`${step.stepId}: not verified: the step ended before \`${step.command}\` ran: ${endedWhy(step)}`, "text")));
     if (step.reportedDone.length > 0) {
       const n = step.reportedDone.length;
       const times = n === 1 ? "once" : `${n} times`;

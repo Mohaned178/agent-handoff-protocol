@@ -226,6 +226,7 @@ describe("a decision that is refused", () => {
     const { writer } = await LedgerWriter.open(ledgerFile(repo, runId));
     try {
       runner.decide({ repo, runId, name: "gated", mock: true, request: { type: "approve", stepId: "approve" } });
+      expect(runner.current()?.decided).toBe(true);
       await runner.settled();
       const frame = await tui.waitFor(`lock held by PID ${process.pid}`);
       expect(frame.split("\n").filter((line) => line.includes("lock held by PID"))).toHaveLength(1);

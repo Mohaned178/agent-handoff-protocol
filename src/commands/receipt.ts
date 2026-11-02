@@ -53,6 +53,9 @@ export function failureLineOf(attempt: AttemptView): string | null {
 export const checkCommandOf = (step: StepView): string | null =>
   step.attempts.map((attempt) => attempt.verification?.command ?? null).filter((command) => command !== null).at(-1) ?? step.check ?? null;
 
+/** Why a step ended before its check ran, for a person: the tool's words when it gave some, else its failure class. */
+export const endedWhy = (step: Pick<ReceiptStep, "failure" | "failureClass">): string => step.failure ?? step.failureClass ?? "it failed";
+
 /** Whether a step's check ever ran: a step can fail before it does (a login, a usage limit, an agent error). */
 const checkRan = (step: StepView) => step.attempts.some((attempt) => attempt.verification?.command != null);
 
@@ -84,6 +87,8 @@ export interface ReceiptStep {
    */
   verdict: "verified" | "not_verified" | "ended_before_check" | null;
   failureClass: FailureClass | null;
+  /** Why its last attempt failed, in one line (the tool's own words where it gave some); null when it did not fail. */
+  failure: string | null;
   /** The times its agent reported done and the check said otherwise, oldest first. */
   reportedDone: ReportedDone[];
   /** Whether its check passed after those. */
@@ -154,6 +159,7 @@ function receiptStepOf(step: StepView, state: Readonly<RunView>): ReceiptStep {
     command,
     verdict,
     failureClass: step.failureClass,
+    failure: step.state === "failed" && step.attempts.length > 0 ? failureLineOf(step.attempts.at(-1)!) : null,
     reportedDone,
     passedAfter: step.attempts.some((attempt) => attempt.verification?.state === "pass"),
     sendBacks: sendBacksOf(step, state),

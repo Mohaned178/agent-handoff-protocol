@@ -187,6 +187,9 @@ describe("the command menu", () => {
     await tui.press("enter");
     // /effort with no step is not a guess: it says how to write it.
     expect(tui.frame()).toContain("usage: /effort <step> <level>");
+    // ...and waits in the prompt for those words (ticket 10); esc clears it.
+    expect(tui.frame()).toContain("❯ /effort ");
+    await tui.press("escape");
     await tui.type("/mock");
     await tui.press("enter");
     expect(tui.frame()).toContain("No command /mock: type / to see them.");

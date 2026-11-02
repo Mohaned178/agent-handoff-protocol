@@ -46,7 +46,7 @@ export function ago(iso: string, now: number): string {
 
 const FAILURE_WORDS: Record<string, string> = {
   rejected: "handoff rejected",
-  config_auth: "login or configuration problem",
+  config_auth: "login, usage limit or configuration problem",
   transient: "temporary error (rate limit or network)",
   agent_error: "agent error",
   verification_failed: "check failed",
@@ -78,6 +78,9 @@ function failedDetail(state: RunView): string {
     const failures = step.attempts.filter((attempt) => attempt.verification?.state === "fail").length;
     return `${step.id}: ${check} failed${failures > 1 ? ` ${failures} times` : ""}`;
   }
+  // The tool's own words first: "You've hit your usage limit" says what to do, a class name does not (ticket 10).
+  const said = step.attempts.at(-1)?.error?.message.split(/\r?\n/)[0]?.trim();
+  if (said) return `${step.id}: ${said}`;
   return `${step.id}: ${step.failureClass ? (FAILURE_WORDS[step.failureClass] ?? step.failureClass) : "failed"}`;
 }
 

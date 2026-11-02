@@ -34,6 +34,8 @@ export const REDRAW_MS = 100;
 export const DIFF_MS = 1_000;
 /** The sidebar's width, its border included. */
 export const SIDEBAR_COLUMNS = 36;
+/** Shown while a run goes on in this window after a person's decision. */
+export const DECIDED = "going on with the run…";
 
 /** Where the run screen reads from. Tests give their own clock; `pid` is the process whose lock is this screen's own run. */
 export interface RunSources {
@@ -284,7 +286,7 @@ export function RunScreen({ layout, sources, runId, nav, active, cancel, running
   const step = block && run?.state ? run.state.steps.find((candidate) => candidate.id === block.stepId) : undefined;
   const lastAttempt = step?.attempts.at(-1);
 
-  const height = Math.max(1, layout.rows - 3 - (model?.notice ? 1 : 0) - (notice ? 1 : 0) - (refusal ? 1 : 0) - (deciding ? 1 : 0) - (reason ? 5 + (reason.error ? 1 : 0) : 0));
+  const height = Math.max(1, layout.rows - 3 - (model?.notice ? 1 : 0) - (notice ? 1 : 0) - (refusal ? 1 : 0) - (deciding && running.decided ? 1 : 0) - (reason ? 5 + (reason.error ? 1 : 0) : 0));
   const scrolls = decide !== undefined && (decision?.kind === "gate" || decision?.kind === "unknown");
   const decisionRows = decision?.kind === "gate" ? approvalLines(approvalDiff) : decision?.kind === "unknown" ? recoveryLines(decision.attempt, workspaceDiff) : null;
   const rows = model ? timelineRows(model, layout.columns - 2 - (layout.wide ? SIDEBAR_COLUMNS : 0), decisionRows) : [];
@@ -412,7 +414,8 @@ export function RunScreen({ layout, sources, runId, nav, active, cancel, running
   if (model?.notice) body.push(h(LineView, { key: "notice", line: model.notice }));
   if (notice) body.push(h(Text, { key: "screen-notice", color: theme.color("error"), wrap: "truncate-end" }, notice));
   if (refusal) body.push(h(Text, { key: "refusal", color: theme.color("error"), wrap: "truncate-end" }, refusal));
-  if (deciding) body.push(h(Spinner, { key: "deciding", label: "going on with the run…" }));
+  // After a decision only: a run started here has its own spinner on the step at work.
+  if (deciding && running.decided) body.push(h(Spinner, { key: "deciding", label: DECIDED }));
   if (run?.problem) body.push(h(Text, { key: "problem", color: theme.color("error"), wrap: "truncate-end" }, run.problem));
 
   if (loaded.state === "loading") body.push(h(Spinner, { key: "loading", label: "reading the run" }));
