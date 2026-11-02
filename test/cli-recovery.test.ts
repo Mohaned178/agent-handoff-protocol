@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { MockAttemptScript } from "../src/index.ts";
-import { ahp } from "./helpers/cli.ts";
+import { plain as ahp } from "./helpers/cli.ts";
 import { finishedRun, ledgerLines } from "./helpers/ledger.ts";
 import { isRunning, startRun, until, untilGone } from "./helpers/process.ts";
 import { createTempRepo, git, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
@@ -59,8 +59,9 @@ describe("ahp recover, after the runtime was killed", () => {
       const abort = ahp(["recover", attemptId, "--policy", "abort"], repo);
 
       expect(abort.code).toBe(1);
-      expect(abort.stdout).toContain(`step implement: recovery of attempt ${attemptId}: abort (the step ends), decided by `);
-      expect(abort.stdout).toContain("step implement: failed (unknown) [mock]");
+      expect(abort.stdout).toContain(`↻ implement  recovery of attempt ${attemptId}: abort (the step ends), decided by `);
+      expect(abort.stdout).toContain("✗ implement  failed (unknown) [mock]");
+      expect(abort.stdout).toContain("not retried: the attempt's outcome is unknown");
       expect(abort.stdout).toContain(`run ${runId}: failed [mock]`);
       expect(countOf(ledgerLines(repo, runId), "attempt_created")).toBe(1);
     } finally {
@@ -108,7 +109,8 @@ describe("ahp recover, after the runtime was killed", () => {
       // attempt that fails is not retried.
       expect(adopt.code).toBe(1);
       expect(adopt.stdout).toContain(`recovery of attempt ${attemptId}: adopt (its workspace is verified as its result), decided by `);
-      expect(adopt.stdout).toContain("step implement: verification fail [mock]");
+      expect(adopt.stdout).toContain("✗ implement  failed (verification_failed) [mock]");
+      expect(adopt.stdout).toContain("! implement: attempt 1: a shared ref moved while it ran (refs/remotes/origin/main)");
       expect(adopt.stdout).toContain(`run ${runId}: failed [mock]`);
       expect(ahp(["inspect", runId], repo).stdout).toContain(`| refs/remotes/origin/main: (none) -> ${head.slice(0, 12)}`);
       expect(countOf(eventsOf(repo, runId, attemptId), "attempt_dispatching")).toBe(1);
@@ -131,7 +133,9 @@ describe("ahp run and ahp recover", () => {
 
     expect(run.code).toBe(3);
     expect(run.stdout).toMatch(/unknown \(lost_contact\): the adapter lost track of the agent: mock adapter lost contact/);
-    expect(run.stdout).toMatch(/needs recovery\n {2}attempt att_\w+ awaits a decision: `ahp recover att_\w+ --policy adopt`/);
+    expect(run.stdout).toMatch(/^! attempt att_\w+ awaits a decision: `ahp recover att_\w+ --policy adopt`/m);
+    expect(run.stdout).toMatch(/^run run_\w+: needs recovery \[mock\]$/m);
+    expect(run.stdout).toMatch(/^next: ahp recover att_\w+ --policy adopt\|abort$/m);
   });
 
   it.each([

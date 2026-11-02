@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { GREETS, greetingFiles, writeTree } from "./helpers/evaluation.ts";
-import { ahp } from "./helpers/cli.ts";
+import { plain as ahp } from "./helpers/cli.ts";
 import { removeTempRepos } from "./helpers/repo.ts";
 
 afterEach(removeTempRepos);
@@ -97,7 +97,7 @@ describe("ahp eval", () => {
   });
 
   it("lists eval among the commands", () => {
-    expect(ahp(["--help", "--all"], writeTree({})).stdout).toContain("eval <suite-file>");
+    expect(ahp(["--help"], writeTree({})).stdout).toContain("eval <suite-file>");
   });
 
   it("shuffles the trials by the --seed given, says so, and refuses a seed that is not an unsigned 32-bit integer", () => {

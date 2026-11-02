@@ -7,7 +7,7 @@ import { countToolCalls, toolCallsOf } from "../src/evaluation/tool-calls.ts";
 import { claudeCode, codex, defineWorkflow, mock, opencode, readRunEvents, resumeRun, runWorkflow, type ActivityEntry, type AgentRef } from "../src/index.ts";
 import { activityLogPath, locateRepo, runsDir, toolCallLogPath } from "../src/runtime/paths.ts";
 import { fixture as claudeFixture, installFakeClaude } from "./helpers/claude.ts";
-import { ahp } from "./helpers/cli.ts";
+import { plain as ahp } from "./helpers/cli.ts";
 import { fixture as codexFixture, installFakeCodex } from "./helpers/codex.ts";
 import { truncateLedgerAfter } from "./helpers/ledger.ts";
 import { captures, completingScenario, installFakeOpencode } from "./helpers/opencode.ts";
