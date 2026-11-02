@@ -5,6 +5,7 @@
 import { isRunId } from "../runtime/paths.ts";
 import { App } from "./app.ts";
 import { h } from "./h.ts";
+import { TaskRunner } from "./task-runner.ts";
 import { runFullScreen } from "./terminal.ts";
 import { themeOf } from "./theme.ts";
 
@@ -19,5 +20,12 @@ if (runId !== undefined && !isRunId(runId)) {
   process.exitCode = 2;
 } else {
   const start = runId === undefined ? {} : { start: "run" as const, runId };
-  process.exitCode = await runFullScreen(h(App, { cwd: process.cwd(), theme: themeOf(process.env, true), ...start }), { stdout: process.stdout, stdin: process.stdin, stderr: process.stderr });
+  // One runner, shared with the signal handler: a SIGTERM or a closed window cancels the run in hand before ahp ends, as
+  // Ctrl+C did in the old view.
+  const runner = new TaskRunner();
+  const beforeExit = async () => {
+    runner.cancel();
+    await runner.settled();
+  };
+  process.exitCode = await runFullScreen(h(App, { cwd: process.cwd(), theme: themeOf(process.env, true), runner, ...start }), { stdout: process.stdout, stdin: process.stdin, stderr: process.stderr, beforeExit });
 }

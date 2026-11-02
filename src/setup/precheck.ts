@@ -5,8 +5,8 @@
 
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { failingLineOf } from "../commands/receipt.ts";
 import { addWorktree, discardWorktree, installDependencies, prepareWorktreeRoot, runVerificationCommand } from "../runtime/index.ts";
-import { failingLineOf } from "./receipt.ts";
 
 export type Precheck = { passed: true } | { passed: false; line: string };
 

@@ -10,10 +10,10 @@ import type { Screen } from "../router.ts";
 import { useTheme } from "../theme.ts";
 
 /** The ticket of `.scratch/new-terminal-ui/` that builds each screen not built yet. */
-export const BUILT_IN: Readonly<Partial<Record<Screen, string>>> = { welcome: "05", summary: "05", runs: "07", tools: "07", settings: "07" };
+export const BUILT_IN: Readonly<Partial<Record<Screen, string>>> = { runs: "07", tools: "07", settings: "07" };
 
-/** The run screen with no run chosen: until /runs (ticket 07) and the task flow (ticket 05) open one, the dev entry does. */
-export const NO_RUN_OPEN = "No run is open: `node src/tui/dev.ts <run-id>` opens one (from ticket 05 the task you start does, from ticket 07 /runs).";
+/** The run screen with no run chosen: a task started here opens its own; until /runs (ticket 07), the dev entry opens an older one. */
+export const NO_RUN_OPEN = "No run is open: describe a task on the home screen to start one (from ticket 07 /runs lists the others), or `node src/tui/dev.ts <run-id>` opens one.";
 
 export function Placeholder({ layout, nav, screen, active }: { layout: Layout; nav: Nav; screen: Screen; active: boolean }) {
   const theme = useTheme();

@@ -13,6 +13,8 @@ export interface PickerItem<T> {
   label: string;
   /** Shown after the label, muted: where a default came from, a version. */
   hint?: string;
+  /** True for a choice that is listed but not available now: its label is muted. */
+  dim?: boolean;
   value: T;
 }
 
@@ -43,17 +45,27 @@ export function pickerKeys<T>(items: readonly PickerItem<T>[], state: PickerStat
   ];
 }
 
+/** The text a typed character adds to a picker's filter, or null for a key that is not a letter (`ctrl`, escapes, controls). */
+export const filterText = (input: string, key: { ctrl: boolean; meta: boolean }): string | null =>
+  !key.ctrl && !key.meta && input.length > 0 && !/[\u0000-\u001f]/.test(input) ? input : null;
+
 export function Picker<T>({ items, onSelect, onCancel, isActive = true, height = 8 }: PickerProps<T>) {
-  const theme = useTheme();
   const [state, setState] = useState<PickerState>({ query: "", selected: 0 });
   const keys = pickerKeys(items, state, setState, onSelect, onCancel);
   useInput(
     (input, key) => {
       if (dispatch(keys, input, key)) return;
-      if (!key.ctrl && !key.meta && input.length > 0 && !/[\u0000-\u001f]/.test(input)) setState({ query: state.query + input, selected: 0 });
+      const typed = filterText(input, key);
+      if (typed !== null) setState({ query: state.query + typed, selected: 0 });
     },
     { isActive },
   );
+  return h(PickerView<T>, { items, state, height });
+}
+
+/** The picker's list over a state someone else holds (`pickerKeys` makes the keys that move it). */
+export function PickerView<T>({ items, state, height = 8 }: { items: readonly PickerItem<T>[]; state: PickerState; height?: number }) {
+  const theme = useTheme();
   const shown = pickerItems(items, state.query);
   const first = windowStart(shown.length, state.selected, height);
   return h(
@@ -67,7 +79,7 @@ export function Picker<T>({ items, onSelect, onCancel, isActive = true, height =
         Box,
         { key: `${item.label}-${first + offset}`, backgroundColor: on ? theme.color("surface") : undefined },
         h(Text, { color: theme.color("accent") }, on ? `${SYMBOLS.caret} ` : "  "),
-        h(Text, { color: theme.color(on ? "accent" : "text"), wrap: "truncate-end" }, item.label),
+        h(Text, { color: theme.color(on ? "accent" : item.dim ? "muted" : "text"), wrap: "truncate-end" }, item.label),
         item.hint ? h(Text, { color: theme.color("muted"), wrap: "truncate-end" }, `  ${item.hint}`) : null,
       );
     }),

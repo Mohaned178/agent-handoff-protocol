@@ -6,6 +6,7 @@ import type { RoleAssignment } from "../../doctor/init.ts";
 import { TOOLS } from "../../doctor/tools.ts";
 import { THIS_REPOSITORY, type RunView, type StepView } from "../../protocol/index.ts";
 import type { RunListing } from "../../sdk/run.ts";
+import { sessionCasting, sessionChanges, type TaskSession } from "../../commands/task.ts";
 import { SYMBOLS, type Token } from "../theme.ts";
 
 export interface HomeRow {
@@ -131,4 +132,17 @@ function playerOf(assignment: RoleAssignment): string {
 /** The status line of who plays each step by default, e.g. "plan opus·high  implement Codex  review sonnet". */
 export function rolesLine(assignments: readonly RoleAssignment[]): string {
   return assignments.map((assignment) => `${assignment.role} ${playerOf(assignment)}`).join("  ");
+}
+
+/**
+ * The status line with the session's changes for the next run on it. With no usable tool and no mock chosen it says so
+ * instead of showing the mock as if it were a choice: a task then offers the mock, once, on its own screen.
+ */
+export function statusOf(assignments: readonly RoleAssignment[], session: TaskSession): string {
+  const changes = sessionChanges(session);
+  // What changed comes first: the status is cut at the right, and a change that cannot be seen was not said.
+  const next = changes.length > 0 ? `next run: ${changes.join(", ")}  ·  ` : "";
+  if (session.mock) return `${next}mock plays every step (scripted, its output is no evidence)`;
+  if (assignments.every((assignment) => assignment.tool === null)) return "no coding tool is usable here: a task offers the scripted mock";
+  return `${next}${rolesLine(sessionCasting(assignments, session))}`;
 }

@@ -32,6 +32,18 @@ export interface PromptResult {
   submitted: string | null;
 }
 
+/** The editing action a key press makes in a text field (Enter, Esc and the history keys are the screen's), or null. */
+export function promptActionOf(input: string, key: { backspace: boolean; delete: boolean; leftArrow: boolean; rightArrow: boolean; home?: boolean; end?: boolean; ctrl: boolean; meta: boolean; escape: boolean; tab: boolean; return: boolean; upArrow: boolean; downArrow: boolean; pageUp: boolean; pageDown: boolean }): PromptAction | null {
+  if (key.backspace) return { type: "backspace" };
+  if (key.delete) return { type: "delete" };
+  if (key.leftArrow) return { type: "left" };
+  if (key.rightArrow) return { type: "right" };
+  if (key.home) return { type: "home" };
+  if (key.end) return { type: "end" };
+  if (key.ctrl || key.meta || key.escape || key.tab || key.return || key.upArrow || key.downArrow || key.pageUp || key.pageDown) return null;
+  return input !== "" ? { type: "insert", text: input } : null;
+}
+
 export const emptyPrompt = (history: readonly string[] = []): PromptState => ({ value: "", cursor: 0, history, recalled: null });
 
 /** Whether ↑↓ browse the history now: the prompt is empty, or shows an entry recalled and not edited. */

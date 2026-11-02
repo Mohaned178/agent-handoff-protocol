@@ -69,6 +69,7 @@ export const KEYS = {
   backspace: "\u007f",
   tab: "\t",
   "ctrl+c": "\u0003",
+  "ctrl+s": "\u0013",
 } as const;
 export type KeyName = keyof typeof KEYS;
 

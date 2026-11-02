@@ -1,6 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, realpath, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -25,7 +24,8 @@ import { checkStepFlags, COMMANDS, isTask, seedOf, stepFlagsOf, UsageError, with
 import { changesBetween, describeChanges, diffBetween, formatDiff } from "./diff.ts";
 import { watchProgress } from "./progress.ts";
 import { describeApprovalChoices, formatEvent, formatReceipt, formatRun, formatRuns, formatUnresumed, MOCK_NOTE } from "./format.ts";
-import { precheck } from "./precheck.ts";
+import { precheck } from "../setup/precheck.ts";
+import { inspectRepository, isHomeFolder, NO_GIT_IDENTITY, prepareRepository, RepositoryError } from "../setup/repository.ts";
 import { formatBriefReceipt, nextStepOf } from "./receipt.ts";
 import { LiveView, type Terminal } from "./live.ts";
 import { formatDoctor, formatInit } from "./format-doctor.ts";
@@ -685,67 +685,37 @@ async function setupCommand(repo: string, io: Io): Promise<number> {
   }
 }
 
-/** Whether `path` is the user's home folder, which is rarely the project they mean. */
-async function isHomeFolder(path: string): Promise<boolean> {
-  const home = await realpath(homedir()).catch(() => homedir());
-  const real = await realpath(path).catch(() => path);
-  return process.platform === "win32" ? real.toLowerCase() === home.toLowerCase() : real === home;
-}
-
 /**
  * Makes `dir` something a run can start from, asking first: a folder that is not in a git repository is offered `git
  * init`, and a repository with no commit yet a first commit of what is in it (AHP's runs start from a commit, and agents
  * see only what is committed). False when the person said no; nothing is changed then. The home folder is never made one.
+ * What the folder is, and the two changes, are `src/setup/repository.ts`'s; the questions are this command's.
  */
 async function readyRepository(dir: string, prompter: Prompter): Promise<boolean> {
-  if (await isHomeFolder(dir)) {
-    throw new UsageError(`${dir} is your home folder, not a project: run ahp in your project's folder, or \`ahp demo\` to try AHP with nothing to set up`);
-  }
-  let top: string | null = await locateRepo(dir).then((found) => found.repo, () => null);
-  // A home folder kept under git holds every folder below it: that repository is not the project meant here.
-  if (top !== null && (await isHomeFolder(top))) top = null;
-  // A first commit is the person's: without a git identity it would fail after they said yes, so it is said first.
-  const needsCommit = top === null || !(await git(top, ["rev-parse", "--verify", "--quiet", "HEAD"]).then(() => true, () => false));
-  if (needsCommit) await requireGitIdentity(top ?? dir);
-  if (top === null) {
-    const yes = await prompter.confirm({ message: `${dir} is not a git repository, which AHP needs. Make it one (git init) and commit what is in it?`, default: true });
-    if (!yes) return false;
-    await git(dir, ["init", "--quiet"]);
-    await firstCommit(dir);
-    return true;
-  }
-  try {
-    await git(top, ["rev-parse", "--verify", "--quiet", "HEAD"]);
-    return true;
-  } catch {
-    const yes = await prompter.confirm({ message: `${top} has no commit yet, and a run starts from one. Commit what is in it now?`, default: true });
-    if (!yes) return false;
-    await firstCommit(top);
-    return true;
-  }
-}
-
-/** Refuses, with the commands that fix it, when git knows no name and email to commit as (`git var` fails then). */
-async function requireGitIdentity(dir: string): Promise<void> {
-  try {
-    await git(dir, ["var", "GIT_AUTHOR_IDENT"]);
-    await git(dir, ["var", "GIT_COMMITTER_IDENT"]);
-  } catch {
-    throw new UsageError(
-      'git does not know who you are, and a first commit is made as you. Tell it, then run ahp again:\n  git config --global user.name "Your Name"\n  git config --global user.email you@example.com',
-    );
-  }
-}
-
-/** Commits everything in the repository not ignored, as the user (an empty commit when there is nothing). */
-async function firstCommit(repo: string): Promise<void> {
-  try {
-    await git(repo, ["add", "--all"]);
-    await git(repo, ["commit", "--quiet", "--allow-empty", "--message", "First commit"]);
-  } catch (error) {
-    throw new UsageError(
-      `could not make the first commit: ${(error as Error).message}. If git does not know who you are, \`git config --global user.name "Your Name"\` and \`git config --global user.email you@example.com\` tell it`,
-    );
+  const state = await inspectRepository(dir);
+  switch (state.kind) {
+    case "ready":
+      return true;
+    case "home_folder":
+      throw new UsageError(`${dir} is your home folder, not a project: run ahp in your project's folder, or \`ahp demo\` to try AHP with nothing to set up`);
+    case "no_identity":
+      // A first commit is the person's: without a git identity it would fail after they said yes, so it is said first.
+      throw new UsageError(NO_GIT_IDENTITY);
+    case "not_repository":
+    case "no_commit": {
+      const message =
+        state.kind === "not_repository"
+          ? `${dir} is not a git repository, which AHP needs. Make it one (git init) and commit what is in it?`
+          : `${state.repo} has no commit yet, and a run starts from one. Commit what is in it now?`;
+      if (!(await prompter.confirm({ message, default: true }))) return false;
+      try {
+        await prepareRepository(state);
+      } catch (error) {
+        if (error instanceof RepositoryError) throw new UsageError(error.message);
+        throw error;
+      }
+      return true;
+    }
   }
 }
 

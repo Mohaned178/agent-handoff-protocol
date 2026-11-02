@@ -22,6 +22,11 @@ export interface FullScreenIo {
   signals?: EventEmitter;
   /** How a signal ends the process; default `process.exit`. */
   exit?: (code: number) => void;
+  /**
+   * What must finish before a signal ends the process: stopping the run the app is running, so its cancel is recorded and
+   * no agent is left behind. Awaited once; a rejection is ignored.
+   */
+  beforeExit?: () => Promise<void>;
 }
 
 const SIGNALS: readonly NodeJS.Signals[] = process.platform === "win32" ? ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"] : ["SIGINT", "SIGTERM", "SIGHUP"];
@@ -37,10 +42,19 @@ export async function runFullScreen(node: ReactElement, io: FullScreenIo): Promi
     io.stdout.write(RESTORE);
   };
   let instance: ReturnType<typeof render> | null = null;
+  let stopping: Promise<void> | null = null;
   const onSignal = (signal: NodeJS.Signals) => {
-    instance?.unmount();
-    restore();
-    exit(128 + (constants.signals[signal] ?? 1));
+    // A second signal while the first is being waited for does not start it again.
+    stopping ??= (async () => {
+      try {
+        await io.beforeExit?.();
+      } catch {
+        // the process ends either way
+      }
+      instance?.unmount();
+      restore();
+      exit(128 + (constants.signals[signal] ?? 1));
+    })();
   };
   const onExit = () => restore();
   signals.on("exit", onExit);

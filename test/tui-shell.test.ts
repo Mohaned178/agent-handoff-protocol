@@ -14,7 +14,10 @@ import { h } from "../src/tui/h.ts";
 import { footerKeys } from "../src/tui/keys.ts";
 import { TOO_SMALL } from "../src/tui/layout.ts";
 import { emptyPrompt } from "../src/tui/prompt-model.ts";
-import { homeKeys, homeSources, PLACEHOLDER, TASKS_LATER, type HomeSources } from "../src/tui/screens/home.ts";
+import { homeKeys, homeSources, PLACEHOLDER, type HomeSources } from "../src/tui/screens/home.ts";
+import { taskSources, type TaskSources } from "../src/tui/sources.ts";
+import { markFirstOpenDone } from "../src/setup/settings.ts";
+import { settingsPath } from "../src/runtime/paths.ts";
 import { ENTER_ALTERNATE_SCREEN, RESTORE, runFullScreen } from "../src/tui/terminal.ts";
 import { ThemeContext, themeFor, themeOf, type Theme } from "../src/tui/theme.ts";
 import { gatedWorkflow } from "./helpers/approval.ts";
@@ -32,9 +35,12 @@ let repo: string;
 let sources: HomeSources;
 let emptyRepo: string;
 let emptySources: HomeSources;
+let tasks!: TaskSources;
 
 beforeAll(async () => {
   const env = await pathWithoutTools();
+  // These tests are about home, not the first-open screens.
+  await markFirstOpenDone(settingsPath());
   repo = createTempRepo({ "verify.mjs": VERIFY_GREETING });
   // Oldest first, two hours apart, so each is listed "Nh ago" from NOW.
   await runWorkflow(retryWorkflow([hello]), { repo, clock: fakeClock("2026-01-01T02:00:00.000Z") });
@@ -47,6 +53,8 @@ beforeAll(async () => {
   mkdirSync(broken, { recursive: true });
   writeFileSync(join(broken, "ledger.jsonl"), '{"seq":0,"type":"run_created","prevHash":null,"hash":"bad"}\n');
   sources = { ...homeSources(repo, env), now: () => NOW };
+  // The task flow reads the same PATH: the real claude, codex and opencode never run in a test.
+  tasks = taskSources(repo, env);
   emptyRepo = createTempRepo({ "README.md": "hi\n" });
   emptySources = { ...homeSources(emptyRepo, env), now: () => NOW };
 }, 120_000);
@@ -61,7 +69,7 @@ afterEach(() => {
 const TRUECOLOR = themeFor("truecolor");
 
 function app(options: { theme?: Theme; columns?: number; rows?: number; sources?: HomeSources } = {}): Tui {
-  const tui = renderTui(h(App, { cwd: repo, theme: options.theme ?? TRUECOLOR, sources: options.sources ?? sources }), { columns: options.columns ?? 120, rows: options.rows ?? 32 });
+  const tui = renderTui(h(App, { cwd: repo, theme: options.theme ?? TRUECOLOR, sources: options.sources ?? sources, task: tasks }), { columns: options.columns ?? 120, rows: options.rows ?? 32 });
   open.push(tui);
   return tui;
 }
@@ -69,7 +77,7 @@ function app(options: { theme?: Theme; columns?: number; rows?: number; sources?
 /** Home, once the runs and the tools have been read. */
 async function home(options: Parameters<typeof app>[0] = {}): Promise<Tui> {
   const tui = app(options);
-  await tui.waitFor((frame) => frame.includes("Recent") && frame.includes("review mock"));
+  await tui.waitFor((frame) => frame.includes("Recent") && frame.includes("no coding tool is usable here"));
   return tui;
 }
 
@@ -95,7 +103,8 @@ describe("the home screen", () => {
     expect(recent.indexOf("✗ a-workflow")).toBeLessThan(recent.indexOf("✓ retry"));
 
     expect(frame).toContain(PLACEHOLDER);
-    expect(footerOf(frame)).toMatch(/^ plan mock {2}implement mock {2}review mock /);
+    // No tool on this PATH: the status says so, and does not show the scripted mock as if it were the casting.
+    expect(footerOf(frame)).toMatch(/^ no coding tool is usable here: a task offers the scripted mock /);
   });
 
   it("colours a state only where it carries meaning: ✓ green, ✗ red, ! amber, the caret green", async () => {
@@ -137,13 +146,17 @@ describe("the home screen", () => {
     await tui.waitFor("No runs here yet. Describe a task below to start one.");
   });
 
-  it("answers a task with the ticket that will run it", async () => {
+  it("answers a task with its summary, and esc brings the task back into the prompt", async () => {
     const tui = await home();
     await tui.type("fix the failing login test");
     expect(tui.frame()).toContain("fix the failing login test");
     await tui.press("enter");
-    expect(tui.frame()).toContain(TASKS_LATER.slice(0, 60));
-    expect(tui.frame()).toContain(PLACEHOLDER);
+    // No coding tool on this PATH: the summary says so and offers the scripted mock. Nothing has run.
+    const frame = await tui.waitFor("No coding tool is usable here");
+    expect(frame).toContain("fix the failing login test");
+    await tui.press("escape");
+    await tui.waitFor("Recent");
+    expect(tui.frame()).toContain("❯ fix the failing login test");
   });
 });
 
@@ -172,7 +185,11 @@ describe("the command menu", () => {
     await tui.press("down");
     expect(tui.frame()).toContain("❯ /effort");
     await tui.press("enter");
-    expect(tui.frame()).toContain("/effort comes in ticket 05.");
+    // /effort with no step is not a guess: it says how to write it.
+    expect(tui.frame()).toContain("usage: /effort <step> <level>");
+    await tui.type("/clean");
+    await tui.press("enter");
+    expect(tui.frame()).toContain("/clean comes in ticket 07.");
     await tui.type("/");
     await tui.press("escape");
     expect(tui.frame()).not.toContain("❯ /effort");
@@ -194,13 +211,22 @@ describe("the command menu", () => {
   });
 });
 
+/** A task entered and left again: its summary opens, Esc comes back with the text in the prompt, and clearing it keeps it in the history. */
+async function entered(tui: Tui, text: string) {
+  await tui.type(text);
+  await tui.press("enter");
+  await tui.waitFor("No coding tool is usable here");
+  await tui.press("escape");
+  await tui.waitFor("Recent");
+  expect(tui.frame()).toContain(`❯ ${text}`);
+  await tui.press("ctrl+c");
+}
+
 describe("the prompt", () => {
   it("keeps what was submitted, and ↑↓ bring it back while the prompt is empty", async () => {
     const tui = await home();
-    await tui.type("first task");
-    await tui.press("enter");
-    await tui.type("second task");
-    await tui.press("enter");
+    await entered(tui, "first task");
+    await entered(tui, "second task");
     await tui.press("up");
     expect(tui.frame()).toContain("❯ second task");
     await tui.press("up");
@@ -213,8 +239,7 @@ describe("the prompt", () => {
 
   it("keeps its history across a visit to help", async () => {
     const tui = await home();
-    await tui.type("a task");
-    await tui.press("enter");
+    await entered(tui, "a task");
     await tui.type("?");
     await tui.waitFor("Commands (type / on the home screen)");
     await tui.press("escape");
@@ -229,13 +254,13 @@ describe("the prompt", () => {
     let frame = tui.frame();
     expect(frame).toMatch(/❯ line one/);
     expect(frame).toMatch(/│ {3}line two/);
-    expect(frame).not.toContain(TASKS_LATER.slice(0, 30));
+    expect(frame).not.toContain("No coding tool is usable here");
     await tui.type("\\");
     await tui.press("enter");
     await tui.type("line three");
     frame = tui.frame();
     expect(frame).toMatch(/│ {3}line three/);
-    expect(frame).not.toContain(TASKS_LATER.slice(0, 30));
+    expect(frame).not.toContain("No coding tool is usable here");
   });
 
   it("edits: backspace, and moving the cursor to type in the middle", async () => {
