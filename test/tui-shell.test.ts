@@ -207,7 +207,7 @@ describe("the command menu", () => {
     await tui.press("enter");
     await tui.waitFor("type to filter");
     await tui.press("escape");
-    await tui.waitFor("No runs here yet");
+    await tui.waitFor("Recent");
   });
 });
 

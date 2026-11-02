@@ -139,7 +139,7 @@ describe("a task, from the prompt to a run", () => {
     expect(frame).toContain("2 files not committed: the agents will not see them");
     expect(frame).toContain("! first run with real agents: they run commands on this machine, and their usage counts against your own plans");
     expect(colorAt(tui.raw(), "installed here")).toContain("muted");
-    expect(lastLine(frame)).toBe("enter run  tab change a step  p add a plan step  esc edit  ctrl+c quit");
+    expect(lastLine(frame)).toBe("enter run  tab change a step  p add a plan step  w save as workflow  esc edit  ctrl+c quit");
     expect(await listRuns({ repo })).toEqual([]);
   });
 
