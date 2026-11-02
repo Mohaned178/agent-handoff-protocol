@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { ahp } from "./helpers/cli.ts";
+import { plain as ahp } from "./helpers/cli.ts";
 import { createTempRepo, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
 
 afterEach(removeTempRepos);

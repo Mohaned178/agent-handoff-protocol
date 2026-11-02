@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { ahp } from "./helpers/cli.ts";
+import { plain as ahp } from "./helpers/cli.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as Record<string, unknown> & { version: string; files: string[] };
@@ -24,6 +24,12 @@ describe("the published package", () => {
     expect(strays).toEqual([]);
     expect(files).toContain("bin/ahp.mjs");
     expect(files).toContain("LICENSE");
+  });
+
+  it("pins the terminal app's libraries exactly, and ships no test library", () => {
+    const dependencies = pkg.dependencies as Record<string, string>;
+    for (const name of ["ink", "react", "@types/react"]) expect(dependencies[name], name).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(dependencies["ink-testing-library"]).toBeUndefined();
   });
 
   it("checks everything before a publish", () => {

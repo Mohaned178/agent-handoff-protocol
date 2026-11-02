@@ -207,7 +207,7 @@ async function start(
     capabilities: applied,
     handoff,
     options: provoked.options,
-    toolCallLog: join(pidDir, "tool-calls.jsonl"),
+    activityLog: join(pidDir, "activity.jsonl"),
   });
   run.cleanups.push(async () => {
     // Whatever the check found, the agent and everything it started must not outlive it.

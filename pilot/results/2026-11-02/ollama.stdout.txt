@@ -1,0 +1,190 @@
+ahp eval expects each coding-agent tool to be logged in with an API key configured in that tool, not a subscription login (a subscription's use falls under the vendor's terms, and its cost is not reported). AHP stores and reads no credential and cannot check this. Set a spend limit in each provider's console too: AHP only sees the cost a tool reports.
+evaluation eval_mvyejb1l9d0f0ff6: suite "pilot-local-ollama", conditions C0, C0V, C3, C3c, C3r, 1 repeat
+task password-reset frozen (d3b56ffa13e1): 8 files, 2 hidden tests
+task orders-listing frozen (4bdfa4341d50): 8 files, 2 hidden tests
+task csv-export frozen (22d7f68691dd): 7 files, 3 hidden tests
+task config-merge frozen (1edbf8b5ae91): 7 files, 2 hidden tests
+task retry-backoff frozen (f626d0025b3c): 7 files, 1 hidden test
+task inventory-reservation frozen (88b9d2292b8e): 7 files, 2 hidden tests
+30 trials scheduled in a shuffled order (seed 20261101)
+trial C3 password-reset #1: started
+trial C3 password-reset #1: scored, fail
+trial C3 inventory-reservation #1: started
+trial C3 inventory-reservation #1: scored, fail
+trial C3c inventory-reservation #1: started
+trial C3c inventory-reservation #1: scored, fail
+trial C3r retry-backoff #1: started
+trial C3r retry-backoff #1: scored, fail
+trial C0 orders-listing #1: started
+trial C0 orders-listing #1: scored, fail
+trial C3c password-reset #1: started
+trial C3c password-reset #1: scored, fail
+trial C3r config-merge #1: started
+trial C3r config-merge #1: scored, fail
+trial C0V orders-listing #1: started
+trial C0V orders-listing #1: scored, fail
+trial C3r inventory-reservation #1: started
+trial C3r inventory-reservation #1: scored, fail
+trial C0 csv-export #1: started
+trial C0 csv-export #1: scored, fail
+trial C3r orders-listing #1: started
+trial C3r orders-listing #1: scored, fail
+trial C0V password-reset #1: started
+trial C0V password-reset #1: scored, fail
+trial C3r csv-export #1: started
+trial C3r csv-export #1: scored, fail
+trial C3 config-merge #1: started
+trial C3 config-merge #1: scored, fail
+trial C0 config-merge #1: started
+trial C0 config-merge #1: scored, fail
+trial C3 orders-listing #1: started
+trial C3 orders-listing #1: scored, fail
+trial C0 password-reset #1: started
+trial C0 password-reset #1: scored, fail
+trial C0V inventory-reservation #1: started
+trial C0V inventory-reservation #1: scored, fail
+trial C0V config-merge #1: started
+trial C0V config-merge #1: scored, fail
+trial C3c retry-backoff #1: started
+trial C3c retry-backoff #1: scored, fail
+trial C3c csv-export #1: started
+trial C3c csv-export #1: scored, fail
+trial C3c orders-listing #1: started
+trial C3c orders-listing #1: scored, fail
+trial C3 retry-backoff #1: started
+trial C3 retry-backoff #1: scored, fail
+trial C3c config-merge #1: started
+trial C3c config-merge #1: scored, fail
+trial C3r password-reset #1: started
+trial C3r password-reset #1: scored, fail
+trial C3 csv-export #1: started
+trial C3 csv-export #1: scored, fail
+trial C0V csv-export #1: started
+trial C0V csv-export #1: scored, fail
+trial C0V retry-backoff #1: started
+trial C0V retry-backoff #1: scored, fail
+trial C0 inventory-reservation #1: started
+trial C0 inventory-reservation #1: scored, fail
+trial C0 retry-backoff #1: started
+trial C0 retry-backoff #1: scored, fail
+evaluation completed
+
+Evaluation eval_mvyejb1l9d0f0ff6: suite "pilot-local-ollama", completed
+Tool opencode: 1.18.35 (30 trials); not pinned
+  on Ollama at http://localhost:11434/v1, model qwen2.5-coder:7b-instruct-q4_K_M: 0.40.13 (30 trials)
+
+C0 (single agent): 6 trials
+  verified success: 0 of 6 scored trials (0%)
+  constraint violations: n/a: no scored trials of tasks with planted constraints
+  scored trials whose result changed nothing, left out of the violation rate: 6
+  failed trials by how their run ended: run_succeeded 1, verification_failed 5
+  retries: 0 in 6 attempts of 6 scored trials; per success: n/a: no pass
+  work in lines, over 6 scored trials: result 0, duplicated 0, reverted 0
+  wall time: median 13.5 s, mean 13.4 s, over 6 scored trials
+  context handed on, over 6 scored trials: none: no step was handed another's result
+  usage, as each tool reported it (per adapter, not summed across adapters and not compared):
+    opencode: 6 of 6 attempts reported; inputTokens 30937 (6), outputTokens 443 (6), cachedInputTokens 11185 (6), totalTokens 42565 (6); source: opencode acp session/prompt result (usage); inputTokens excludes cachedReadTokens, and totalTokens is input + output + thought + cached read; no cost reported (a zero cost is not taken as one)
+  tool calls by opencode, from the logs of 6 attempts in 6 trials that kept one (of 6 trials): 0 (0 completed, 0 failed, 0 refused)
+  harness incidents (excluded, not failures): 0
+  unscored (excluded, not failures): 0
+
+C0V (single agent with the acceptance check and retry): 6 trials
+  verified success: 0 of 6 scored trials (0%)
+  constraint violations: n/a: no scored trials of tasks with planted constraints
+  scored trials whose result changed nothing, left out of the violation rate: 6
+  failed trials by how their run ended: run_succeeded 6
+  retries: 5 in 11 attempts of 6 scored trials; per success: n/a: no pass
+  work in lines, over 6 scored trials: result 0, duplicated 0, reverted 0
+  wall time: median 25.9 s, mean 27.0 s, over 6 scored trials
+  context handed on, over 6 scored trials: none: no step was handed another's result
+  usage, as each tool reported it (per adapter, not summed across adapters and not compared):
+    opencode: 11 of 11 attempts reported; inputTokens 58670 (11), outputTokens 1254 (11), cachedInputTokens 18704 (11), totalTokens 78628 (11); source: opencode acp session/prompt result (usage); inputTokens excludes cachedReadTokens, and totalTokens is input + output + thought + cached read; no cost reported (a zero cost is not taken as one)
+  tool calls by opencode, from the logs of 11 attempts in 6 trials that kept one (of 6 trials): 0 (0 completed, 0 failed, 0 refused)
+  harness incidents (excluded, not failures): 0
+  unscored (excluded, not failures): 0
+
+C3 (full AHP): 6 trials
+  verified success: 0 of 6 scored trials (0%)
+  constraint violations: n/a: no scored trials of tasks with planted constraints
+  scored trials whose result changed nothing, left out of the violation rate: 6
+  failed trials by how their run ended: run_succeeded 6
+  retries: 14 in 32 attempts of 6 scored trials; per success: n/a: no pass
+  work in lines, over 6 scored trials: result 0, duplicated 0, reverted 0
+  wall time: median 83.9 s, mean 80.9 s, over 6 scored trials
+  context handed on, over 6 scored trials: 16 handoffs, median 906 bytes, total 14285 bytes
+  usage, as each tool reported it (per adapter, not summed across adapters and not compared):
+    opencode: 32 of 32 attempts reported; inputTokens 151455 (32), outputTokens 4698 (32), cachedInputTokens 58182 (32), totalTokens 214335 (32); source: opencode acp session/prompt result (usage); inputTokens excludes cachedReadTokens, and totalTokens is input + output + thought + cached read; no cost reported (a zero cost is not taken as one)
+  tool calls by opencode, from the logs of 32 attempts in 6 trials that kept one (of 6 trials): 0 (0 completed, 0 failed, 0 refused)
+  harness incidents (excluded, not failures): 0
+  unscored (excluded, not failures): 0
+
+C3c (full AHP with a context budget on every step): 6 trials
+  verified success: 0 of 6 scored trials (0%)
+  constraint violations: n/a: no scored trials of tasks with planted constraints
+  scored trials whose result changed nothing, left out of the violation rate: 6
+  failed trials by how their run ended: run_succeeded 6
+  retries: 3 in 21 attempts of 6 scored trials; per success: n/a: no pass
+  work in lines, over 6 scored trials: result 0, duplicated 0, reverted 0
+  wall time: median 46.4 s, mean 53.0 s, over 6 scored trials
+  context handed on, over 6 scored trials: 12 handoffs, median 1055.5 bytes, total 11261 bytes
+  usage, as each tool reported it (per adapter, not summed across adapters and not compared):
+    opencode: 21 of 21 attempts reported; inputTokens 100331 (21), outputTokens 3643 (21), cachedInputTokens 39377 (21), totalTokens 143351 (21); source: opencode acp session/prompt result (usage); inputTokens excludes cachedReadTokens, and totalTokens is input + output + thought + cached read; no cost reported (a zero cost is not taken as one)
+  tool calls by opencode, from the logs of 21 attempts in 6 trials that kept one (of 6 trials): 0 (0 completed, 0 failed, 0 refused)
+  harness incidents (excluded, not failures): 0
+  unscored (excluded, not failures): 0
+
+C3r (full AHP with a reflect step: the implementer critiques and fixes its own result before review): 6 trials
+  verified success: 0 of 6 scored trials (0%)
+  constraint violations: n/a: no scored trials of tasks with planted constraints
+  scored trials whose result changed nothing, left out of the violation rate: 6
+  failed trials by how their run ended: run_succeeded 6
+  retries: 6 in 30 attempts of 6 scored trials; per success: n/a: no pass
+  work in lines, over 6 scored trials: result 0, duplicated 0, reverted 0
+  wall time: median 80.4 s, mean 82.0 s, over 6 scored trials
+  context handed on, over 6 scored trials: 19 handoffs, median 950 bytes, total 20583 bytes
+  usage, as each tool reported it (per adapter, not summed across adapters and not compared):
+    opencode: 30 of 30 attempts reported; inputTokens 143628 (30), outputTokens 6326 (30), cachedInputTokens 56266 (30), totalTokens 206220 (30); source: opencode acp session/prompt result (usage); inputTokens excludes cachedReadTokens, and totalTokens is input + output + thought + cached read; no cost reported (a zero cost is not taken as one)
+  tool calls by opencode, from the logs of 30 attempts in 6 trials that kept one (of 6 trials): 0 (0 completed, 0 failed, 0 refused)
+  harness incidents (excluded, not failures): 0
+  unscored (excluded, not failures): 0
+
+Paired comparisons of verified success, task by task (rate = passes over valid trials; 95% percentile bootstrap over tasks, 10,000 resamples, seed 20261101; each interval stands alone, with no correction for making several):
+  C3 vs C0V: no detectable difference: mean paired difference 0.00, 95% interval 0.00 to 0.00, over 6 tasks
+    config-merge: C3 0 of 1 scored trials (0%), 0 incidents; C0V 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    csv-export: C3 0 of 1 scored trials (0%), 0 incidents; C0V 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    inventory-reservation: C3 0 of 1 scored trials (0%), 0 incidents; C0V 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    orders-listing: C3 0 of 1 scored trials (0%), 0 incidents; C0V 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    password-reset: C3 0 of 1 scored trials (0%), 0 incidents; C0V 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    retry-backoff: C3 0 of 1 scored trials (0%), 0 incidents; C0V 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+  C0V vs C0: no detectable difference: mean paired difference 0.00, 95% interval 0.00 to 0.00, over 6 tasks
+    config-merge: C0V 0 of 1 scored trials (0%), 0 incidents; C0 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    csv-export: C0V 0 of 1 scored trials (0%), 0 incidents; C0 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    inventory-reservation: C0V 0 of 1 scored trials (0%), 0 incidents; C0 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    orders-listing: C0V 0 of 1 scored trials (0%), 0 incidents; C0 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    password-reset: C0V 0 of 1 scored trials (0%), 0 incidents; C0 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    retry-backoff: C0V 0 of 1 scored trials (0%), 0 incidents; C0 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+  C3c vs C3: no detectable difference: mean paired difference 0.00, 95% interval 0.00 to 0.00, over 6 tasks
+    config-merge: C3c 0 of 1 scored trials (0%), 0 incidents; C3 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    csv-export: C3c 0 of 1 scored trials (0%), 0 incidents; C3 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    inventory-reservation: C3c 0 of 1 scored trials (0%), 0 incidents; C3 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    orders-listing: C3c 0 of 1 scored trials (0%), 0 incidents; C3 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    password-reset: C3c 0 of 1 scored trials (0%), 0 incidents; C3 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    retry-backoff: C3c 0 of 1 scored trials (0%), 0 incidents; C3 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+  C3r vs C3: no detectable difference: mean paired difference 0.00, 95% interval 0.00 to 0.00, over 6 tasks
+    config-merge: C3r 0 of 1 scored trials (0%), 0 incidents; C3 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    csv-export: C3r 0 of 1 scored trials (0%), 0 incidents; C3 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    inventory-reservation: C3r 0 of 1 scored trials (0%), 0 incidents; C3 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    orders-listing: C3r 0 of 1 scored trials (0%), 0 incidents; C3 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    password-reset: C3r 0 of 1 scored trials (0%), 0 incidents; C3 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    retry-backoff: C3r 0 of 1 scored trials (0%), 0 incidents; C3 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+  C3 vs C0: no detectable difference: mean paired difference 0.00, 95% interval 0.00 to 0.00, over 6 tasks
+    config-merge: C3 0 of 1 scored trials (0%), 0 incidents; C0 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    csv-export: C3 0 of 1 scored trials (0%), 0 incidents; C0 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    inventory-reservation: C3 0 of 1 scored trials (0%), 0 incidents; C0 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    orders-listing: C3 0 of 1 scored trials (0%), 0 incidents; C0 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    password-reset: C3 0 of 1 scored trials (0%), 0 incidents; C0 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+    retry-backoff: C3 0 of 1 scored trials (0%), 0 incidents; C0 0 of 1 scored trials (0%), 0 incidents; difference 0.00
+
+Rates count only scored trials, and the baseline's only complete cells. An interval that includes 0 is no detectable difference.
+kept in F:\Agent Handoff\pilot\results\2026-11-02\ollama\eval_mvyejb1l9d0f0ff6
+exit 0

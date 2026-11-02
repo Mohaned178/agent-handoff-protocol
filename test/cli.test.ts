@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RunInspection } from "../src/index.ts";
-import { ahp } from "./helpers/cli.ts";
-import { appendLedgerEvent } from "./helpers/ledger.ts";
+import { plain as ahp } from "./helpers/cli.ts";
+import { appendLedgerEvent, ledgerLines } from "./helpers/ledger.ts";
 import { createTempRepo, removeTempRepos, VERIFY_GREETING, VERIFY_OK } from "./helpers/repo.ts";
 
 afterEach(removeTempRepos);
@@ -61,19 +61,22 @@ describe("ahp inspect with protected paths and hidden tests", () => {
 });
 
 describe("ahp run and ahp inspect", () => {
-  it("runs a workflow, streams progress labelled as mock, and inspects the derived state", () => {
+  it("runs a workflow, says each step that ends and the receipt, labelled as mock, and inspects the derived state", () => {
     const repo = createTempRepo({ "verify.mjs": VERIFY_GREETING, "workflow.mjs": workflowFile("hello\n") });
 
     const run = ahp(["run", "workflow.mjs"], repo);
 
     expect(run.stderr).toBe("");
     expect(run.code).toBe(0);
-    expect(run.stdout).toMatch(/step implement: attempt \S+ \[mock\] running/);
-    expect(run.stdout).toMatch(/step implement: verifying \[mock\]: node verify\.mjs/);
-    expect(run.stdout).toMatch(/step implement: verification pass/);
-    expect(run.stdout).toMatch(/step implement: succeeded \[mock\]/);
-    expect(run.stdout).toMatch(/run run_[a-z0-9]+: succeeded \[mock\]/);
-    expect(run.stdout).toContain("mock adapter");
+    // The run's ID the moment it exists, a line for the step that ended, then the run's end, its receipt and the mock note.
+    expect(run.stdout).toMatch(/^run run_[a-z0-9]+: created · greeting$/m);
+    expect(run.stdout).toMatch(/^✓ implement {2}succeeded \[mock\]$/m);
+    expect(run.stdout).toMatch(/^run run_[a-z0-9]+: succeeded \[mock\]$/m);
+    expect(run.stdout).toContain("✓ implement: `node verify.mjs` passed");
+    expect(run.stdout).toContain("scripted mock agents: their results are not evidence");
+    expect(run.stdout).not.toContain("next:");
+    // The plumbing (attempt created, running, verifying) is the ledger's and inspect's, not the run's lines.
+    expect(run.stdout.split("\n").length).toBeLessThan(12);
     const runId = /run (run_[a-z0-9]+): succeeded/.exec(run.stdout)?.[1];
     expect(runId).toBeDefined();
 
@@ -84,6 +87,7 @@ describe("ahp run and ahp inspect", () => {
     expect(inspect.stdout).toMatch(/step implement: succeeded \[mock\]/);
     expect(inspect.stdout).toMatch(/attempt \S+ \[mock\]: exited ok \(exit code 0\)/);
     expect(inspect.stdout).toMatch(/verification: pass/);
+    expect(inspect.stdout).toContain("command: node verify.mjs");
     expect(inspect.stdout).toContain("greeting ok");
     expect(inspect.stdout).toContain("not evidence");
   });
@@ -104,9 +108,10 @@ describe("ahp run and ahp inspect", () => {
     const run = ahp(["run", "workflow.mjs"], repo);
 
     expect(run.code).toBe(1);
-    expect(run.stdout).toMatch(/step implement: verification fail/);
-    expect(run.stdout).toMatch(/step implement: failed \(verification_failed\) \[mock\]/);
-    expect(run.stdout).toMatch(/run run_[a-z0-9]+: failed \[mock\]/);
+    expect(run.stdout).toMatch(/^✗ implement {2}failed \(verification_failed\) \[mock\]$/m);
+    expect(run.stdout).toMatch(/^run run_[a-z0-9]+: failed \[mock\]$/m);
+    expect(run.stdout).toContain("✗ implement: `node verify.mjs` failed on one attempt");
+    expect(run.stdout).toMatch(/^next: ahp inspect run_[a-z0-9]+ shows every attempt and its evidence$/m);
   });
 
   it("reports an invalid workflow without starting a run", () => {
@@ -127,59 +132,83 @@ describe("ahp run and ahp inspect", () => {
     expect(inspect.stderr).toContain("no run run_doesnotexist");
   });
 
-  it("says how to get started, and exits 0, when given no command", () => {
+  it("prints the usage, and exits 0, when given no command", () => {
     const result = ahp([], process.cwd());
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("Try it, with nothing to set up:   ahp demo");
-    expect(result.stdout).toContain('Do a task in your project:        cd your-project, then ahp "fix the bug where the cart total ignores quantity"');
-    expect(result.stdout).toContain("Write a workflow to keep:         cd your-project, then ahp");
-    expect(result.stdout).toContain("More commands: ahp --help (every command and option: ahp --help --all)");
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain('ahp "<task>" --yes');
+    expect(result.stdout).toContain("Exit codes:");
   });
 
   it("prints usage and exits 2 for an unknown command", () => {
     const result = ahp(["launch"], process.cwd());
 
     expect(result.code).toBe(2);
+    expect(result.stderr).toContain("unknown command: launch");
     expect(result.stderr).toContain("Usage: ahp");
   });
 
-  it("starts --help with the commands a new user needs, and keeps the rest for --help --all", () => {
-    const short = ahp(["--help"], process.cwd());
-    const all = ahp(["--help", "--all"], process.cwd());
+  it("refuses unquoted words as a task, with the quoted form to use", () => {
+    const result = ahp(["fix", "the", "bug"], process.cwd());
 
-    expect(short.code).toBe(0);
-    for (const command of ['"<task>"', "demo", "doctor", "runs", "inspect [run-id]", "approve <run-id> <step-id>", "reject <run-id> <step-id>"]) {
-      expect(short.stdout).toContain(`  ${command}`);
-    }
-    expect(short.stdout).not.toContain("eval <suite-file>");
-    expect(short.stdout).not.toContain("recover <run-id>");
-    expect(short.stdout).toContain("ahp --help --all");
-    expect(short.stdout.split("\n").length).toBeLessThan(all.stdout.split("\n").length / 2);
-
-    expect(all.code).toBe(0);
-    for (const command of ["setup", "run <workflow-file>", "eval <suite-file>", "recover <run-id>", "settings", "Exit codes:"]) {
-      expect(all.stdout).toContain(command);
-    }
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain('unknown command: fix (a task is one argument, in quotes: ahp "fix the bug")');
   });
 
-  it("prints the same text for help as for --help, and for help all as for --help --all", () => {
-    const short = ahp(["--help"], process.cwd());
-    const all = ahp(["--help", "--all"], process.cwd());
-    const help = ahp(["help"], process.cwd());
-    const helpAll = ahp(["help", "all"], process.cwd());
+  it("lists every plain command in one usage text, as --help and help print it", () => {
+    const help = ahp(["--help"], process.cwd());
 
     expect(help.code).toBe(0);
     expect(help.stderr).toBe("");
-    expect(help.stdout).toBe(short.stdout);
-    expect(helpAll.code).toBe(0);
-    expect(helpAll.stderr).toBe("");
-    expect(helpAll.stdout).toBe(all.stdout);
-
+    for (const command of [
+      "run <workflow-file>",
+      "approve <run-id> [<gate>]",
+      "reject <run-id> [<gate>]",
+      "recover <run-id|attempt-id>",
+      "runs",
+      "inspect [<run-id>]",
+      "doctor",
+      "clean",
+      "demo",
+      "eval <suite-file>",
+      "bench <bench-file>",
+      "bench report <bench-dir>... [--eval <eval-dir>]...",
+      "Exit codes:",
+    ]) {
+      expect(help.stdout).toContain(command);
+    }
+    for (const gone of ["setup", "settings", "init"]) expect(help.stdout).not.toContain(`  ${gone}`);
+    const word = ahp(["help"], process.cwd());
+    expect(word.code).toBe(0);
+    expect(word.stdout).toBe(help.stdout);
     const invalid = ahp(["help", "everything"], process.cwd());
     expect(invalid.code).toBe(2);
     expect(invalid.stdout).toBe("");
     expect(invalid.stderr).toContain("unexpected argument: everything");
+  });
+
+  it("refuses an option a command does not have with that command's usage line, and sends the retired commands to the app", () => {
+    const flag = ahp(["runs", "--bogus"], process.cwd());
+    expect(flag.code).toBe(2);
+    expect(flag.stdout).toBe("");
+    expect(flag.stderr).toContain("unknown option '--bogus'");
+    expect(flag.stderr).toContain("usage: ahp runs [--all] [--json] [--repo <dir>]");
+    expect(flag.stderr).not.toContain("approve");
+
+    // An option another command has is as unknown here.
+    const other = ahp(["doctor", "--reason", "x"], process.cwd());
+    expect(other.code).toBe(2);
+    expect(other.stderr).toContain("usage: ahp doctor [--json]");
+    const missing = ahp(["run"], process.cwd());
+    expect(missing.code).toBe(2);
+    expect(missing.stderr).toContain("run needs a workflow file\nusage: ahp run <workflow-file> [--repo <dir>]");
+
+    for (const retired of ["setup", "settings", "init"]) {
+      const moved = ahp([retired], process.cwd());
+      expect(moved.code).toBe(2);
+      expect(moved.stderr).toContain(`\`ahp ${retired}\` has moved into the app`);
+    }
   });
 });
 
@@ -215,10 +244,11 @@ describe("ahp run and ahp inspect with handoffs", () => {
 
     expect(run.stderr).toBe("");
     expect(run.code).toBe(0);
-    expect(run.stdout).toMatch(/step plan: handoff hnd_[a-z0-9]+ revision 1 issued/);
-    expect(run.stdout).toMatch(/step implement: handoff hnd_[a-z0-9]+ revision 1 accepted/);
-    expect(run.stdout).toMatch(/step plan: structural verification \[mock\]: checks only that/);
     const runId = /run (run_[a-z0-9]+): succeeded/.exec(run.stdout)?.[1];
+    // The handoffs are the ledger's and inspect's: the run's own lines say only what ended.
+    expect(run.stdout).not.toContain("handoff");
+    expect(ledgerLines(repo, runId!).filter((event) => event.type === "handoff_issued")).toHaveLength(2);
+    expect(ledgerLines(repo, runId!).filter((event) => event.type === "handoff_accepted")).toHaveLength(2);
 
     const inspect = ahp(["inspect", runId!, "--repo", repo], repo);
 
@@ -266,12 +296,14 @@ describe("ahp run and ahp inspect with handoffs", () => {
     const run = ahp(["run", "workflow.mjs"], repo);
 
     expect(run.code).toBe(1);
-    expect(run.stdout).toMatch(/step implement: handoff hnd_[a-z0-9]+ revision 1 rejected \(unmet_dependency\)/);
+    expect(run.stdout).toMatch(/^! implement {2}handoff hnd_[a-z0-9]+ revision 1 rejected \(unmet_dependency\)$/m);
     // No attempt ran for the step, so there is no mock result to label on its line; the run line carries the label.
-    expect(run.stdout).toMatch(/step implement: failed \(rejected\)$/m);
-    expect(run.stdout).toMatch(/run run_[a-z0-9]+: failed \[mock\]/);
-    expect(run.stdout).not.toMatch(/step implement: attempt/);
+    expect(run.stdout).toMatch(/^✗ implement {2}failed \(rejected\)$/m);
+    expect(run.stdout).toMatch(/^run run_[a-z0-9]+: failed \[mock\]$/m);
+    expect(run.stdout).toContain("implement: refused: its handoff (revision 1)");
     const runId = /run (run_[a-z0-9]+): failed/.exec(run.stdout)?.[1];
+    const implement = (JSON.parse(ahp(["inspect", runId!, "--json"], repo).stdout) as RunInspection).state.steps.find((step) => step.id === "implement")!;
+    expect(implement.attempts).toEqual([]);
 
     const inspect = ahp(["inspect", runId!], repo);
 

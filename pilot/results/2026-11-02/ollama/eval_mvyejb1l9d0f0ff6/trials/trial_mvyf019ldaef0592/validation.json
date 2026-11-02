@@ -1,0 +1,33 @@
+{
+  "commit": "023e87d285f9905aa9f686ad6f22ce085a3ee81f",
+  "base": "67c30951140b311b7fb9e9765e9d0f56f1031250",
+  "changed": [],
+  "protected": [
+    "package.json",
+    "test/config.test.js",
+    "invariants/parse-env.mjs",
+    "test/hidden.test.js"
+  ],
+  "tests": {
+    "command": "node --test",
+    "exitCode": 1,
+    "signal": null,
+    "output": "✔ parseEnv reads the prefixed names and nests on a double underscore (1.5391ms)\n✔ parseEnv takes another prefix (0.2333ms)\n✔ isPlainObject (0.8712ms)\nnode:internal/modules/esm/resolve:272\n    throw new ERR_MODULE_NOT_FOUND(\n          ^\n\nError [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\\Users\\pc\\AppData\\Local\\ahp\\worktrees\\run_mvyf028f2f1b13fa\\validation-1\\src\\config.js' imported from C:\\Users\\pc\\AppData\\Local\\ahp\\worktrees\\run_mvyf028f2f1b13fa\\validation-1\\test\\hidden.test.js\n    at finalizeResolution (node:internal/modules/esm/resolve:272:11)\n    at moduleResolve (node:internal/modules/esm/resolve:879:10)\n    at defaultResolve (node:internal/modules/esm/resolve:1006:11)\n    at #cachedDefaultResolve (node:internal/modules/esm/loader:705:20)\n    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:725:38)\n    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:763:56)\n    at #resolve (node:internal/modules/esm/loader:687:17)\n    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:607:35)\n    at ModuleJob.syncLink (node:internal/modules/esm/module_job:276:33)\n    at ModuleJob.link (node:internal/modules/esm/module_job:381:17) {\n  code: 'ERR_MODULE_NOT_FOUND',\n  url: 'file:///C:/Users/pc/AppData/Local/ahp/worktrees/run_mvyf028f2f1b13fa/validation-1/src/config.js'\n}\n\nNode.js v24.21.0\n✖ test\\hidden.test.js (69.7541ms)\nℹ tests 4\nℹ suites 0\nℹ pass 3\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 103.379\n\n✖ failing tests:\n\ntest at test\\hidden.test.js:1:1\n✖ test\\hidden.test.js (69.7541ms)\n  'test failed'\n",
+    "truncated": false
+  },
+  "constraints": [
+    {
+      "id": "copy-by-hand",
+      "kind": "forbidden_pattern",
+      "outcome": "held",
+      "detail": "no match"
+    },
+    {
+      "id": "parse-env-keeps-strings",
+      "kind": "required_invariant",
+      "outcome": "held",
+      "detail": "exited 0: parseEnv still returns every value as a string\n"
+    }
+  ],
+  "validatorRuns": 1
+}

@@ -3,7 +3,7 @@ import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LedgerWriter } from "../src/ledger/index.ts";
-import { ahp } from "./helpers/cli.ts";
+import { plain as ahp } from "./helpers/cli.ts";
 import { finishedRun, GONE_PID, ledgerFile, ledgerLines, lockFile, rewriteLedger, truncateLedgerAfter } from "./helpers/ledger.ts";
 import { startRun, until, untilGone } from "./helpers/process.ts";
 import { createTempRepo, removeTempRepos } from "./helpers/repo.ts";

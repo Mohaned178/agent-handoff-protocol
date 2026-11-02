@@ -1,11 +1,10 @@
 import { extname, isAbsolute } from "node:path";
-import { appendFile, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
 import { text } from "node:stream/consumers";
 import { fileURLToPath } from "node:url";
 import { launch } from "../../process/index.ts";
-import { ADAPTER_ERROR_KINDS, isUsageReport, levelOn, meetsLevel, sameOnEveryOs, STOP_REASONS } from "../../protocol/index.ts";
+import { ACTIVITY_ENTRY_TYPES, ADAPTER_ERROR_KINDS, isUsageReport, levelOn, meetsLevel, sameOnEveryOs, STOP_REASONS } from "../../protocol/index.ts";
 import type { AgentRef, AttemptError, OutputFieldValue, StopReason, ToolCallLogEntry, UsageReport } from "../../protocol/index.ts";
+import { activityEntryOf, activityLogger, type ActivityItem } from "../activity.ts";
 import type { Adapter, AttemptExit } from "../contract.ts";
 
 /** The usage a mock attempt reports, as a tool would: only the numbers it gives; the rest are not reported. */
@@ -55,7 +54,16 @@ export interface MockAttemptScript {
    * transport's connection drops, so the attempt's outcome is unknown.
    */
   loseContact?: boolean;
-  /** Lines the adapter appends to the attempt's tool-call log, as a transport that reports tool calls would. Defaults to none: no log is made. */
+  /**
+   * Entries the adapter appends to the attempt's activity log before the agent starts, as a real adapter would while its
+   * agent works (each stamped with the time). Mock entries are no evidence: a `usage` entry's source should say it is
+   * scripted. Defaults to none: with neither this nor `toolCallLog`, no log is made.
+   */
+  activity?: ActivityItem[];
+  /**
+   * Tool calls the adapter appends to the activity log, as `tool_call` entries (kind, title and paths none), before any
+   * `activity` entry. Defaults to none.
+   */
   toolCallLog?: Pick<ToolCallLogEntry, "toolCallId" | "status" | "permission">[];
   /** The agent makes its edits and commit, then never exits: it hangs until something kills it. */
   hang?: boolean;
@@ -156,6 +164,10 @@ export const mockAdapter: Adapter = {
           );
         }
       }
+      if (script?.activity !== undefined) {
+        const valid = Array.isArray(script.activity) && script.activity.every((item) => activityEntryOf({ ...item, time: "" }) !== null);
+        if (!valid) problems.push(`mock attempt ${index + 1}: \`activity\` must be an array of activity entries (${ACTIVITY_ENTRY_TYPES.join(", ")}) without their time`);
+      }
       if (script?.stopReason !== undefined && !STOP_REASONS.includes(script.stopReason)) {
         problems.push(`mock attempt ${index + 1}: \`stopReason\` must be one of ${STOP_REASONS.join(", ")}`);
       }
@@ -170,7 +182,7 @@ export const mockAdapter: Adapter = {
   },
 
   // Called as a method, so an adapter built from this one under another declaration is held to its own.
-  async startAttempt({ attemptNumber, workspace, options, capabilities, transcript, toolCallLog }) {
+  async startAttempt({ attemptNumber, workspace, options, capabilities, transcript, activityLog }) {
     // The contract: fail rather than apply a capability at a weaker level than the one recorded.
     const { declaration } = this;
     for (const { kind, level } of capabilities.capabilities) {
@@ -184,12 +196,12 @@ export const mockAdapter: Adapter = {
     }
     const script = (options as MockOptions).attempts[attemptNumber - 1];
     if (!script) throw new Error(`mock adapter has no script for attempt ${attemptNumber}`);
-    // A promise alone would not keep the process alive; the timer does.
-    if (script.toolCallLog && toolCallLog) {
-      await mkdir(dirname(toolCallLog), { recursive: true });
-      const lines = script.toolCallLog.map((entry) => JSON.stringify({ time: new Date().toISOString(), kind: null, title: null, paths: [], ...entry }));
-      await appendFile(toolCallLog, `${lines.join("\n")}\n`);
+    if ((script.toolCallLog || script.activity) && activityLog) {
+      const log = activityLogger(activityLog, workspace, declaration.name);
+      for (const call of script.toolCallLog ?? []) log.write({ type: "tool_call", kind: null, title: null, paths: [], ...call });
+      for (const item of script.activity ?? []) log.write(item);
     }
+    // A promise alone would not keep the process alive; the timer does.
     if (script.hangBeforeSpawn) await new Promise(() => setInterval(() => undefined, 60_000));
 
     const agent = await launch({

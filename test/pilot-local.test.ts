@@ -22,7 +22,7 @@ describe("the local-engine pilot suites", () => {
       const engine = ENGINES[i]!;
       expect(validateSuite(suite)).toEqual([]);
       expect(suite.name).toBe(`pilot-local-${engine}`);
-      expect(suite.conditions).toEqual(["C0", "C0V", "C3"]);
+      expect(suite.conditions).toEqual(["C0", "C0V", "C3", "C3c", "C3r"]);
       // The pilot's own tasks, named from this folder.
       expect(suite.tasks.map((task) => resolve(LOCAL, task))).toEqual(pilot.tasks.map((task) => resolve(LOCAL, "..", task)));
       const served = bench.engines.find((entry) => entry.engine === engine)!;

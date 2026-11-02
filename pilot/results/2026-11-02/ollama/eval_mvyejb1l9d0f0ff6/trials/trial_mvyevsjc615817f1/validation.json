@@ -1,0 +1,34 @@
+{
+  "commit": "aac1f25200e715b7833033673f0785e0c84da019",
+  "base": "94d940c6f8bbeed33da16695951c96b0785d4397",
+  "changed": [],
+  "protected": [
+    "package.json",
+    "test/sales.test.js",
+    "invariants/inputs.mjs",
+    "invariants/report-rows.mjs",
+    "test/hidden.test.js"
+  ],
+  "tests": {
+    "command": "node --test",
+    "exitCode": 1,
+    "signal": null,
+    "output": "node:internal/modules/esm/resolve:272\n    throw new ERR_MODULE_NOT_FOUND(\n          ^\n\nError [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\\Users\\pc\\AppData\\Local\\ahp\\worktrees\\run_mvyevtiz15f5465b\\validation-1\\src\\csv.js' imported from C:\\Users\\pc\\AppData\\Local\\ahp\\worktrees\\run_mvyevtiz15f5465b\\validation-1\\test\\hidden.test.js\n    at finalizeResolution (node:internal/modules/esm/resolve:272:11)\n    at moduleResolve (node:internal/modules/esm/resolve:879:10)\n    at defaultResolve (node:internal/modules/esm/resolve:1006:11)\n    at #cachedDefaultResolve (node:internal/modules/esm/loader:705:20)\n    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:725:38)\n    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:763:56)\n    at #resolve (node:internal/modules/esm/loader:687:17)\n    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:607:35)\n    at ModuleJob.syncLink (node:internal/modules/esm/module_job:276:33)\n    at ModuleJob.link (node:internal/modules/esm/module_job:381:17) {\n  code: 'ERR_MODULE_NOT_FOUND',\n  url: 'file:///C:/Users/pc/AppData/Local/ahp/worktrees/run_mvyevtiz15f5465b/validation-1/src/csv.js'\n}\n\nNode.js v24.21.0\n✖ test\\hidden.test.js (64.897ms)\n✔ sales are added up per month and region (0.7899ms)\n✔ sales on different days of one month share a row (0.1448ms)\nℹ tests 3\nℹ suites 0\nℹ pass 2\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 106.5174\n\n✖ failing tests:\n\ntest at test\\hidden.test.js:1:1\n✖ test\\hidden.test.js (64.897ms)\n  'test failed'\n",
+    "truncated": false
+  },
+  "constraints": [
+    {
+      "id": "report-rows-unchanged",
+      "kind": "required_invariant",
+      "outcome": "held",
+      "detail": "exited 0: the report rows are unchanged\n"
+    },
+    {
+      "id": "inputs-not-modified",
+      "kind": "required_invariant",
+      "outcome": "held",
+      "detail": "exited 0: there is no src/csv.js, so nothing was modified\n"
+    }
+  ],
+  "validatorRuns": 1
+}

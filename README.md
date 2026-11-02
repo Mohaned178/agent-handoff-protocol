@@ -115,21 +115,32 @@ This needs no project and no setup. AHP makes a small sample project and runs pl
 
 ### Your first task
 
-In your project's folder:
+In your project's folder, open the app:
 
 ```sh
-ahp "fix the bug where the cart total ignores quantity"
+ahp
 ```
 
-AHP shows what it worked out, each answer with where it came from, and asks **Run**, **Change something** or **Cancel**. Nothing starts before you choose Run.
+```text
+ AHP  my-project · main                                                                      ? help
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ No runs here yet. Describe a task below to start one.
+
+ ╭────────────────────────────────────────────────────────────────────────────────────────────────╮
+ │ ❯  describe a task, e.g. "fix the failing login test"                                          │
+ ╰────────────────────────────────────────────────────────────────────────────────────────────────╯
+ / commands  ? help  ctrl+c quit
+```
+
+Type the task and press Enter (or start with it: `ahp "fix the bug where the cart total ignores quantity"` in a terminal opens the same summary). AHP shows what it worked out, each answer with where it came from; Enter runs it, `t`, `n`, `m` answer what it could not work out, and `/model`, `/effort`, `/plan`, `/check` and `/push` change the next run. Nothing starts before you press Enter on the summary.
 
 - **The check** comes from your project: `npm test` from a `package.json` test script, `pytest`, `cargo test`, `go test ./...` or `make test`. When there is none, AHP asks for a command, or offers "none: review only", which the summary and the receipt label not verified. `--check "<command>"` names one yourself.
-- **Who does each step** comes from the tools `ahp doctor` finds. **Change something** picks a step's tool, model and effort, and can keep the choice as your default (`ahp settings` shows your defaults; `ahp settings --clear` removes them). Flags do the same for one run: `--implement codex --implement-model gpt-5.6-terra`, `--review claude-code --review-effort high`.
+- **Who does each step** comes from the tools `ahp doctor` finds. **Change something** picks a step's tool, model and effort, and can keep the choice as your default (`/settings` shows your defaults and `x` removes one). Flags do the same for one run: `--implement codex --implement-model gpt-5.6-terra`, `--review claude-code --review-effort high`.
 - **The steps** are implement → review; `--plan` adds a read-only plan step first.
 - **The result** goes on a local branch `ahp/<task>` once you approve. Nothing leaves your machine unless you pass `--push` (to `origin`) or `--push <remote>`.
 - **Agents work from your last commit**: the summary names any uncommitted files they will not see. A folder that is not a git repository yet, or has no commit, is offered one first.
 
-Without a terminal (a script, CI), `--yes` runs it without asking; the run then stops at the approval gate for `ahp approve`.
+Without a terminal (a script, CI), the plain command `ahp "<task>" --yes` runs it without asking; the run then stops at the approval gate for `ahp approve`.
 
 > [!TIP]
 > `ahp doctor` shows which agent tools AHP found and whether they are logged in; `ahp --help` lists the commands to start with, and `ahp --help --all` every command and option. When something fails, [troubleshooting](docs/troubleshooting.md) has the fix for each message.
@@ -179,11 +190,11 @@ bf4898f review: approved
 6573cff plan: Read the repo (package.json, src/cart.mjs, test/cart.test.mjs)…
 ```
 
-Two flags change the output. `--diff` prints each attempt's whole diff, and `--verbose` prints every event as a line. You also get the line-per-event output when the output goes to a file, a pipe or CI.
+The app shows this as it happens (the run screen). The plain commands (`ahp run`, `ahp "<task>" --yes`) print one line per event, each tool call as it finishes, and `ahp inspect` shows each attempt's whole diff.
 
 ## Keeping a workflow
 
-A task run with `ahp "<task>"` is built in memory and recorded in the run's ledger; no file is written. To keep a workflow you run again, or run in CI, write it as a file: `ahp "<task>" --save fix-cart.workflow.mjs` saves the one it would run, and `ahp setup` asks about every part of one, in menus. `ahp run <file>` runs it.
+A task run with `ahp "<task>"` is built in memory and recorded in the run's ledger; no file is written. To keep a workflow you run again, or run in CI, write it as a file: `ahp "<task>" --save fix-cart.workflow.mjs` saves the one it would run, and `w` on the app's summary saves the one it shows. `ahp run <file>` runs it.
 
 A workflow is a plain JavaScript file that you can read and edit:
 
@@ -234,18 +245,20 @@ export default {
 | Command | Description |
 |---|---|
 | `ahp "<task>"` | Works out a run for the task from your project and tools, shows it, and runs it once you say so |
-| `ahp` | In a terminal, the same as `ahp setup` |
+| `ahp` | In a terminal, opens the app: describe a task, watch the run, decide at its gates, see the runs and tools. Without a terminal it prints the usage |
 | `ahp demo` | Tries AHP in a sample project it makes: scripted agents, free (`--real` uses your tools) |
 | `ahp doctor` | Shows which tools are installed and logged in |
-| `ahp setup` | Writes a workflow or an evaluation suite, using menus, and offers to start it |
+| `ahp clean [--dry-run]` | Removes the worktrees of runs that have ended |
 | `ahp run <file>` | Runs a workflow file |
 | `ahp approve <run> <step>` | Approves a waiting gate, from another terminal or later |
 | `ahp reject <run> <step> --reason "..."` | Rejects it and sends the step before the gate back |
 | `ahp runs` | Lists the repository's runs, newest first, with the command to run next for any that waits |
 | `ahp inspect [run]` | Shows a run's receipt, then everything about it: attempts, handoffs, verification, usage and the diff (default: the newest run) |
 | `ahp recover <run>` | Continues a run whose process stopped |
-| `ahp settings` | Shows the tool, model and effort you kept for each step (`--clear` removes them) |
 | `ahp eval <suite>` | Runs an evaluation suite |
+| `ahp bench <file>` | Measures local inference engines you started (Ollama, vLLM, SGLang, TensorRT-LLM): latency, throughput, GPU use, code quality, tool calls |
+
+The commands are plain lines for scripts, CI and agents; the app is for a person at a terminal, and both read and decide the same runs. `ahp setup`, `ahp settings` and `ahp init` have moved into the app (`ahp` then `/settings`, `w` to save a workflow) and say so when run.
 
 Exit codes:
 
@@ -284,9 +297,12 @@ AHP also measures whether its checks and handoffs help, and reports the answer w
 - a single agent, alone (C0) and with the same check-and-retry loop AHP gives (C0V)
 - a plain-text pipeline (C1), and one with structured fields but no checks (C2)
 - implement → review with the check, retry and send-back (C3min), and the full workflow with a plan step (C3)
+- the full workflow with a byte budget on what each step hands on, which verification enforces (C3c), and with a reflect step before review (C3r)
 - a baseline: one agent given as many attempts as the full workflow used
 
-Trials are repeated in a seeded random order, and each one is scored by independent validators with hidden tests that no agent sees. **No result yet**: the [pilot suite](docs/pilot.md) is written but has not been run, so nothing here claims that handoffs beat a single agent. A negative result is a legitimate outcome. See [docs/evaluation.md](docs/evaluation.md).
+Trials are repeated in a seeded random order, and each one is scored by independent validators with hidden tests that no agent sees. **No usable result yet**: the [pilot suite](docs/pilot.md) has run only once, on a small local model that made no tool calls (0 of 30 trials verified, in every condition), so it says nothing for or against handoffs, and nothing here claims that handoffs beat a single agent. A negative result is a legitimate outcome. See [docs/evaluation.md](docs/evaluation.md).
+
+`ahp bench` compares local inference engines on one model, and `ahp eval` can run the pilot through OpenCode on each of them. **First result** (2026-11-02, RTX 4060, Qwen2.5-Coder-7B int4: Ollama, vLLM and SGLang benched on speed, quality and tool calls; no engine made a valid tool call; only Ollama was evaluated): see [docs/results/inference-evaluation-2026-11-02.md](docs/results/inference-evaluation-2026-11-02.md). Setup and how to read a report: [docs/inference-evaluation.md](docs/inference-evaluation.md).
 
 ## Versions and support
 
@@ -312,6 +328,7 @@ The code is TypeScript on Node 24. You can run it from source without building: 
 - [How AHP works](docs/how-it-works.md): handoffs, verification, the ledger, crash recovery and cancelling
 - [Troubleshooting](docs/troubleshooting.md): each failure message, its cause and the command that fixes it
 - Adapters: [Claude Code](docs/adapters/claude-code.md), [Codex](docs/adapters/codex.md), [OpenCode](docs/adapters/opencode.md)
+- [Inference evaluation](docs/inference-evaluation.md): benchmarking local engines, setup and the reproducibility checklist
 - [Support matrix](docs/support-matrix.md) and [limits](docs/limits.md)
 - [Design direction](docs/design/ahp-v2-direction.md), [architecture decisions](docs/adr/) and [glossary](GLOSSARY.md)
 - [A2A mapping](docs/a2a-mapping.md): how AHP's data shapes map to the Agent2Agent protocol

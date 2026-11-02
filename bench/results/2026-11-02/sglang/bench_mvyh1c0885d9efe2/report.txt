@@ -1,0 +1,41 @@
+bench report: local
+hardware: NVIDIA GeForce RTX 4060, 8188 MiB, driver 621.01; AMD Ryzen 5 5500 (12 cores); 15.9 GiB RAM; Windows
+prompts: fizzbuzz, flatten, group-by, lru-cache, merge-intervals, palindrome, parse-duration, roman; tool-call cases: create-issue, read-file, run-tests, search-code, weather
+settings: workloads latency, throughput, quality, tools; concurrency 1, 2, 4, 8; 3 repeats; max_tokens 512; warmup 2; timeout 120000 ms
+percentiles are p50 / p95 / p99, nearest-rank; with fewer than 100 values p99 is the slowest of them
+bench bench_mvyh1c0885d9efe2: completed, seed 20261101, engine sglang only
+
+SGLang (Qwen/Qwen2.5-Coder-7B-Instruct-AWQ, awq) [container ahp-sglang]
+  workloads: 21 of 21 ran to the end
+  latency (one request at a time; 24 ok of 24):
+    time to first token ms: 97.3 / 414 / 1198 (n=24)
+    request latency ms:     7409 / 32971 / 55903 (n=24)
+    inter-chunk gap ms:     43.9 / 196 / 328 (n=3930)
+  throughput by concurrency:
+    c=1: 24 ok of 24 requests; requests/s 0.1 (0.0-0.2, 3 repeats); output tokens/s 17.6 (5.3-25.1, 3 repeats)
+        time to first token ms 123 / 466 / 840 (n=24); latency ms 10544 / 50173 / 55731 (n=24)
+    c=2: 24 ok of 24 requests; requests/s 0.1 (0.0-0.2, 3 repeats); output tokens/s 23.2 (7.3-41.2, 3 repeats)
+        time to first token ms 192 / 5775 / 5776 (n=24); latency ms 10441 / 66188 / 82950 (n=24)
+    c=4: 48 ok of 48 requests; requests/s 0.4 (0.3-0.5, 3 repeats); output tokens/s 59.0 (54.5-87.7, 3 repeats)
+        time to first token ms 146 / 306 / 334 (n=48); latency ms 7188 / 18381 / 24112 (n=48)
+    c=8: 96 ok of 96 requests; requests/s 0.9 (0.6-0.9, 3 repeats); output tokens/s 144 (97.1-153, 3 repeats)
+        time to first token ms 171 / 319 / 329 (n=96); latency ms 7659 / 18418 / 23028 (n=96)
+  quality: pass 18/24 (75.0%); fail 6; 0 engine errors of 24 requests over 3 workloads
+    fizzbuzz: 3/3
+    flatten: 3/3
+    group-by: 0/3
+    lru-cache: 3/3
+    merge-intervals: 3/3
+    palindrome: 3/3
+    parse-duration: 0/3
+    roman: 3/3
+  tool calls: valid_call 0/15 (0.0%); no_call 15; 0 engine errors of 15 requests over 3 workloads
+    create-issue: 0/3
+    read-file: 0/3
+    run-tests: 0/3
+    search-code: 0/3
+    weather: 0/3
+  resources over 21 workloads; GPU memory before the first request 6628 MiB:
+    GPU (nvidia-smi): utilization peak 100%, mean 33.5% (2721 samples); memory peak 6814 MiB, mean 6692 MiB (2721 samples); power n/a
+    whole machine (os): memory peak 15.4 GiB, mean 13.3 GiB (2719 samples); CPU peak 100%, mean 69.9% (2698 samples)
+    container: n/a (docker stats gave no figure for ahp-sglang: "docker" is not on PATH (54 directories searched, with extensions .com, .exe, .bat, .cmd))

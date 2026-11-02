@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mockAdapter } from "../src/adapters/mock/index.ts";
 import type { Adapter } from "../src/adapters/index.ts";
 import { diagnose, type DoctorReport } from "../src/index.ts";
-import { formatDoctor } from "../src/cli/format-doctor.ts";
+import { formatDoctor } from "../src/commands/doctor-text.ts";
 import { FAKE_SECRETS, fakeToolsDir, installFakeTool, pathWithFakes } from "./helpers/fake-tools.ts";
 import { isRunning, until } from "./helpers/process.ts";
 import { removeTempRepos } from "./helpers/repo.ts";

@@ -1,0 +1,466 @@
+{
+  "benches": [
+    {
+      "benchId": "bench_mvyh1c0885d9efe2",
+      "name": "local",
+      "state": "completed",
+      "reason": null,
+      "seed": 20261101,
+      "onlyEngine": "sglang",
+      "createdAt": "2026-11-01T23:38:48.248Z",
+      "endedAt": "2026-11-02T00:04:21.080Z"
+    }
+  ],
+  "fingerprint": {
+    "gpu": {
+      "name": "NVIDIA GeForce RTX 4060",
+      "memoryTotalMiB": 8188,
+      "driver": "621.01"
+    },
+    "gpuReason": null,
+    "cpu": {
+      "model": "AMD Ryzen 5 5500",
+      "cores": 12
+    },
+    "ramBytes": 17067724800,
+    "os": "Windows"
+  },
+  "settings": {
+    "workloads": [
+      "latency",
+      "throughput",
+      "quality",
+      "tools"
+    ],
+    "concurrency": [
+      1,
+      2,
+      4,
+      8
+    ],
+    "repeats": 3,
+    "maxTokens": 512,
+    "warmup": 2,
+    "timeoutMs": 120000
+  },
+  "prompts": [
+    {
+      "id": "fizzbuzz",
+      "sha256": "59fc2f60b3bdc0a8494f8efc28bb7729b7f2f62e5b985dadb162d28ab216287f",
+      "testSha256": "98f5c8fcdcbd6350741edccecad94d8d66634be176465ccbfd7e5a935b5451ac"
+    },
+    {
+      "id": "flatten",
+      "sha256": "60b4979a59dade9336aad08e5a3b2c4df01675f20010d6853e79232864581309",
+      "testSha256": "519b378846c814b9a3fe11b6c6f6022026aa0f078ea054058015732dec45bef9"
+    },
+    {
+      "id": "group-by",
+      "sha256": "60fa8f9b9e007eb7c6447503b9309eef67472fb071bd543c6dbdb6e504be1b46",
+      "testSha256": "1a9625c5f081976eae616967b3c971d3c9851e1b3d64c3d4e055d86e1f2fafaf"
+    },
+    {
+      "id": "lru-cache",
+      "sha256": "72d1a634d7368fe3761a7efdf28fa95a1adff3fe830ac25dc06387ec2ac75f2a",
+      "testSha256": "0ea15aa8646c9c5edfc0507434626ceb764630813e2532dbfbcc8c53f7b07c7d"
+    },
+    {
+      "id": "merge-intervals",
+      "sha256": "22643ac074e3b0e86479fe66a1f43c317b0443f7533a71863ad317f170d3e316",
+      "testSha256": "37fa3fbe5a72c38251ce0e55b7769ab6ee8cf15a5bf58e1abd54a28a1e046aa0"
+    },
+    {
+      "id": "palindrome",
+      "sha256": "728e338bfd98e61d2155df52697630d1ddd9f0c6191074660c644938495f55e1",
+      "testSha256": "0f73d7a1d2dfb456fdccca3c96c271ea8ec957521a000e8cf2c89bd39d28d15a"
+    },
+    {
+      "id": "parse-duration",
+      "sha256": "8af23e2930b1b4601298f5484976b261d2839014ebfe8983482d5424228e35fc",
+      "testSha256": "6ace8964be5f31004d09809471d6bb5e5de81431e6afad9c29dd30456f37f2ae"
+    },
+    {
+      "id": "roman",
+      "sha256": "039fef41270ed6f1deeffa8eeeffb0f10efddace709e2e5fda491b500080cde5",
+      "testSha256": "7fdf473ec6c1e3a4f5fb4cfe3ba16ea33f0e817873e866c6ad07de8c151ca36d"
+    }
+  ],
+  "toolCases": [
+    {
+      "id": "create-issue",
+      "sha256": "8f528c1c29790c47188fdae5ae48f4c120e16f7efd32b1f4b05b9aadde21ef28"
+    },
+    {
+      "id": "read-file",
+      "sha256": "79f6f382dda4e29da27dc81913e4dde025f10e716b17e335ed57e71674a65926"
+    },
+    {
+      "id": "run-tests",
+      "sha256": "ab2d1f04b6b70988c2261428bfca2b7f66ea7dfd52999e1949530035792a00aa"
+    },
+    {
+      "id": "search-code",
+      "sha256": "92330f82313b188dc7ba1f3106715e4995c3d5fa9b9b8816df7b4bf526cf4856"
+    },
+    {
+      "id": "weather",
+      "sha256": "cb177a28f80eb97712fcafa64c17d057619c2d97f05d8d61df1200cfddcb815f"
+    }
+  ],
+  "engines": [
+    {
+      "engine": "sglang",
+      "name": "SGLang",
+      "model": "Qwen/Qwen2.5-Coder-7B-Instruct-AWQ",
+      "quantization": "awq",
+      "container": "ahp-sglang",
+      "benchId": "bench_mvyh1c0885d9efe2",
+      "available": true,
+      "version": null,
+      "error": null,
+      "idleGpuMemoryMiB": 6628,
+      "warmup": {
+        "requests": 2,
+        "failed": 0,
+        "firstError": null
+      },
+      "workloads": {
+        "scheduled": 21,
+        "ended": 21,
+        "cancelled": 0,
+        "skipped": 0,
+        "neverRun": 0
+      },
+      "latency": {
+        "requests": 24,
+        "succeeded": 24,
+        "failed": 0,
+        "ttftMs": {
+          "n": 24,
+          "p50": 97.279,
+          "p95": 413.565,
+          "p99": 1197.551
+        },
+        "latencyMs": {
+          "n": 24,
+          "p50": 7408.709,
+          "p95": 32970.605,
+          "p99": 55902.819
+        },
+        "interChunkMs": {
+          "n": 3930,
+          "p50": 43.909,
+          "p95": 196.468,
+          "p99": 327.64
+        }
+      },
+      "throughput": [
+        {
+          "concurrency": 1,
+          "workloads": 3,
+          "timing": {
+            "requests": 24,
+            "succeeded": 24,
+            "failed": 0,
+            "ttftMs": {
+              "n": 24,
+              "p50": 123.257,
+              "p95": 465.715,
+              "p99": 840.159
+            },
+            "latencyMs": {
+              "n": 24,
+              "p50": 10544.135,
+              "p95": 50173.147,
+              "p99": 55730.526
+            },
+            "interChunkMs": {
+              "n": 3930,
+              "p50": 53.277,
+              "p95": 302.773,
+              "p99": 347.544
+            }
+          },
+          "requestsPerSecond": {
+            "n": 3,
+            "median": 0.10589159945793032,
+            "min": 0.03224510562424453,
+            "max": 0.15145678615098837
+          },
+          "outputTokensPerSecond": {
+            "n": 3,
+            "median": 17.55153261015195,
+            "min": 5.34462625721853,
+            "max": 25.103962304526323
+          }
+        },
+        {
+          "concurrency": 2,
+          "workloads": 3,
+          "timing": {
+            "requests": 24,
+            "succeeded": 24,
+            "failed": 0,
+            "ttftMs": {
+              "n": 24,
+              "p50": 191.823,
+              "p95": 5774.573,
+              "p99": 5775.964
+            },
+            "latencyMs": {
+              "n": 24,
+              "p50": 10440.866,
+              "p95": 66187.639,
+              "p99": 82950.004
+            },
+            "interChunkMs": {
+              "n": 3928,
+              "p50": 86.138,
+              "p95": 354.819,
+              "p99": 414.623
+            }
+          },
+          "requestsPerSecond": {
+            "n": 3,
+            "median": 0.1403651377984735,
+            "min": 0.04436001329181258,
+            "max": 0.24838997499302876
+          },
+          "outputTokensPerSecond": {
+            "n": 3,
+            "median": 23.247975947872174,
+            "min": 7.347127201456458,
+            "max": 41.17063835509452
+          }
+        },
+        {
+          "concurrency": 4,
+          "workloads": 3,
+          "timing": {
+            "requests": 48,
+            "succeeded": 48,
+            "failed": 0,
+            "ttftMs": {
+              "n": 48,
+              "p50": 146.294,
+              "p95": 306.08,
+              "p99": 334.294
+            },
+            "latencyMs": {
+              "n": 48,
+              "p50": 7188.173,
+              "p95": 18381.243,
+              "p99": 24111.894
+            },
+            "interChunkMs": {
+              "n": 7854,
+              "p50": 47.23,
+              "p95": 98.892,
+              "p99": 137.01
+            }
+          },
+          "requestsPerSecond": {
+            "n": 3,
+            "median": 0.35631506883817843,
+            "min": 0.3292413774512663,
+            "max": 0.5293160013219668
+          },
+          "outputTokensPerSecond": {
+            "n": 3,
+            "median": 59.0146832763233,
+            "min": 54.53060314036598,
+            "max": 87.66796271895073
+          }
+        },
+        {
+          "concurrency": 8,
+          "workloads": 3,
+          "timing": {
+            "requests": 96,
+            "succeeded": 96,
+            "failed": 0,
+            "ttftMs": {
+              "n": 96,
+              "p50": 170.906,
+              "p95": 319.476,
+              "p99": 328.509
+            },
+            "latencyMs": {
+              "n": 96,
+              "p50": 7659.141,
+              "p95": 18417.591,
+              "p99": 23027.754
+            },
+            "interChunkMs": {
+              "n": 15745,
+              "p50": 50.068,
+              "p95": 96.671,
+              "p99": 124.782
+            }
+          },
+          "requestsPerSecond": {
+            "n": 3,
+            "median": 0.8712379706199498,
+            "min": 0.5847271355290239,
+            "max": 0.9227945390749417
+          },
+          "outputTokensPerSecond": {
+            "n": 3,
+            "median": 144.3804674436748,
+            "min": 97.10124994378853,
+            "max": 153.41459212120907
+          }
+        }
+      ],
+      "quality": {
+        "workloads": 3,
+        "requests": 24,
+        "errors": 0,
+        "unscored": 0,
+        "scored": 24,
+        "outcomes": {
+          "fail": 6,
+          "pass": 18
+        },
+        "passes": 18,
+        "passRate": 0.75,
+        "byPrompt": [
+          {
+            "id": "fizzbuzz",
+            "passes": 3,
+            "scored": 3,
+            "errors": 0
+          },
+          {
+            "id": "flatten",
+            "passes": 3,
+            "scored": 3,
+            "errors": 0
+          },
+          {
+            "id": "group-by",
+            "passes": 0,
+            "scored": 3,
+            "errors": 0
+          },
+          {
+            "id": "lru-cache",
+            "passes": 3,
+            "scored": 3,
+            "errors": 0
+          },
+          {
+            "id": "merge-intervals",
+            "passes": 3,
+            "scored": 3,
+            "errors": 0
+          },
+          {
+            "id": "palindrome",
+            "passes": 3,
+            "scored": 3,
+            "errors": 0
+          },
+          {
+            "id": "parse-duration",
+            "passes": 0,
+            "scored": 3,
+            "errors": 0
+          },
+          {
+            "id": "roman",
+            "passes": 3,
+            "scored": 3,
+            "errors": 0
+          }
+        ]
+      },
+      "tools": {
+        "workloads": 3,
+        "requests": 15,
+        "errors": 0,
+        "unscored": 0,
+        "scored": 15,
+        "outcomes": {
+          "no_call": 15
+        },
+        "passes": 0,
+        "passRate": 0,
+        "byPrompt": [
+          {
+            "id": "create-issue",
+            "passes": 0,
+            "scored": 3,
+            "errors": 0
+          },
+          {
+            "id": "read-file",
+            "passes": 0,
+            "scored": 3,
+            "errors": 0
+          },
+          {
+            "id": "run-tests",
+            "passes": 0,
+            "scored": 3,
+            "errors": 0
+          },
+          {
+            "id": "search-code",
+            "passes": 0,
+            "scored": 3,
+            "errors": 0
+          },
+          {
+            "id": "weather",
+            "passes": 0,
+            "scored": 3,
+            "errors": 0
+          }
+        ]
+      },
+      "resources": {
+        "workloads": 21,
+        "gpu": {
+          "samples": 2721,
+          "utilizationPercent": {
+            "peak": 100,
+            "mean": 33.55,
+            "samples": 2721
+          },
+          "memoryUsedMiB": {
+            "peak": 6814,
+            "mean": 6692.288,
+            "samples": 2721
+          },
+          "powerW": null,
+          "workloadsWithout": 0
+        },
+        "gpuReason": null,
+        "host": {
+          "memoryUsedBytes": {
+            "peak": 16485335040,
+            "mean": 14302073892.531,
+            "samples": 2719
+          },
+          "cpuPercent": {
+            "peak": 100,
+            "mean": 69.904,
+            "samples": 2698
+          }
+        },
+        "docker": null,
+        "dockerReason": "docker stats gave no figure for ahp-sglang: \"docker\" is not on PATH (54 directories searched, with extensions .com, .exe, .bat, .cmd)"
+      },
+      "verified": null
+    }
+  ],
+  "comparisons": [],
+  "evaluations": [],
+  "verifiedComparisons": [],
+  "comparisonSeed": 0,
+  "method": {
+    "percentiles": "nearest-rank",
+    "comparisons": "mean over prompts of the difference in pass rate, with a 95% percentile interval from a paired bootstrap over prompts (10,000 resamples)"
+  }
+}

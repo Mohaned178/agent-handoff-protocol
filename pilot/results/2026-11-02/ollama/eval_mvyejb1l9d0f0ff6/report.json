@@ -1,0 +1,1032 @@
+{
+  "evaluationId": "eval_mvyejb1l9d0f0ff6",
+  "suite": "pilot-local-ollama",
+  "state": "completed",
+  "reason": null,
+  "mock": false,
+  "repeats": 1,
+  "seed": 20261101,
+  "maxIncidentRate": null,
+  "spend": null,
+  "tools": [
+    {
+      "tool": "opencode",
+      "pinned": null,
+      "found": [
+        {
+          "version": "1.18.35",
+          "trials": 30
+        }
+      ],
+      "mismatchedTrials": 0,
+      "engines": [
+        {
+          "engine": "ollama",
+          "name": "Ollama",
+          "baseURL": "http://localhost:11434/v1",
+          "model": "qwen2.5-coder:7b-instruct-q4_K_M",
+          "versions": [
+            {
+              "version": "0.40.13",
+              "trials": 30
+            }
+          ],
+          "unavailableTrials": 0,
+          "firstError": null
+        }
+      ]
+    }
+  ],
+  "conditions": [
+    {
+      "condition": "C0",
+      "invalidCells": [],
+      "trials": 6,
+      "scored": 6,
+      "passes": 0,
+      "successRate": 0,
+      "constraintTrials": 0,
+      "constraintViolations": 0,
+      "constraintViolationRate": null,
+      "unchangedResults": 6,
+      "failures": {
+        "run_succeeded": 1,
+        "verification_failed": 5
+      },
+      "attempts": 6,
+      "retries": 0,
+      "retriesPerSuccess": null,
+      "work": {
+        "trials": 6,
+        "result": 0,
+        "duplicated": 0,
+        "reverted": 0
+      },
+      "wallTime": {
+        "measured": 6,
+        "medianMs": 13520,
+        "meanMs": 13439.333333333334
+      },
+      "context": {
+        "trials": 6,
+        "handoffs": 0,
+        "medianBytes": null,
+        "totalBytes": 0
+      },
+      "usage": [
+        {
+          "adapter": "opencode",
+          "attempts": 6,
+          "reported": 6,
+          "sources": [
+            "opencode acp session/prompt result (usage); inputTokens excludes cachedReadTokens, and totalTokens is input + output + thought + cached read; no cost reported (a zero cost is not taken as one)"
+          ],
+          "counts": {
+            "inputTokens": {
+              "sum": 30937,
+              "attempts": 6
+            },
+            "outputTokens": {
+              "sum": 443,
+              "attempts": 6
+            },
+            "cachedInputTokens": {
+              "sum": 11185,
+              "attempts": 6
+            },
+            "totalTokens": {
+              "sum": 42565,
+              "attempts": 6
+            }
+          },
+          "cost": []
+        }
+      ],
+      "toolCalls": [
+        {
+          "adapter": "opencode",
+          "trials": 6,
+          "attempts": 6,
+          "total": 0,
+          "completed": 0,
+          "failed": 0,
+          "refused": 0
+        }
+      ],
+      "harnessIncidents": {
+        "count": 0,
+        "trials": []
+      },
+      "unscored": {
+        "count": 0,
+        "byReason": {},
+        "trials": []
+      },
+      "cancelled": 0,
+      "notRun": 0
+    },
+    {
+      "condition": "C0V",
+      "invalidCells": [],
+      "trials": 6,
+      "scored": 6,
+      "passes": 0,
+      "successRate": 0,
+      "constraintTrials": 0,
+      "constraintViolations": 0,
+      "constraintViolationRate": null,
+      "unchangedResults": 6,
+      "failures": {
+        "run_succeeded": 6
+      },
+      "attempts": 11,
+      "retries": 5,
+      "retriesPerSuccess": null,
+      "work": {
+        "trials": 6,
+        "result": 0,
+        "duplicated": 0,
+        "reverted": 0
+      },
+      "wallTime": {
+        "measured": 6,
+        "medianMs": 25905.5,
+        "meanMs": 26950.333333333332
+      },
+      "context": {
+        "trials": 6,
+        "handoffs": 0,
+        "medianBytes": null,
+        "totalBytes": 0
+      },
+      "usage": [
+        {
+          "adapter": "opencode",
+          "attempts": 11,
+          "reported": 11,
+          "sources": [
+            "opencode acp session/prompt result (usage); inputTokens excludes cachedReadTokens, and totalTokens is input + output + thought + cached read; no cost reported (a zero cost is not taken as one)"
+          ],
+          "counts": {
+            "inputTokens": {
+              "sum": 58670,
+              "attempts": 11
+            },
+            "outputTokens": {
+              "sum": 1254,
+              "attempts": 11
+            },
+            "cachedInputTokens": {
+              "sum": 18704,
+              "attempts": 11
+            },
+            "totalTokens": {
+              "sum": 78628,
+              "attempts": 11
+            }
+          },
+          "cost": []
+        }
+      ],
+      "toolCalls": [
+        {
+          "adapter": "opencode",
+          "trials": 6,
+          "attempts": 11,
+          "total": 0,
+          "completed": 0,
+          "failed": 0,
+          "refused": 0
+        }
+      ],
+      "harnessIncidents": {
+        "count": 0,
+        "trials": []
+      },
+      "unscored": {
+        "count": 0,
+        "byReason": {},
+        "trials": []
+      },
+      "cancelled": 0,
+      "notRun": 0
+    },
+    {
+      "condition": "C3",
+      "invalidCells": [],
+      "trials": 6,
+      "scored": 6,
+      "passes": 0,
+      "successRate": 0,
+      "constraintTrials": 0,
+      "constraintViolations": 0,
+      "constraintViolationRate": null,
+      "unchangedResults": 6,
+      "failures": {
+        "run_succeeded": 6
+      },
+      "attempts": 32,
+      "retries": 14,
+      "retriesPerSuccess": null,
+      "work": {
+        "trials": 6,
+        "result": 0,
+        "duplicated": 0,
+        "reverted": 0
+      },
+      "wallTime": {
+        "measured": 6,
+        "medianMs": 83913.5,
+        "meanMs": 80851.33333333333
+      },
+      "context": {
+        "trials": 6,
+        "handoffs": 16,
+        "medianBytes": 906,
+        "totalBytes": 14285
+      },
+      "usage": [
+        {
+          "adapter": "opencode",
+          "attempts": 32,
+          "reported": 32,
+          "sources": [
+            "opencode acp session/prompt result (usage); inputTokens excludes cachedReadTokens, and totalTokens is input + output + thought + cached read; no cost reported (a zero cost is not taken as one)"
+          ],
+          "counts": {
+            "inputTokens": {
+              "sum": 151455,
+              "attempts": 32
+            },
+            "outputTokens": {
+              "sum": 4698,
+              "attempts": 32
+            },
+            "cachedInputTokens": {
+              "sum": 58182,
+              "attempts": 32
+            },
+            "totalTokens": {
+              "sum": 214335,
+              "attempts": 32
+            }
+          },
+          "cost": []
+        }
+      ],
+      "toolCalls": [
+        {
+          "adapter": "opencode",
+          "trials": 6,
+          "attempts": 32,
+          "total": 0,
+          "completed": 0,
+          "failed": 0,
+          "refused": 0
+        }
+      ],
+      "harnessIncidents": {
+        "count": 0,
+        "trials": []
+      },
+      "unscored": {
+        "count": 0,
+        "byReason": {},
+        "trials": []
+      },
+      "cancelled": 0,
+      "notRun": 0
+    },
+    {
+      "condition": "C3c",
+      "invalidCells": [],
+      "trials": 6,
+      "scored": 6,
+      "passes": 0,
+      "successRate": 0,
+      "constraintTrials": 0,
+      "constraintViolations": 0,
+      "constraintViolationRate": null,
+      "unchangedResults": 6,
+      "failures": {
+        "run_succeeded": 6
+      },
+      "attempts": 21,
+      "retries": 3,
+      "retriesPerSuccess": null,
+      "work": {
+        "trials": 6,
+        "result": 0,
+        "duplicated": 0,
+        "reverted": 0
+      },
+      "wallTime": {
+        "measured": 6,
+        "medianMs": 46419.5,
+        "meanMs": 52982.333333333336
+      },
+      "context": {
+        "trials": 6,
+        "handoffs": 12,
+        "medianBytes": 1055.5,
+        "totalBytes": 11261
+      },
+      "usage": [
+        {
+          "adapter": "opencode",
+          "attempts": 21,
+          "reported": 21,
+          "sources": [
+            "opencode acp session/prompt result (usage); inputTokens excludes cachedReadTokens, and totalTokens is input + output + thought + cached read; no cost reported (a zero cost is not taken as one)"
+          ],
+          "counts": {
+            "inputTokens": {
+              "sum": 100331,
+              "attempts": 21
+            },
+            "outputTokens": {
+              "sum": 3643,
+              "attempts": 21
+            },
+            "cachedInputTokens": {
+              "sum": 39377,
+              "attempts": 21
+            },
+            "totalTokens": {
+              "sum": 143351,
+              "attempts": 21
+            }
+          },
+          "cost": []
+        }
+      ],
+      "toolCalls": [
+        {
+          "adapter": "opencode",
+          "trials": 6,
+          "attempts": 21,
+          "total": 0,
+          "completed": 0,
+          "failed": 0,
+          "refused": 0
+        }
+      ],
+      "harnessIncidents": {
+        "count": 0,
+        "trials": []
+      },
+      "unscored": {
+        "count": 0,
+        "byReason": {},
+        "trials": []
+      },
+      "cancelled": 0,
+      "notRun": 0
+    },
+    {
+      "condition": "C3r",
+      "invalidCells": [],
+      "trials": 6,
+      "scored": 6,
+      "passes": 0,
+      "successRate": 0,
+      "constraintTrials": 0,
+      "constraintViolations": 0,
+      "constraintViolationRate": null,
+      "unchangedResults": 6,
+      "failures": {
+        "run_succeeded": 6
+      },
+      "attempts": 30,
+      "retries": 6,
+      "retriesPerSuccess": null,
+      "work": {
+        "trials": 6,
+        "result": 0,
+        "duplicated": 0,
+        "reverted": 0
+      },
+      "wallTime": {
+        "measured": 6,
+        "medianMs": 80363.5,
+        "meanMs": 82016.33333333333
+      },
+      "context": {
+        "trials": 6,
+        "handoffs": 19,
+        "medianBytes": 950,
+        "totalBytes": 20583
+      },
+      "usage": [
+        {
+          "adapter": "opencode",
+          "attempts": 30,
+          "reported": 30,
+          "sources": [
+            "opencode acp session/prompt result (usage); inputTokens excludes cachedReadTokens, and totalTokens is input + output + thought + cached read; no cost reported (a zero cost is not taken as one)"
+          ],
+          "counts": {
+            "inputTokens": {
+              "sum": 143628,
+              "attempts": 30
+            },
+            "outputTokens": {
+              "sum": 6326,
+              "attempts": 30
+            },
+            "cachedInputTokens": {
+              "sum": 56266,
+              "attempts": 30
+            },
+            "totalTokens": {
+              "sum": 206220,
+              "attempts": 30
+            }
+          },
+          "cost": []
+        }
+      ],
+      "toolCalls": [
+        {
+          "adapter": "opencode",
+          "trials": 6,
+          "attempts": 30,
+          "total": 0,
+          "completed": 0,
+          "failed": 0,
+          "refused": 0
+        }
+      ],
+      "harnessIncidents": {
+        "count": 0,
+        "trials": []
+      },
+      "unscored": {
+        "count": 0,
+        "byReason": {},
+        "trials": []
+      },
+      "cancelled": 0,
+      "notRun": 0
+    }
+  ],
+  "baseline": null,
+  "comparisons": [
+    {
+      "a": "C3",
+      "b": "C0V",
+      "tasks": [
+        {
+          "taskId": "config-merge",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "csv-export",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "inventory-reservation",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "orders-listing",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "password-reset",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "retry-backoff",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        }
+      ],
+      "excluded": [],
+      "seed": 20261101,
+      "resamples": 10000,
+      "meanDifference": 0,
+      "interval": [
+        0,
+        0
+      ],
+      "finding": "no_detectable_difference"
+    },
+    {
+      "a": "C0V",
+      "b": "C0",
+      "tasks": [
+        {
+          "taskId": "config-merge",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "csv-export",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "inventory-reservation",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "orders-listing",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "password-reset",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "retry-backoff",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        }
+      ],
+      "excluded": [],
+      "seed": 20261101,
+      "resamples": 10000,
+      "meanDifference": 0,
+      "interval": [
+        0,
+        0
+      ],
+      "finding": "no_detectable_difference"
+    },
+    {
+      "a": "C3c",
+      "b": "C3",
+      "tasks": [
+        {
+          "taskId": "config-merge",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "csv-export",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "inventory-reservation",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "orders-listing",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "password-reset",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "retry-backoff",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        }
+      ],
+      "excluded": [],
+      "seed": 20261101,
+      "resamples": 10000,
+      "meanDifference": 0,
+      "interval": [
+        0,
+        0
+      ],
+      "finding": "no_detectable_difference"
+    },
+    {
+      "a": "C3r",
+      "b": "C3",
+      "tasks": [
+        {
+          "taskId": "config-merge",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "csv-export",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "inventory-reservation",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "orders-listing",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "password-reset",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "retry-backoff",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        }
+      ],
+      "excluded": [],
+      "seed": 20261101,
+      "resamples": 10000,
+      "meanDifference": 0,
+      "interval": [
+        0,
+        0
+      ],
+      "finding": "no_detectable_difference"
+    },
+    {
+      "a": "C3",
+      "b": "C0",
+      "tasks": [
+        {
+          "taskId": "config-merge",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "csv-export",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "inventory-reservation",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "orders-listing",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "password-reset",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        },
+        {
+          "taskId": "retry-backoff",
+          "a": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "b": {
+            "passes": 0,
+            "valid": 1,
+            "incidents": 0,
+            "rate": 0
+          },
+          "difference": 0
+        }
+      ],
+      "excluded": [],
+      "seed": 20261101,
+      "resamples": 10000,
+      "meanDifference": 0,
+      "interval": [
+        0,
+        0
+      ],
+      "finding": "no_detectable_difference"
+    }
+  ],
+  "taskChanges": []
+}

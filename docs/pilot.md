@@ -97,8 +97,8 @@ For both combinations: **360 to 936 attempts.** The low end is no condition ever
 ## On a local engine
 
 `pilot/local/` holds one suite per engine of `bench/local.mjs` (`ollama.mjs`, `vllm.mjs`, `sglang.mjs`,
-`tensorrt-llm.mjs`; inference-evaluation ticket 03). They share `common.mjs`: the six tasks above, conditions C0, C0V and
-C3 (C3c and C3r join once tickets 05 and 06 land), the repeats and the seed. Every role is OpenCode on that engine's model
+`tensorrt-llm.mjs`; inference-evaluation ticket 03). They share `common.mjs`: the six tasks above, conditions C0, C0V,
+C3, C3c and C3r, the repeats and the seed. Every role is OpenCode on that engine's model
 (`opencode`'s `localEndpoint`, see `docs/adapters/opencode.md`), the same model the bench measures, so the two can be read
 together. No API key or spend: the model is local and free.
 

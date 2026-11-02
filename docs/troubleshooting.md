@@ -41,19 +41,20 @@ placeholder), then `pyproject.toml`, `pytest.ini` or a `tests/` folder (`pytest`
 (`go test ./...`) and a `Makefile` with a `test` target (`make test`), and found none. It reads
 those files only and runs nothing to find out.
 
-**Fix:** name the command: `ahp "<task>" --check "npm run test:unit"`. In a terminal AHP asks instead, and also offers
-"none: review only", which the summary and the receipt then label **not verified**.
+**Fix:** name the command: `ahp "<task>" --yes --check "npm run test:unit"`, or `--no-check` for "review only", which the
+summary and the receipt then label **not verified**. In the app (`ahp`) the summary asks for the command instead and
+offers the same "none: review only".
 
 ### "the check already fails on your last commit"
 
-**Cause:** after you choose Run, AHP runs the check once on your last commit, before any agent starts. It failed. Two
-cases:
+**Cause:** before any agent starts, AHP runs the check once on your last commit (in the app, after you press Enter on
+the summary). It failed. Two cases:
 
 - **The command cannot run** (the line says "is not recognized", "command not found" or similar): the check's tool is
   not installed or not on `PATH`. Every attempt would fail the same way, so fix this first, or pass the right command
   with `--check`.
-- **The tests fail:** often that is the task itself (a bug with a failing test). Answer "Run it anyway?" with yes; the
-  agents are asked to make the check pass.
+- **The tests fail:** often that is the task itself (a bug with a failing test). The app asks "Run anyway?" and the
+  plain `ahp "<task>" --yes` says it and goes on; the agents are asked to make the check pass.
 
 `--no-precheck` skips this run of the check.
 
@@ -72,6 +73,34 @@ before any agent runs.
 
 **Fix:** `git remote add origin <url>`, or leave out `--push`: the approved work then goes on a local branch
 `ahp/<task>`.
+
+### "a task runs only once you say so: pass --yes"
+
+**Cause:** `ahp "<task>"` as a plain command shows what it worked out and starts the agents, and there is nobody to ask
+first, so it starts only with `--yes`. The app (`ahp` with no arguments, in a terminal) shows the same summary and asks.
+
+**Fix:** add `--yes` (`-y`), or open the app.
+
+### "... is not in a git repository: run ahp in your project's folder, or pass --repo <dir>"
+
+**Cause:** the folder is not inside a git repository, and a run starts from a commit. The plain commands change nothing
+in your folder; the app offers to run `git init` and make a first commit.
+
+**Fix:** `cd` into the project, pass `--repo <dir>`, or `git init` and commit what is there.
+
+### "unknown option ..." / "unexpected argument ..."
+
+**Cause:** the command has no such option. The line under the message, `usage: ahp <command> ...`, is that command's own
+usage: each command takes only its own options (`ahp --help` lists them all).
+
+**Fix:** use the options on that usage line.
+
+### "... has moved into the app" (`ahp setup`, `settings` and `init`)
+
+**Cause:** the questions of `ahp setup`, `ahp settings` and `ahp init` are screens of the app now.
+
+**Fix:** run `ahp` in a terminal. To keep a workflow, save it from the summary or write the file by hand and run it with
+`ahp run <file>`.
 
 ### "unknown command: ... (a task is one argument, in quotes ...)"
 
@@ -120,6 +149,15 @@ ahp recover <attempt-id> --policy abort       # end that step instead
 
 `ahp inspect <run-id>` shows the recovery report: what the attempt was doing and, for OpenCode, its last tool
 calls.
+
+### "is not waiting for approval" / "reject needs --reason <text>"
+
+**Cause:** `ahp approve <run-id>` and `ahp reject <run-id> --reason ...` decide the approval gate a run waits at, and
+that run is not waiting at one (it ended, is still running, or waits for a recovery decision). With one gate waiting the
+gate's ID can be left out; name it (`ahp approve <run-id> <gate>`) only to be sure. A rejection always needs its reason,
+which is sent back with the work.
+
+**Fix:** `ahp runs` says what each run waits for and the command that decides it.
 
 ### "lock held by PID ... on ..."
 

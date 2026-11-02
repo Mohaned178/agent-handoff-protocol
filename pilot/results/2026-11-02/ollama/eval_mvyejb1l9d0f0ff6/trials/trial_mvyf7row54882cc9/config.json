@@ -1,0 +1,125 @@
+{
+  "trialId": "trial_mvyf7row54882cc9",
+  "condition": "C3",
+  "repeat": 1,
+  "baseline": null,
+  "task": {
+    "id": "retry-backoff",
+    "dir": "F:\\Agent Handoff\\pilot\\tasks\\retry-backoff",
+    "hash": "f626d0025b3ce2274251867cf477316394c360aa58833c79648d9518803b44cc"
+  },
+  "retryBudget": 2,
+  "platform": "win32",
+  "node": "v24.21.0",
+  "protocolVersion": "0.2.0",
+  "workflow": {
+    "name": "retry-backoff-C3",
+    "steps": [
+      {
+        "id": "plan",
+        "agent": {
+          "adapter": "opencode",
+          "model": "ahp-local/qwen2.5-coder:7b-instruct-q4_K_M",
+          "options": {
+            "localEndpoint": {
+              "engine": "ollama",
+              "baseURL": "http://localhost:11434/v1",
+              "models": [
+                "qwen2.5-coder:7b-instruct-q4_K_M"
+              ]
+            }
+          }
+        },
+        "instructions": "Add `withRetry(fn, options)` in a new `src/retry.js`. It is an async function: it returns a promise and never throws synchronously.\n\n- It calls `fn(attempt)` (`attempt` counts from 1) and returns what `fn` resolves to. If `fn` rejects with an error that is worth retrying, it waits and calls `fn` again, up to `retries` retries (default 3, so at most 4 calls); when they run out it rejects with the last error, as it is. An error that is not worth retrying is rejected at once, as it is.\n- What is worth retrying is `options.isRetryable(error)`, by default the `isRetryable` in `src/errors.js`, whose rule is: any 5xx status (500 included), 429, 408, and a dropped network connection.\n- The wait before retry number k (k from 1) is based on `cap = min(maxMs, baseMs * factor ** (k - 1))`, with `baseMs` default 100, `maxMs` default 10000 and `factor` default 2. With `jitter` on (the default) the delay is `Math.floor(cap * random())`, with one `random()` call per retry; with `jitter: false` it is `cap`. If the error has a `retryAfterMs` number, the delay is at least that, even when that is past `maxMs`.\n- Waiting is `await sleep(delayMs)`, where `options.sleep` defaults to `realSleep` from `src/clock.js`. `options.random` is the source of `random()`, defaulting to `defaultRandom` from `src/random.js`.\n- `options.onRetry({ attempt, delayMs, error })`, if given, is called before each wait; `attempt` is the number of the attempt that just failed.\n- `options.signal` (an AbortSignal) is checked before every attempt, the first included: if it is aborted, reject with `signal.reason` without calling `fn`.\n- `retries` must be a non-negative integer, `baseMs` and `maxMs` non-negative numbers and `factor` at least 1; otherwise reject with a `RangeError`.\n\nThese constraints must hold in the final result:\n- All randomness comes from the injected random function: no Math.random anywhere in src.\n- src/retry.js never starts a timer itself: no setTimeout or setInterval in it, since all waiting goes through the sleep option.\n\nPlan the work; do not change any file. Report your summary, the decisions you made, and every constraint the work must respect: restate each one you were given.",
+        "capabilities": [
+          {
+            "kind": "read_only"
+          }
+        ],
+        "verification": {
+          "requiredOutputFields": [
+            "summary",
+            "decisions",
+            "constraints"
+          ]
+        },
+        "retry": {
+          "budget": 2
+        },
+        "network": {
+          "stance": "deny"
+        },
+        "recovery": "abort"
+      },
+      {
+        "id": "implement",
+        "agent": {
+          "adapter": "opencode",
+          "model": "ahp-local/qwen2.5-coder:7b-instruct-q4_K_M",
+          "options": {
+            "localEndpoint": {
+              "engine": "ollama",
+              "baseURL": "http://localhost:11434/v1",
+              "models": [
+                "qwen2.5-coder:7b-instruct-q4_K_M"
+              ]
+            }
+          }
+        },
+        "instructions": "Implement the plan you were handed. Follow its decisions and respect every one of its constraints. Report your summary, your decisions, and every constraint you kept: restate each one.",
+        "verification": {
+          "command": "node --test",
+          "protectedPaths": [
+            "package.json",
+            "test/errors.test.js"
+          ],
+          "requiredOutputFields": [
+            "summary",
+            "decisions",
+            "constraints"
+          ]
+        },
+        "retry": {
+          "budget": 2
+        },
+        "network": {
+          "stance": "deny"
+        },
+        "recovery": "abort"
+      },
+      {
+        "id": "review",
+        "agent": {
+          "adapter": "opencode",
+          "model": "ahp-local/qwen2.5-coder:7b-instruct-q4_K_M",
+          "options": {
+            "localEndpoint": {
+              "engine": "ollama",
+              "baseURL": "http://localhost:11434/v1",
+              "models": [
+                "qwen2.5-coder:7b-instruct-q4_K_M"
+              ]
+            }
+          }
+        },
+        "instructions": "Review the implementation in this workspace against the decisions and constraints you were handed. Do not change any file. Report your verdict and your findings.",
+        "review": {
+          "sendBackTo": "implement"
+        },
+        "verification": {},
+        "capabilities": [
+          {
+            "kind": "read_only"
+          }
+        ],
+        "retry": {
+          "budget": 2
+        },
+        "network": {
+          "stance": "deny"
+        },
+        "recovery": "abort"
+      }
+    ]
+  }
+}

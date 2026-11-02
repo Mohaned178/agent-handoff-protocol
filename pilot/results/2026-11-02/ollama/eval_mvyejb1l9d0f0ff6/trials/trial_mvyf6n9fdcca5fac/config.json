@@ -1,0 +1,134 @@
+{
+  "trialId": "trial_mvyf6n9fdcca5fac",
+  "condition": "C3c",
+  "repeat": 1,
+  "baseline": null,
+  "task": {
+    "id": "orders-listing",
+    "dir": "F:\\Agent Handoff\\pilot\\tasks\\orders-listing",
+    "hash": "4bdfa4341d50e7d8393c77c352d8c52ab5865ec23900a0bede9698f84049cadc"
+  },
+  "retryBudget": 2,
+  "platform": "win32",
+  "node": "v24.21.0",
+  "protocolVersion": "0.2.0",
+  "workflow": {
+    "name": "orders-listing-C3c",
+    "steps": [
+      {
+        "id": "plan",
+        "agent": {
+          "adapter": "opencode",
+          "model": "ahp-local/qwen2.5-coder:7b-instruct-q4_K_M",
+          "options": {
+            "localEndpoint": {
+              "engine": "ollama",
+              "baseURL": "http://localhost:11434/v1",
+              "models": [
+                "qwen2.5-coder:7b-instruct-q4_K_M"
+              ]
+            }
+          }
+        },
+        "instructions": "Extend `listOrders` in `src/orders.js`. It is called as `listOrders(options, orders = ORDERS)` and returns `{ items, total, page, pageSize, hasMore }`; pages count from 1.\n\n- `options.status` keeps only the orders with that status (`pending`, `paid`, `shipped` or `cancelled`); with none, every order is listed. `total` counts the orders that were kept.\n- `options.sort` is `\"newest\"` (the default: `placedAt` descending), `\"oldest\"` or `\"highest\"` (`totalCents` descending). In all three, orders that tie are ordered by `id` ascending.\n- Each item in `items` keeps its own fields and gains `totalFormatted`, its total in dollars: `$12.50`, `$0.05`, `$1,234.56` (thousands separated by commas, always two decimals).\n- Add `formatCents(cents)` in a new `src/money.js` that does that formatting. `cents` must be a non-negative safe integer; anything else is a `RangeError`.\n- `hasMore` is true exactly when more orders come after the page.\n- A `status` or `sort` that is not one of those, a `page` that is not a positive integer and a `pageSize` that is not a positive integer are each a `RangeError`.\n\nThese constraints must hold in the final result:\n- Format money with integer arithmetic only: no toFixed, parseFloat, toLocaleString or Intl.NumberFormat anywhere in src.\n- listOrders must not modify the orders it is given, or the objects in them: the shop's order list is shared and frozen elsewhere.\n\nPlan the work; do not change any file. Report your summary, the decisions you made, and every constraint the work must respect: restate each one you were given. Keep what you report short: together your reported fields must come to at most 2048 bytes as JSON, since they are all the next step is handed. Keep what it needs and leave out the rest.",
+        "capabilities": [
+          {
+            "kind": "read_only"
+          }
+        ],
+        "verification": {
+          "requiredOutputFields": [
+            "summary",
+            "decisions",
+            "constraints"
+          ]
+        },
+        "retry": {
+          "budget": 2
+        },
+        "network": {
+          "stance": "deny"
+        },
+        "recovery": "abort",
+        "contextBudget": {
+          "maxBytes": 2048
+        }
+      },
+      {
+        "id": "implement",
+        "agent": {
+          "adapter": "opencode",
+          "model": "ahp-local/qwen2.5-coder:7b-instruct-q4_K_M",
+          "options": {
+            "localEndpoint": {
+              "engine": "ollama",
+              "baseURL": "http://localhost:11434/v1",
+              "models": [
+                "qwen2.5-coder:7b-instruct-q4_K_M"
+              ]
+            }
+          }
+        },
+        "instructions": "Implement the plan you were handed. Follow its decisions and respect every one of its constraints. Report your summary, your decisions, and every constraint you kept: restate each one. Keep what you report short: together your reported fields must come to at most 2048 bytes as JSON, since they are all the next step is handed. Keep what it needs and leave out the rest.",
+        "verification": {
+          "command": "node --test",
+          "protectedPaths": [
+            "package.json",
+            "test/orders.test.js"
+          ],
+          "requiredOutputFields": [
+            "summary",
+            "decisions",
+            "constraints"
+          ]
+        },
+        "retry": {
+          "budget": 2
+        },
+        "network": {
+          "stance": "deny"
+        },
+        "recovery": "abort",
+        "contextBudget": {
+          "maxBytes": 2048
+        }
+      },
+      {
+        "id": "review",
+        "agent": {
+          "adapter": "opencode",
+          "model": "ahp-local/qwen2.5-coder:7b-instruct-q4_K_M",
+          "options": {
+            "localEndpoint": {
+              "engine": "ollama",
+              "baseURL": "http://localhost:11434/v1",
+              "models": [
+                "qwen2.5-coder:7b-instruct-q4_K_M"
+              ]
+            }
+          }
+        },
+        "instructions": "Review the implementation in this workspace against the decisions and constraints you were handed. Do not change any file. Report your verdict and your findings. Keep what you report short: together your reported fields must come to at most 2048 bytes as JSON, since they are all the next step is handed. Keep what it needs and leave out the rest.",
+        "review": {
+          "sendBackTo": "implement"
+        },
+        "verification": {},
+        "capabilities": [
+          {
+            "kind": "read_only"
+          }
+        ],
+        "retry": {
+          "budget": 2
+        },
+        "network": {
+          "stance": "deny"
+        },
+        "recovery": "abort",
+        "contextBudget": {
+          "maxBytes": 2048
+        }
+      }
+    ]
+  }
+}

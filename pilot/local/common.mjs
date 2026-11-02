@@ -19,11 +19,11 @@ export const TASKS = PILOT_TASKS.map((task) => task.replace(/^\.\//, "../"));
  * C0 (one agent), C0V (one agent with the acceptance check and retry) and C3 (full AHP). C3c and C3r join once tickets 05 and
  * 06 land, so compression and reflection are measured on free local models too.
  */
-export const CONDITIONS = ["C0", "C0V", "C3"];
+export const CONDITIONS = ["C0", "C0V", "C3", "C3c", "C3r"];
 
 /**
  * Trials per task and condition. Not yet sized: the local-engine spike (docs/spikes/2026-11-xx-local-engines.md) gives the time
- * per attempt, and one engine's suite should finish overnight. 6 tasks × 3 conditions is 18 trials a repeat, of 1 (C0), up to 3
+ * per attempt, and one engine's suite should finish overnight. 6 tasks × 5 conditions is 30 trials a repeat, of 1 (C0), up to 3
  * (C0V) and 3 to 9 (C3) attempts; with t minutes per attempt, a 10-hour night holds about 600 / (18 × 4 × t) repeats.
  */
 export const REPEATS = 1;

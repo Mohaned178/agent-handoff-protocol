@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { main, type Io } from "../src/cli/main.ts";
+import { main, type Io } from "../src/commands/main.ts";
 import { answerOf, closeEngines, fakeEngine, promptFiles, toolCaseFiles, toolsEnv } from "./helpers/bench.ts";
 import { closedBaseURL } from "./helpers/fake-engine.ts";
 import { evaluate, GREETS, greetingTaskDir, scripted, suiteOf } from "./helpers/evaluation.ts";
@@ -144,7 +144,7 @@ describe("ahp bench", () => {
   });
 
   it("is listed in the usage", async () => {
-    const { stdout } = await ahp(["--help", "--all"]);
+    const { stdout } = await ahp(["--help"]);
     expect(stdout).toContain("bench <bench-file>");
     expect(stdout).toContain("bench report <bench-dir>...");
     expect(stdout).toContain("--engine <id>");
@@ -224,6 +224,6 @@ describe("ahp bench report", () => {
     const notOne = await ahp(["bench", "report", ...dirs, "--eval", writeTree({})]);
     expect(notOne.stderr).toContain("not an evaluation directory (it has no ledger.jsonl)");
     expect((await ahp(["bench", join(dir, "bench.mjs"), "--eval", evaluation])).stderr).toContain("--eval puts evaluations beside benches already made");
-    expect((await ahp(["--help", "--all"])).stdout).toContain("bench report <bench-dir>... [--eval <eval-dir>]...");
+    expect((await ahp(["--help"])).stdout).toContain("bench report <bench-dir>... [--eval <eval-dir>]...");
   });
 });

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { MockAttemptScript, RunInspection } from "../src/index.ts";
-import { ahp } from "./helpers/cli.ts";
+import { plain as ahp } from "./helpers/cli.ts";
 import { createTempRepo, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
 
 afterEach(removeTempRepos);
@@ -39,9 +39,12 @@ describe("ahp run, inspect, approve and reject with an approval gate", () => {
     expect(run.stderr).toBe("");
     expect(run.code).toBe(4);
     expect(run.stdout).toContain(`run ${runId}: waiting for approval [mock]`);
-    expect(run.stdout).toContain("step approve awaits a person: step review's attempt");
+    expect(run.stdout).toMatch(/^! approve {2}waits for a person: step review's attempt att_\w+ passed verification \(snapshot \w+; 1 path changed against the run's base commit\)$/m);
+    // The one line that says what to do: the gate is named, but approve and reject can leave it out.
+    expect(run.stdout).toMatch(/^next: .*`ahp approve run_\w+ approve`.*`ahp reject run_\w+ approve --reason "..."`/m);
     expect(run.stdout).toContain(`\`ahp approve ${runId} approve\``);
     expect(run.stdout).toContain(`\`ahp reject ${runId} approve --reason "..."\``);
+    expect(run.stdout.match(/^next:/gm)).toHaveLength(1);
 
     const inspect = ahp(["inspect", runId], repo);
     expect(inspect.code).toBe(0);
@@ -68,7 +71,7 @@ describe("ahp run, inspect, approve and reject with an approval gate", () => {
     const approve = ahp(["approve", runId, "approve"], repo);
     expect(approve.stderr).toBe("");
     expect(approve.code).toBe(0);
-    expect(approve.stdout).toMatch(/step approve: approved by .+/);
+    expect(approve.stdout).toMatch(/^✓ approve {2}approved by .+/m);
     expect(approve.stdout).toContain(`run ${runId}: succeeded [mock]`);
     expect(ahp(["inspect", runId], repo).stdout).toMatch(/decision: approved by .+ at \d{4}-/);
   });
@@ -80,8 +83,8 @@ describe("ahp run, inspect, approve and reject with an approval gate", () => {
 
     expect(reject.stderr).toBe("");
     expect(reject.code).toBe(4);
-    expect(reject.stdout).toMatch(/step approve: rejected by .+: rename the greeting/);
-    expect(reject.stdout).toContain("step approve: rejected: step review is sent back (retry 1 spent), and a new handoff revision carries the reason");
+    expect(reject.stdout).toMatch(/^↻ approve {2}rejected by .+: rename the greeting$/m);
+    expect(reject.stdout).toContain("↻ approve  rejected: step review is sent back (retry 1 spent), and a new handoff revision carries the reason");
     expect(reject.stdout).toContain(`run ${runId}: waiting for approval`);
     const inspect = ahp(["inspect", runId], repo);
     expect(inspect.stdout).toMatch(/rejected at approval gate approve by .+ at .+; the reason:\n\s+\| rename the greeting/);
@@ -103,12 +106,12 @@ describe("ahp run, inspect, approve and reject with an approval gate", () => {
 
     expect(last.code).toBe(1);
     expect(last.stdout).toContain(
-      "step approve: failed (verification_failed)\n  rejected, and the retry budget of step review is spent, so it cannot be sent back again",
+      "✗ approve  failed (verification_failed)\n  rejected, and the retry budget of step review is spent, so it cannot be sent back again",
     );
     expect(last.stdout).not.toContain("is sent back");
   });
 
-  it("is a usage error to reject without a reason or to leave out the step, and a refusal exits 1", () => {
+  it("is a usage error to reject without a reason or to leave out the run, and a refusal exits 1", () => {
     const { repo, runId } = startedRun([implemented(1)]);
 
     const noReason = ahp(["reject", runId, "approve"], repo);
@@ -116,9 +119,10 @@ describe("ahp run, inspect, approve and reject with an approval gate", () => {
     expect(noReason.stderr).toContain("reject needs --reason <text>");
     const blank = ahp(["reject", runId, "approve", "--reason", "  "], repo);
     expect(blank.code).toBe(2);
-    const noStep = ahp(["approve", runId], repo);
-    expect(noStep.code).toBe(2);
-    expect(noStep.stderr).toContain("approve needs a run ID and the approval gate's step ID");
+    const noRun = ahp(["approve"], repo);
+    expect(noRun.code).toBe(2);
+    expect(noRun.stderr).toContain("approve needs a run ID\nusage: ahp approve <run-id> [<gate>]");
+    expect(ahp(["approve", "nonsense", "approve"], repo).code).toBe(2);
     const withReason = ahp(["approve", runId, "approve", "--reason", "x"], repo);
     expect(withReason.code).toBe(2);
     expect(ahp(["inspect", runId, "approve"], repo).code).toBe(2);
@@ -128,5 +132,24 @@ describe("ahp run, inspect, approve and reject with an approval gate", () => {
 
     // None of that decided anything.
     expect(JSON.parse(ahp(["inspect", runId, "--json"], repo).stdout).state.state).toBe("waiting_approval");
+  });
+
+  it("decides the one gate that waits when it is not named, and refuses a run that waits at none", () => {
+    const { repo, runId } = startedRun([implemented(1), implemented(2)]);
+
+    const reject = ahp(["reject", runId, "--reason", "rename the greeting"], repo);
+    expect(reject.code).toBe(4);
+    expect(reject.stdout).toMatch(/^↻ approve {2}rejected by .+: rename the greeting$/m);
+
+    const approve = ahp(["approve", runId], repo);
+    expect(approve.stderr).toBe("");
+    expect(approve.code).toBe(0);
+    expect(approve.stdout).toMatch(/^✓ approve {2}approved by .+/m);
+    expect(approve.stdout).toContain(`run ${runId}: succeeded [mock]`);
+
+    const again = ahp(["approve", runId], repo);
+    expect(again.code).toBe(1);
+    expect(again.stdout).toBe("");
+    expect(again.stderr).toBe(`ahp: run ${runId} is not waiting for approval: it is succeeded\n`);
   });
 });

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { assignRoles, renderWorkflow, validateWorkflow, type ToolId } from "../src/index.ts";
+import { initWorkflow } from "../src/doctor/index.ts";
 import { ahp } from "./helpers/cli.ts";
 import { addBareRemote, remoteBranch } from "./helpers/external.ts";
 import { FAKE_SECRETS, fakeToolsDir, installFakeTool, pathWithFakes, pathWithoutTools } from "./helpers/fake-tools.ts";
@@ -46,30 +47,26 @@ describe("the generated workflow", () => {
   });
 });
 
-describe("ahp init", () => {
+describe("the workflow `initWorkflow` writes (the app saves it as a file; `ahp init` has moved into it)", () => {
   it("writes a workflow that validates, using the mock adapter for roles no installed tool can play, and says so", async () => {
     const repo = createTempRepo({ "README.md": "x\n" });
 
-    const init = ahp(["init"], repo, await pathWithoutTools());
+    const init = await initWorkflow({ dir: repo, env: await pathWithoutTools() });
 
-    expect(init.code).toBe(0);
-    expect(init.stdout).toContain("ahp.workflow.mjs");
-    expect(init.stdout).toMatch(/implement: mock \[mock\]/);
+    expect(init.path).toBe(join(repo, "ahp.workflow.mjs"));
+    expect(init.assignments.map(({ role, adapter }) => `${role}=${adapter}`)).toEqual(["plan=mock", "implement=mock", "review=mock"]);
     const workflow = ((await import(pathToFileURL(join(repo, "ahp.workflow.mjs")).href)) as { default: unknown }).default;
     expect(validateWorkflow(workflow)).toEqual([]);
     expect((workflow as { steps: { id: string }[] }).steps.map((step) => step.id)).toEqual(["plan", "implement", "review", "approve", "publish"]);
   });
 
-  it("writes to the file it is given, and never replaces one that exists", () => {
+  it("writes to the file it is given, and never replaces one that exists", async () => {
     const repo = createTempRepo({ "mine.mjs": "keep me\n" });
 
-    const refused = ahp(["init", "mine.mjs"], repo);
-    const named = ahp(["init", "other.mjs"], repo);
-
-    expect(refused.code).toBe(1);
-    expect(refused.stderr).toContain("already exists");
+    await expect(initWorkflow({ dir: repo, file: "mine.mjs" })).rejects.toThrow("already exists");
+    const named = await initWorkflow({ dir: repo, file: "other.mjs" });
     expect(readFileSync(join(repo, "mine.mjs"), "utf8")).toBe("keep me\n");
-    expect(named.code).toBe(0);
+    expect(named.path).toBe(join(repo, "other.mjs"));
     expect(existsSync(join(repo, "other.mjs"))).toBe(true);
   });
 
@@ -77,7 +74,7 @@ describe("ahp init", () => {
     const env = await pathWithoutTools();
     const repo = createTempRepo({ "README.md": "x\n" });
     const remote = addBareRemote(repo);
-    expect(ahp(["init"], repo, env).code).toBe(0);
+    await initWorkflow({ dir: repo, env });
     git(repo, "add", "ahp.workflow.mjs");
     git(repo, "commit", "--quiet", "--message", "add the workflow");
 

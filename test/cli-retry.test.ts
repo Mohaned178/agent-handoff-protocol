@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { MockAttemptScript, RunInspection } from "../src/index.ts";
-import { ahp } from "./helpers/cli.ts";
+import { plain as ahp } from "./helpers/cli.ts";
+import { ledgerLines } from "./helpers/ledger.ts";
 import { createTempRepo, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
 
 afterEach(removeTempRepos);
@@ -22,23 +23,27 @@ function run(attempts: MockAttemptScript[], step: Record<string, unknown> = {}) 
 }
 
 describe("ahp run with retries", () => {
-  it("streams a failed attempt, its class and the retry that follows", () => {
-    const { result } = run([{ exitCode: 3 }, hello]);
+  it("says the retry that follows a failed attempt and its class, and inspect shows how the attempt ended", () => {
+    const { result, repo, runId } = run([{ exitCode: 3 }, hello]);
 
     expect(result.stderr).toBe("");
     expect(result.code).toBe(0);
-    expect(result.stdout).toMatch(/step implement: attempt \S+ \[mock\] exited error \(exit code 3\)/);
-    expect(result.stdout).toMatch(/step implement: attempt \S+ \[mock\] failed: agent_error/);
-    expect(result.stdout).toMatch(/step implement: retrying after attempt \S+ \(agent_error\): a new attempt under the same handoff revision/);
-    expect(result.stdout).toMatch(/step implement: succeeded \[mock\]/);
+    expect(result.stdout).toMatch(/^↻ implement {2}retrying after attempt \S+ \(agent_error\): a new attempt under the same handoff revision$/m);
+    expect(result.stdout).toMatch(/^✓ implement {2}succeeded \[mock\]$/m);
+    // The agent never reported done on the failed attempt (it errored), so the receipt has no failed check to count.
+    expect(result.stdout).toContain("✓ implement: `node verify.mjs` passed\n");
+
+    const inspect = ahp(["inspect", runId, "--repo", repo], repo);
+    expect(inspect.stdout).toMatch(/attempt \S+ \[mock\]: exited error \(exit code 3\)/);
+    expect(inspect.stdout).toContain("failure class: agent_error");
   });
 
   it("says that a failed verification is retried under a new handoff revision with its evidence", () => {
     const { result, repo, runId } = run([goodbye, hello]);
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toMatch(/step implement: retrying after attempt \S+ \(verification_failed\): a new handoff revision carries the evidence/);
-    expect(result.stdout).toMatch(/step implement: handoff hnd_[a-z0-9]+ revision 2 issued/);
+    expect(result.stdout).toMatch(/^↻ implement {2}retrying after attempt \S+ \(verification_failed\): a new handoff revision carries the evidence$/m);
+    expect(ledgerLines(repo, runId).filter((event) => event.type === "handoff_issued")).toHaveLength(2);
 
     const inspect = ahp(["inspect", runId, "--repo", repo], repo);
     expect(inspect.stdout).toMatch(/handoff hnd_[a-z0-9]+ revision 1: superseded/);
@@ -55,7 +60,7 @@ describe("ahp run with retries", () => {
     );
 
     expect(result.code).toBe(1);
-    expect(result.stdout).toMatch(/step implement: failed \(config_auth\)/);
+    expect(result.stdout).toMatch(/^✗ implement {2}failed \(config_auth\)/m);
     expect(result.stdout).toContain("not logged in: run `claude login`");
     expect(result.stdout).toMatch(/not retried/);
     expect(result.stdout).not.toMatch(/retrying/);
@@ -69,7 +74,7 @@ describe("ahp run with retries", () => {
     const { result } = run([{ exitCode: 3 }, { exitCode: 3 }], { retry: { budget: 1 } });
 
     expect(result.code).toBe(1);
-    expect(result.stdout).toMatch(/step implement: failed \(agent_error\)/);
+    expect(result.stdout).toMatch(/^✗ implement {2}failed \(agent_error\)/m);
     expect(result.stdout).toMatch(/retry budget spent/);
   });
 
@@ -77,11 +82,12 @@ describe("ahp run with retries", () => {
     const { result, repo, runId } = run([hello, hello], { verification: { command: 'node -e "process.exit(127)"' } });
 
     expect(result.code).toBe(1);
-    expect(result.stdout.match(/verification inconclusive/g)).toHaveLength(2);
-    expect(result.stdout).toMatch(/step implement: failed \(inconclusive\)/);
+    expect(result.stdout).toMatch(/^✗ implement {2}failed \(inconclusive\)/m);
     expect(result.stdout).toMatch(/escalated: the validator could not run twice/);
 
+    // The validator could not run twice: the run's lines say what it came to, inspect holds both verifications.
     const inspect = ahp(["inspect", runId, "--repo", repo], repo);
+    expect(inspect.stdout.match(/verification: inconclusive/g)).toHaveLength(2);
     expect(inspect.stdout).toMatch(/earlier verification: inconclusive/);
     const json = (JSON.parse(ahp(["inspect", runId, "--json"], repo).stdout) as RunInspection).state;
     expect(json.steps[0]!.attempts[0]!.earlierVerifications).toHaveLength(1);
@@ -92,6 +98,6 @@ describe("ahp run with retries", () => {
     const { result } = run([{ exitCode: 3 }], { retry: { budget: 0 }, reroute });
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toMatch(/step implement: rerouting after attempt \S+ \(agent_error\): the alternative agent takes over under a new handoff revision/);
+    expect(result.stdout).toMatch(/^↻ implement {2}rerouting after attempt \S+ \(agent_error\): the alternative agent takes over under a new handoff revision$/m);
   });
 });

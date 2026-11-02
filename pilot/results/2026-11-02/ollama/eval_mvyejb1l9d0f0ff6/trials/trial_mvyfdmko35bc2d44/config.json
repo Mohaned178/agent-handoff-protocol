@@ -1,0 +1,125 @@
+{
+  "trialId": "trial_mvyfdmko35bc2d44",
+  "condition": "C3",
+  "repeat": 1,
+  "baseline": null,
+  "task": {
+    "id": "csv-export",
+    "dir": "F:\\Agent Handoff\\pilot\\tasks\\csv-export",
+    "hash": "22d7f68691dd6e5eaeec84dd5f654c4d2ba020626cbccfa0128aa63859674a39"
+  },
+  "retryBudget": 2,
+  "platform": "win32",
+  "node": "v24.21.0",
+  "protocolVersion": "0.2.0",
+  "workflow": {
+    "name": "csv-export-C3",
+    "steps": [
+      {
+        "id": "plan",
+        "agent": {
+          "adapter": "opencode",
+          "model": "ahp-local/qwen2.5-coder:7b-instruct-q4_K_M",
+          "options": {
+            "localEndpoint": {
+              "engine": "ollama",
+              "baseURL": "http://localhost:11434/v1",
+              "models": [
+                "qwen2.5-coder:7b-instruct-q4_K_M"
+              ]
+            }
+          }
+        },
+        "instructions": "Add a CSV export of the sales report, in a new `src/csv.js`.\n\n`toCsv(rows, columns)`: `columns` is an array of `{ header, key, value? }`. The first line holds the headers. Each row after it has one cell per column: `value(row)` if the column has a `value` function, else `row[key]`. Every line, the last one too, ends in `\\r\\n`.\n\nCells: `null`, `undefined` and a missing key are empty; a number or a boolean is written as `String(it)`; a `Date` as `toISOString()`; a string as it is. A cell (a header too) that contains a comma, a double quote, CR or LF is wrapped in double quotes, with its inner double quotes doubled. A string cell (not a header) that starts with `=`, `+`, `-` or `@` is prefixed with a single quote `'`, before any quoting, so that a spreadsheet does not run it as a formula; a number is never prefixed (`-5` stays `-5`).\n\n`salesReportCsv(sales = SALES)`: `toCsv` over `reportRows(sales)`, with the columns `Month`, `Region`, `Units` and `Revenue (USD)`. The revenue is in dollars with two decimals and no thousands separator (`109.47`), made from `revenueCents`. `reportRows` is documented to return its rows ordered by month, then region, and the export must come out in that order for any sales, in any order.\n\nThese constraints must hold in the final result:\n- The rows reportRows returns for the shop's own sales (SALES) must stay exactly what they are now: other code depends on their fields.\n- Exporting must not modify the rows, columns or sales it is given, or the objects in them: they are shared and frozen elsewhere.\n\nPlan the work; do not change any file. Report your summary, the decisions you made, and every constraint the work must respect: restate each one you were given.",
+        "capabilities": [
+          {
+            "kind": "read_only"
+          }
+        ],
+        "verification": {
+          "requiredOutputFields": [
+            "summary",
+            "decisions",
+            "constraints"
+          ]
+        },
+        "retry": {
+          "budget": 2
+        },
+        "network": {
+          "stance": "deny"
+        },
+        "recovery": "abort"
+      },
+      {
+        "id": "implement",
+        "agent": {
+          "adapter": "opencode",
+          "model": "ahp-local/qwen2.5-coder:7b-instruct-q4_K_M",
+          "options": {
+            "localEndpoint": {
+              "engine": "ollama",
+              "baseURL": "http://localhost:11434/v1",
+              "models": [
+                "qwen2.5-coder:7b-instruct-q4_K_M"
+              ]
+            }
+          }
+        },
+        "instructions": "Implement the plan you were handed. Follow its decisions and respect every one of its constraints. Report your summary, your decisions, and every constraint you kept: restate each one.",
+        "verification": {
+          "command": "node --test",
+          "protectedPaths": [
+            "package.json",
+            "test/sales.test.js"
+          ],
+          "requiredOutputFields": [
+            "summary",
+            "decisions",
+            "constraints"
+          ]
+        },
+        "retry": {
+          "budget": 2
+        },
+        "network": {
+          "stance": "deny"
+        },
+        "recovery": "abort"
+      },
+      {
+        "id": "review",
+        "agent": {
+          "adapter": "opencode",
+          "model": "ahp-local/qwen2.5-coder:7b-instruct-q4_K_M",
+          "options": {
+            "localEndpoint": {
+              "engine": "ollama",
+              "baseURL": "http://localhost:11434/v1",
+              "models": [
+                "qwen2.5-coder:7b-instruct-q4_K_M"
+              ]
+            }
+          }
+        },
+        "instructions": "Review the implementation in this workspace against the decisions and constraints you were handed. Do not change any file. Report your verdict and your findings.",
+        "review": {
+          "sendBackTo": "implement"
+        },
+        "verification": {},
+        "capabilities": [
+          {
+            "kind": "read_only"
+          }
+        ],
+        "retry": {
+          "budget": 2
+        },
+        "network": {
+          "stance": "deny"
+        },
+        "recovery": "abort"
+      }
+    ]
+  }
+}

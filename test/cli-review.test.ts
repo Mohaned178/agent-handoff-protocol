@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { MockAttemptScript, RunInspection } from "../src/index.ts";
-import { ahp } from "./helpers/cli.ts";
+import { plain as ahp } from "./helpers/cli.ts";
+import { ledgerLines } from "./helpers/ledger.ts";
 import { createTempRepo, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
 
 afterEach(removeTempRepos);
@@ -28,7 +29,7 @@ const changes: MockAttemptScript = { outputFields: { verdict: "changes_requested
 const approve: MockAttemptScript = { outputFields: { verdict: "approved", findings: "nothing left" } };
 
 describe("ahp run and ahp inspect with a review", () => {
-  it("streams the send-back with the findings, labels the review's verification as structural, and inspect shows what was found", () => {
+  it("says the send-back with the findings, and inspect labels the review's verification as structural and shows what was found", () => {
     const repo = createTempRepo({
       "verify.mjs": VERIFY_GREETING,
       "workflow.mjs": workflowFile([implemented(1), implemented(2)], [changes, approve], 2),
@@ -38,13 +39,14 @@ describe("ahp run and ahp inspect with a review", () => {
 
     expect(run.stderr).toBe("");
     expect(run.code).toBe(0);
-    expect(run.stdout).toMatch(/step review: structural verification \[mock\]: checks only that the required output fields are present/);
     expect(run.stdout).toContain(
-      "step review: changes requested: step implement is sent back (retry 1 spent), and a new handoff revision carries the findings",
+      "↻ review  changes requested: step implement is sent back (retry 1 spent), and a new handoff revision carries the findings",
     );
     expect(run.stdout).toContain("  | rename the greeting\n  | add a test");
-    expect(run.stdout).toMatch(/step implement: handoff hnd_[a-z0-9]+ revision 2 issued/);
+    expect(run.stdout).toContain("✓ implement: `node verify.mjs` passed · sent back once, approved after");
     const runId = /run (run_[a-z0-9]+): succeeded/.exec(run.stdout)?.[1];
+    // The revision that carries the findings is the ledger's: implement was issued twice.
+    expect(ledgerLines(repo, runId!).filter((event) => event.type === "handoff_issued" && (event.handoff as { to: { stepId: string } }).to.stepId === "implement")).toHaveLength(2);
 
     const inspect = ahp(["inspect", runId!, "--repo", repo], repo);
 
@@ -69,9 +71,9 @@ describe("ahp run and ahp inspect with a review", () => {
     const run = ahp(["run", "workflow.mjs"], repo);
 
     expect(run.code).toBe(1);
-    expect(run.stdout).toContain("step review: failed (verification_failed) [mock]");
+    expect(run.stdout).toContain("✗ review  failed (verification_failed) [mock]");
     expect(run.stdout).toContain("changes requested, and the retry budget of step implement is spent, so it cannot be sent back again");
     expect(run.stdout).not.toContain("is sent back");
-    expect(run.stdout).toMatch(/run run_[a-z0-9]+: failed \[mock\]/);
+    expect(run.stdout).toMatch(/^run run_[a-z0-9]+: failed \[mock\]$/m);
   });
 });

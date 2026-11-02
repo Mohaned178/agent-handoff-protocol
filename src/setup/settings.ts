@@ -13,6 +13,8 @@ export interface Settings {
   steps: RoleDefaults;
   /** Set once the first run with real agents has said that they run commands here and their usage counts. */
   realAgentsNoticed?: true;
+  /** Set once the app's first-open screens (welcome, who does what) were gone through; read as missing in older files. */
+  firstOpenDone?: true;
 }
 
 export interface SettingsRead {
@@ -47,8 +49,12 @@ export async function readSettings(path: string): Promise<SettingsRead> {
   } catch {
     return { settings: { steps: {} }, problem: `${path} is not valid JSON` };
   }
+  const flags: Omit<Settings, "steps"> = {
+    ...(isRecord(parsed) && parsed.realAgentsNoticed === true ? { realAgentsNoticed: true as const } : {}),
+    ...(isRecord(parsed) && parsed.firstOpenDone === true ? { firstOpenDone: true as const } : {}),
+  };
   const given = isRecord(parsed) && isRecord(parsed.steps) ? parsed.steps : null;
-  if (given === null) return { settings: { steps: {} }, problem: `${path} has no \`steps\` object` };
+  if (given === null) return { settings: { steps: {}, ...flags }, problem: `${path} has no \`steps\` object` };
   const steps: RoleDefaults = {};
   const problems: string[] = [];
   for (const [role, value] of Object.entries(given)) {
@@ -60,8 +66,7 @@ export async function readSettings(path: string): Promise<SettingsRead> {
     const { tool, model, effort } = value as RoleDefault;
     steps[role as Role] = { tool, ...(model ? { model: model.trim() } : {}), ...(effort ? { effort } : {}) };
   }
-  const noticed = isRecord(parsed) && parsed.realAgentsNoticed === true ? { realAgentsNoticed: true as const } : {};
-  return { settings: { steps, ...noticed }, problem: problems.length > 0 ? `${path}: ${problems.join("; ")}` : null };
+  return { settings: { steps, ...flags }, problem: problems.length > 0 ? `${path}: ${problems.join("; ")}` : null };
 }
 
 /** Writes `settings` whole to a temporary name, then moves it into place, so a reader never sees half a file. */
@@ -79,10 +84,32 @@ export async function saveStepDefault(path: string, role: Role, chosen: RoleDefa
   await writeSettings(path, settings);
 }
 
+/** Forgets `role`'s saved default and keeps everything else the file holds (the first-open and notice flags, the other steps). */
+export async function clearStepDefault(path: string, role: Role): Promise<void> {
+  const { settings } = await readSettings(path);
+  delete settings.steps[role];
+  await writeSettings(path, settings);
+}
+
+/** Forgets every saved step default, keeping the first-open and notice flags: the welcome screens do not come back. */
+export async function clearStepDefaults(path: string): Promise<void> {
+  const { settings } = await readSettings(path);
+  await writeSettings(path, { ...settings, steps: {} });
+}
+
 /** Records that the first run with real agents said what they do here, so it is said once. */
 export async function markRealAgentsNoticed(path: string): Promise<void> {
   const { settings } = await readSettings(path);
   await writeSettings(path, { ...settings, realAgentsNoticed: true });
+}
+
+/**
+ * Records that the first-open screens were gone through, and keeps `chosen`: the steps the person changed there (never the
+ * casting AHP worked out for them, which would be called "your default" from then on).
+ */
+export async function markFirstOpenDone(path: string, chosen: RoleDefaults = {}): Promise<void> {
+  const { settings } = await readSettings(path);
+  await writeSettings(path, { ...settings, steps: { ...settings.steps, ...chosen }, firstOpenDone: true });
 }
 
 /** Removes the saved defaults; false when there were none. */

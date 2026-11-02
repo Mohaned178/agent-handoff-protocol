@@ -8,7 +8,7 @@ import { type Role, type RoleAssignment } from "../doctor/init.ts";
 import { TOOLS } from "../doctor/tools.ts";
 import { THIS_REPOSITORY, type AgentRef, type WorkflowDefinition, type WorkflowStepDefinition } from "../protocol/index.ts";
 import { YOUR_DEFAULT, type Inferred } from "./infer.ts";
-import { slugOf } from "./wizard.ts";
+import { slugOf } from "./slug.ts";
 
 /** Where a check came from when it was not found in a file: `--check`, or typed at the question. */
 export const CHECK_FROM_FLAG = "--check";

@@ -1,0 +1,49 @@
+{
+  "trialId": "trial_mvyeqwbsa8ea18b9",
+  "condition": "C0",
+  "repeat": 1,
+  "baseline": null,
+  "task": {
+    "id": "orders-listing",
+    "dir": "F:\\Agent Handoff\\pilot\\tasks\\orders-listing",
+    "hash": "4bdfa4341d50e7d8393c77c352d8c52ab5865ec23900a0bede9698f84049cadc"
+  },
+  "retryBudget": 0,
+  "platform": "win32",
+  "node": "v24.21.0",
+  "protocolVersion": "0.2.0",
+  "workflow": {
+    "name": "orders-listing-C0",
+    "steps": [
+      {
+        "id": "solve",
+        "agent": {
+          "adapter": "opencode",
+          "model": "ahp-local/qwen2.5-coder:7b-instruct-q4_K_M",
+          "options": {
+            "localEndpoint": {
+              "engine": "ollama",
+              "baseURL": "http://localhost:11434/v1",
+              "models": [
+                "qwen2.5-coder:7b-instruct-q4_K_M"
+              ]
+            }
+          }
+        },
+        "instructions": "Extend `listOrders` in `src/orders.js`. It is called as `listOrders(options, orders = ORDERS)` and returns `{ items, total, page, pageSize, hasMore }`; pages count from 1.\n\n- `options.status` keeps only the orders with that status (`pending`, `paid`, `shipped` or `cancelled`); with none, every order is listed. `total` counts the orders that were kept.\n- `options.sort` is `\"newest\"` (the default: `placedAt` descending), `\"oldest\"` or `\"highest\"` (`totalCents` descending). In all three, orders that tie are ordered by `id` ascending.\n- Each item in `items` keeps its own fields and gains `totalFormatted`, its total in dollars: `$12.50`, `$0.05`, `$1,234.56` (thousands separated by commas, always two decimals).\n- Add `formatCents(cents)` in a new `src/money.js` that does that formatting. `cents` must be a non-negative safe integer; anything else is a `RangeError`.\n- `hasMore` is true exactly when more orders come after the page.\n- A `status` or `sort` that is not one of those, a `page` that is not a positive integer and a `pageSize` that is not a positive integer are each a `RangeError`.\n\nThese constraints must hold in the final result:\n- Format money with integer arithmetic only: no toFixed, parseFloat, toLocaleString or Intl.NumberFormat anywhere in src.\n- listOrders must not modify the orders it is given, or the objects in them: the shop's order list is shared and frozen elsewhere.\n\nDo the whole task in this workspace.",
+        "verification": {
+          "requiredOutputFields": [
+            "summary"
+          ]
+        },
+        "retry": {
+          "budget": 0
+        },
+        "network": {
+          "stance": "deny"
+        },
+        "recovery": "abort"
+      }
+    ]
+  }
+}

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { runWorkflow } from "../src/index.ts";
 import type { EvidenceItem } from "../src/index.ts";
-import { ahp } from "./helpers/cli.ts";
+import { plain as ahp } from "./helpers/cli.ts";
 import { addBareRemote, remoteBranch } from "./helpers/external.ts";
 import { createTempRepo, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
 import { hello, implementOf, retryWorkflow } from "./helpers/retry.ts";

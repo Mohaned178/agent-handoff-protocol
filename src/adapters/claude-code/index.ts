@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { launch, resolveExecutable } from "../../process/index.ts";
 import { isOutputFieldName, levelOn, meetsLevel, sameOnEveryOs } from "../../protocol/index.ts";
 import type { AgentRef } from "../../protocol/index.ts";
+import { activityLogger } from "../activity.ts";
 import type { Adapter, AttemptExit } from "../contract.ts";
 import { outputSchemaFor } from "../output-schema.ts";
 import { promptFor } from "../prompt.ts";
@@ -72,7 +73,7 @@ export const claudeCodeAdapter: Adapter = {
   },
 
   // Called as a method, so an adapter built from this one under another declaration is held to its own.
-  async startAttempt({ workspace, requestedModel, capabilities, handoff, options, transcript }) {
+  async startAttempt({ workspace, requestedModel, capabilities, handoff, options, activityLog, transcript }) {
     // The contract: fail rather than apply a capability at a weaker level than the one recorded.
     const { declaration } = this;
     for (const { kind, level } of capabilities.capabilities) {
@@ -116,6 +117,8 @@ export const claudeCodeAdapter: Adapter = {
       });
 
       const stream = new ClaudeStream();
+      const log = activityLogger(activityLog ?? null, workspace, declaration.name);
+      stream.onActivity = (item) => log.write(item);
       const reading = (async () => {
         agent.stdout.setEncoding("utf8");
         for await (const chunk of agent.stdout as AsyncIterable<string>) stream.write(chunk);

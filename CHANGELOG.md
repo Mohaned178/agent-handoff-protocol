@@ -5,6 +5,12 @@ the version is 0.x, a minor version may break something, and its entry says how 
 
 ## 0.1.0 (unreleased)
 
+**Breaking, before the first release:** `ahp` with no arguments in a terminal now opens a full-screen app (the old
+menus are gone). `ahp setup`, `ahp settings` and `ahp init` were removed and answer "moved into the app: run `ahp`";
+the plain commands (`run`, `approve`, `reject`, `recover`, `runs`, `inspect`, `doctor`, `eval`, `bench`, `clean`,
+`demo`, and `ahp "<task>" --yes`) keep their flags, `--json` shapes and exit codes. The compact live view of a run is
+the app's run screen; `@inquirer/prompts` is no longer a dependency.
+
 The first published version, an **alpha**: it runs end to end, and it has not yet been run on real projects
 (real tools have run only in its conformance suites).
 

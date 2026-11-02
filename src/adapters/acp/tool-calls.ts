@@ -1,11 +1,8 @@
-// What an ACP adapter (OpenCode) needs about tool calls: a call as the agent has described it so far, the
-// log of calls the runtime reads into a recovery report, and the redaction of an error message. Nothing here is about
-// which agent speaks: what a call's fields mean is ACP's (`tool_call`, `tool_call_update`).
+// What an ACP adapter (OpenCode) needs about tool calls: a call as the agent has described it so far, and the redaction
+// of an error message. Nothing here is about which agent speaks: what a call's fields mean is ACP's (`tool_call`,
+// `tool_call_update`). The calls are written to the attempt's activity log by `activityLogger` (`../activity.ts`).
 
-import { appendFileSync, mkdirSync } from "node:fs";
-import { dirname, relative } from "node:path";
-import type { ToolCallLogEntry } from "../../protocol/index.ts";
-import type { ToolCallRequest } from "./permissions.ts";
+import { withoutSecrets } from "../activity.ts";
 
 type Json = Record<string, unknown>;
 const isObject = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -44,60 +41,6 @@ const MAX_ERROR_CHARS = 500;
 
 /** An API key in a message (a masked one too) is not repeated: this record is public. */
 export function redacted(message: string): string {
-  const clean = message
-    .replace(/\bsk-[\w*-]+/g, "sk-[redacted]")
-    .replace(/\bAIza[\w-]{20,}/g, "[redacted key]")
-    .replace(/\b(Bearer|Basic)\s+[\w.~+/=-]+/gi, "$1 [redacted]");
+  const clean = withoutSecrets(message);
   return clean.length > MAX_ERROR_CHARS ? `${clean.slice(0, MAX_ERROR_CHARS)}…` : clean;
-}
-
-const MAX_TITLE_CHARS = 300;
-
-export interface ToolCallLogger {
-  call(call: ToolCall): void;
-  permission(toolCallId: string, call: ToolCallRequest, permission: "allowed" | "rejected"): void;
-}
-
-/** Appends a line to the runtime's tool-call log when a call's status, title or paths change, and when a permission request is answered. Never fails the attempt. */
-export function toolCallLogger(file: string | null, workspace: string): ToolCallLogger {
-  if (file !== null) {
-    try {
-      mkdirSync(dirname(file), { recursive: true });
-      // Made now, so a log with no entry reads as the agent having made no tool call, not as an adapter that keeps none.
-      appendFileSync(file, "");
-    } catch {
-      // the log is a convenience for a person; the attempt does not depend on it
-    }
-  }
-  const last = new Map<string, string>();
-  const pathOf = (path: string) => {
-    const rel = relative(workspace, path);
-    return rel === "" ? "." : rel.startsWith("..") ? path : rel.replaceAll("\\", "/");
-  };
-  const write = (entry: ToolCallLogEntry) => {
-    if (file === null) return;
-    try {
-      appendFileSync(file, `${JSON.stringify(entry)}\n`);
-    } catch {
-      // see above
-    }
-  };
-  const entry = (toolCallId: string, parts: Omit<ToolCallLogEntry, "time" | "toolCallId">): ToolCallLogEntry => ({
-    time: new Date().toISOString(),
-    toolCallId,
-    ...parts,
-    title: parts.title === null ? null : parts.title.slice(0, MAX_TITLE_CHARS),
-    paths: parts.paths.map(pathOf),
-  });
-  return {
-    call(call) {
-      const fingerprint = JSON.stringify([call.kind, call.title, call.status, call.paths]);
-      if (last.get(call.toolCallId) === fingerprint) return;
-      last.set(call.toolCallId, fingerprint);
-      write(entry(call.toolCallId, { kind: call.kind, title: call.title, status: call.status, paths: call.paths, permission: null }));
-    },
-    permission(toolCallId, call, permission) {
-      write(entry(toolCallId, { kind: call.kind, title: call.title, status: "permission_requested", paths: call.paths, permission }));
-    },
-  };
 }

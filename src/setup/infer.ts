@@ -8,7 +8,7 @@ import { join } from "node:path";
 import type { DoctorReport } from "../doctor/doctor.ts";
 import { assignRoles, type Role, type RoleAssignment } from "../doctor/init.ts";
 import { TOOLS, type ToolId } from "../doctor/tools.ts";
-import { slugOf } from "./wizard.ts";
+import { slugOf } from "./slug.ts";
 
 /** A command AHP worked out, and the file it worked it out from. */
 export interface Inferred {
@@ -111,12 +111,27 @@ export function inferCommands(dir: string): ProjectCommands {
 }
 
 /**
+ * A role cast to a tool whose login cannot be checked (OpenCode) goes to a tool whose login was confirmed, when there is
+ * one: a first run should not stop on a login nobody could see. The person's defaults still win over this (ticket 10).
+ */
+function preferCheckedLogins(assignments: RoleAssignment[], report: DoctorReport): RoleAssignment[] {
+  const state = (id: string) => report.tools.find((tool) => tool.id === id && tool.usable)?.login?.state;
+  const confirmed = TOOLS.find((tool) => state(tool.id) === "logged_in");
+  if (!confirmed) return assignments;
+  return assignments.map((assignment) => {
+    if (assignment.tool === null || state(assignment.tool) !== "unknown") return assignment;
+    const unchecked = TOOLS.find((tool) => tool.id === assignment.tool)!.name;
+    return { role: assignment.role, adapter: confirmed.id, tool: confirmed.id, reason: `${unchecked}'s login cannot be checked; ${confirmed.name} is logged in` };
+  });
+}
+
+/**
  * Who plays each role: `assignRoles` over the tools doctor found usable, then the person's defaults on top where their
  * tool is usable here. A default whose tool is not is set aside, and the reason says so.
  */
 export function castRoles(report: DoctorReport, defaults: RoleDefaults = {}): RoleAssignment[] {
   const usable = report.tools.filter((tool) => tool.usable).map((tool) => tool.id);
-  return assignRoles(usable).map((assignment): RoleAssignment => {
+  return preferCheckedLogins(assignRoles(usable), report).map((assignment): RoleAssignment => {
     const chosen = defaults[assignment.role];
     if (!chosen) return assignment;
     if (!usable.includes(chosen.tool)) {

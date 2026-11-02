@@ -11,6 +11,13 @@ while only the running one answers. An engine that is not running is recorded as
 | SGLang | `docker compose -f sglang.yml up` | 8002 | `Qwen/Qwen2.5-Coder-7B-Instruct-AWQ` | AWQ int4 |
 | TensorRT-LLM | `docker compose -f tensorrt-llm.yml up` | 8003 | `Qwen/Qwen2.5-Coder-7B-Instruct-AWQ` | AWQ int4 |
 
+The maintainer runs Ollama, vLLM and SGLang only (decision 2026-11-01). The TensorRT-LLM file and support stay, untested
+and not part of ticket 00's spike; a bench that lists it records it as unavailable.
+
+vLLM and SGLang can also run without Docker, in a WSL2 Python venv (one venv per engine; `nvidia-smi` must work inside
+WSL2). Use the flags of the Compose file, and give no `container` for that engine in the bench file (its container
+figures are then recorded as not a container). The spike records which way each engine was started.
+
 Images are pinned (checked on their registries 2026-10-31). Change a tag only together with the bench that records it.
 
 Each Docker engine's container is named `ahp-vllm`, `ahp-sglang` or `ahp-tensorrt-llm`. A bench file gives that name as

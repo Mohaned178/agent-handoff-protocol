@@ -27,10 +27,10 @@ export function isRunning(pid: number): boolean {
 /** Waits until no process has `pid`: a PID the OS has already handed to another process rightly reads as running. */
 export const untilGone = (pid: number, what: string) => until(() => (isRunning(pid) ? undefined : true), what);
 
-/** `ahp run` started as a child process in `cwd`, for a test to watch and kill. */
+/** `ahp run` (the plain commands, `src/commands/`) started as a child process in `cwd`, for a test to watch and kill. */
 export const startRun = (args: string[], cwd: string, env: NodeJS.ProcessEnv = {}) => startAhp(["run", ...args], cwd, env);
 
-/** An `ahp` command started as a child process in `cwd`, for a test to watch and kill. */
+/** A plain `ahp` command started as a child process in `cwd`, for a test to watch and kill. */
 export function startAhp(args: string[], cwd: string, env: NodeJS.ProcessEnv = {}) {
   const child = spawn(process.execPath, [cliEntry, ...args], {
     cwd,
@@ -51,7 +51,7 @@ export function startAhp(args: string[], cwd: string, env: NodeJS.ProcessEnv = {
     runId: () =>
       until(() => {
         if (child.exitCode !== null) throw new Error(`ahp run exited early:\n${stdout}`);
-        return /run (run_[a-z0-9]+): created/.exec(stdout)?.[1];
+        return /^run (run_[a-z0-9]+): created/m.exec(stdout)?.[1];
       }, "ahp run to create its run"),
     /** Kills the runtime, and only it, as a crash or a power cut would stop it, and waits until its PID is free. */
     kill: async () => {

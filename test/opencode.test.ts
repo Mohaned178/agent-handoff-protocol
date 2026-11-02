@@ -9,7 +9,7 @@ import { decide, isExternalAction, policyOf } from "../src/adapters/acp/permissi
 import { redacted } from "../src/adapters/acp/tool-calls.ts";
 import { configContentOf } from "../src/adapters/opencode/policy.ts";
 import { classify } from "../src/adapters/opencode/turn.ts";
-import { PROTOCOL_VERSION, type AppliedCapabilities, type CapabilityRequest, type HandoffEvidence, type HandoffRevision, type ToolCallLogEntry } from "../src/index.ts";
+import { PROTOCOL_VERSION, type AppliedCapabilities, type CapabilityRequest, type HandoffEvidence, type HandoffRevision, type ActivityEntry } from "../src/index.ts";
 import { requestsOf, resolveCapabilities } from "../src/runtime/index.ts";
 import { captures, completingScenario, installFakeOpencode, type FakeOpencodeScenario, type PromptStep } from "./helpers/opencode.ts";
 import { createTempRepo, removeTempRepos, trackForRemoval } from "./helpers/repo.ts";
@@ -61,7 +61,7 @@ async function start(scenario: FakeOpencodeScenario, run: Run = {}) {
   const workspace = join(createTempRepo({ "README.md": "x\n" }), "work space");
   mkdirSync(workspace);
   const logDir = realpathSync.native(createTempRepo({ "README.md": "x\n" }));
-  const toolCallLog = join(logDir, "tool-calls", "att_opencode1.jsonl");
+  const activityLog = join(logDir, "activity", "att_opencode1.jsonl");
   const applied = appliedFor(run.capabilities);
   const started = await (run.adapter ?? openCodeAdapter).startAttempt({
     attemptId: "att_opencode1",
@@ -71,11 +71,12 @@ async function start(scenario: FakeOpencodeScenario, run: Run = {}) {
     capabilities: applied,
     handoff: handoffOf(applied, { requiredOutputFields: run.requiredOutputFields }),
     options: run.options,
-    toolCallLog,
+    activityLog,
     transcript: run.transcript,
   });
-  const log = (): ToolCallLogEntry[] => (existsSync(toolCallLog) ? readFileSync(toolCallLog, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as ToolCallLogEntry) : []);
-  return { started, fake, workspace, log, applied, toolCallLog };
+  const activity = (): ActivityEntry[] => (existsSync(activityLog) ? readFileSync(activityLog, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as ActivityEntry) : []);
+  const log = () => activity().filter((entry): entry is Extract<ActivityEntry, { type: "tool_call" }> => entry.type === "tool_call");
+  return { started, fake, workspace, log, activity, applied, activityLog };
 }
 
 /** Runs one attempt and waits for it to end. */
@@ -289,11 +290,11 @@ describe("the OpenCode adapter's answers to the agent", () => {
     expect(exit.error).toBeNull();
   });
 
-  it("leaves an empty log when no tool call was made, so a lost attempt shows the agent had made none", async () => {
-    const { log, toolCallLog } = await attempt(completingScenario());
+  it("leaves a log with no tool call when none was made, so a lost attempt shows the agent had made none", async () => {
+    const { log, activityLog } = await attempt(completingScenario());
 
     expect(log()).toEqual([]);
-    expect(existsSync(toolCallLog)).toBe(true);
+    expect(existsSync(activityLog)).toBe(true);
   });
 
   it("logs each tool call, once per change of status, and each permission answer, with no input or output", async () => {
@@ -307,7 +308,7 @@ describe("the OpenCode adapter's answers to the agent", () => {
       ["call_write", "completed", null],
     ]);
     expect(entries[1]).toMatchObject({ kind: "edit", title: "write", paths: ["out.txt"] });
-    for (const entry of entries) expect(Object.keys(entry).sort()).toEqual(["kind", "paths", "permission", "status", "time", "title", "toolCallId"]);
+    for (const entry of entries) expect(Object.keys(entry).sort()).toEqual(["kind", "paths", "permission", "status", "time", "title", "toolCallId", "type"]);
     expect(JSON.stringify(entries)).not.toContain("hello.");
   });
 });

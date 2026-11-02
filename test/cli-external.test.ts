@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ahp } from "./helpers/cli.ts";
+import { plain as ahp } from "./helpers/cli.ts";
 import { addBareRemote, BRANCH, remoteBranch, updatesOf } from "./helpers/external.ts";
 import { ledgerLines } from "./helpers/ledger.ts";
 import { startAhp, until } from "./helpers/process.ts";
@@ -70,10 +70,12 @@ describe("ahp approve killed mid-push, then ahp recover", () => {
     expect(recover.stderr).toBe("");
     expect(recover.code).toBe(0);
     expect(recover.stdout).toContain(`run ${runId}: resumed by a new process, which took over the stale lock of PID ${approve.pid}`);
-    expect(recover.stdout).toContain(`step push: checked the remote: the remote's branch is at ${String(approved).slice(0, 12)}; already done, so it is not done again`);
-    expect(recover.stdout).toContain("step push: succeeded");
+    expect(recover.stdout).toContain(`✓ push  already done: the remote's branch is at ${String(approved).slice(0, 12)}; it is not done again`);
     expect(recover.stdout).toContain(`run ${runId}: succeeded [mock]`);
     expect(updatesOf(remote)).toBe(1);
+    // The ledger holds what was seen of the remote and that nothing was performed a second time.
+    const checks = ledgerLines(repo, runId).filter((event) => event.type === "external_action_checked");
+    expect(checks.at(-1)).toMatchObject({ done: true });
     expect(ledgerLines(repo, runId).filter((event) => event.type === "external_action_performed")).toEqual([]);
 
     const inspect = ahp(["inspect", runId], repo);

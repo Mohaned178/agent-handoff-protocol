@@ -1,0 +1,54 @@
+{
+  "trialId": "trial_mvyf4b7j004c1f9c",
+  "condition": "C0V",
+  "repeat": 1,
+  "baseline": null,
+  "task": {
+    "id": "config-merge",
+    "dir": "F:\\Agent Handoff\\pilot\\tasks\\config-merge",
+    "hash": "1edbf8b5ae9195b03c6366427f34826098b3df19f6ef2cf517c72244ef205f6c"
+  },
+  "retryBudget": 2,
+  "platform": "win32",
+  "node": "v24.21.0",
+  "protocolVersion": "0.2.0",
+  "workflow": {
+    "name": "config-merge-C0V",
+    "steps": [
+      {
+        "id": "solve",
+        "agent": {
+          "adapter": "opencode",
+          "model": "ahp-local/qwen2.5-coder:7b-instruct-q4_K_M",
+          "options": {
+            "localEndpoint": {
+              "engine": "ollama",
+              "baseURL": "http://localhost:11434/v1",
+              "models": [
+                "qwen2.5-coder:7b-instruct-q4_K_M"
+              ]
+            }
+          }
+        },
+        "instructions": "Add `resolveConfig({ defaults, file, env })` in a new `src/config.js`. It returns the service's configuration, merged from three layers.\n\n- Precedence: `defaults`, then `file`, then `env`; a later layer wins. Each layer is optional (`undefined` is an empty layer). `env` is a process-environment-like object, read with `parseEnv(env)` (prefix `APP_`), and what it yields is coerced: the strings `\"true\"` and `\"false\"` become booleans, and a string that is an optional minus sign and then digits becomes a number; any other string stays a string. Values from `defaults` and `file` are never coerced.\n- Plain objects are merged key by key, as deep as they go. Anything else (an array, a Date, a function, a number, a string, `null`) replaces what was there, whole: an array in a later layer replaces the earlier one and is never merged or concatenated. An object and a non-object replace each other either way. A value of `undefined` does not override anything, and a key that is `undefined` is left out of the result.\n- The result shares no plain object or array with any layer, however deep, and no layer is modified. Dates are copied. A function is kept as it is.\n- The keys `__proto__`, `constructor` and `prototype` are ignored in every layer, the environment included: they do not appear in the result and nothing reaches `Object.prototype` through them.\n\nThese constraints must hold in the final result:\n- parseEnv is used by other tools: it must keep returning every value as the string it was given.\n- Copy configuration by hand: no structuredClone and no JSON.parse(JSON.stringify(...)) round trip anywhere in src.\n\nDo the whole task in this workspace.",
+        "verification": {
+          "command": "node --test",
+          "protectedPaths": [
+            "package.json",
+            "test/config.test.js"
+          ],
+          "requiredOutputFields": [
+            "summary"
+          ]
+        },
+        "retry": {
+          "budget": 2
+        },
+        "network": {
+          "stance": "deny"
+        },
+        "recovery": "abort"
+      }
+    ]
+  }
+}
