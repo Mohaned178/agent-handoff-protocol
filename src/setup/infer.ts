@@ -8,7 +8,7 @@ import { join } from "node:path";
 import type { DoctorReport } from "../doctor/doctor.ts";
 import { assignRoles, type Role, type RoleAssignment } from "../doctor/init.ts";
 import { TOOLS, type ToolId } from "../doctor/tools.ts";
-import { slugOf } from "./wizard.ts";
+import { slugOf } from "./slug.ts";
 
 /** A command AHP worked out, and the file it worked it out from. */
 export interface Inferred {

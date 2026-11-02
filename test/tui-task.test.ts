@@ -514,3 +514,23 @@ describe("a run going, cancelled and quit", () => {
     expect(tui.exited()).toBe(true);
   });
 });
+
+describe("`ahp \"<task>\"` on a terminal", () => {
+  it("opens on that task's summary", async () => {
+    const env = await toolsEnv(MOCK_ONLY);
+    const { tui } = openApp({ repo, env, startTask: TASK });
+
+    const frame = await tui.waitFor("m try it on the mock");
+
+    expect(frame).toContain(TASK);
+    expect(frame).not.toContain("No runs here yet.");
+  });
+
+  it("waits in the prompt while the first-open screens come first", async () => {
+    forgetSettings();
+    const env = await toolsEnv(MOCK_ONLY);
+    const { tui } = openApp({ repo, env, startTask: TASK });
+
+    await tui.waitFor("Tools on this machine");
+  });
+});

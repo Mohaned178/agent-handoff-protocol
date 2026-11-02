@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
-const cliEntry = fileURLToPath(new URL("../../src/commands/bin.ts", import.meta.url));
+const cliEntry = fileURLToPath(new URL("../../src/cli/bin.ts", import.meta.url));
 
 /** Polls `check` until it returns a value. */
 export async function until<T>(check: () => T | undefined, what: string): Promise<T> {

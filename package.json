@@ -58,7 +58,6 @@
     "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
-    "@inquirer/prompts": "^8.7.5",
     "@types/react": "19.3.0",
     "execa": "^10.1.1",
     "ink": "8.0.0",

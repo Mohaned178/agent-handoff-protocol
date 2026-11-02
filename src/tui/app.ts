@@ -50,6 +50,8 @@ export interface AppProps {
   start?: Screen;
   /** The run the run screen opens on, when the app starts there. */
   runId?: string;
+  /** `ahp "<task>"` on a terminal: the task the summary opens on once the first-open and readiness checks pass (else it waits in the prompt). */
+  startTask?: string;
 }
 
 function TooSmall({ layout, quit }: { layout: Layout; quit: () => void }) {
@@ -61,7 +63,7 @@ function TooSmall({ layout, quit }: { layout: Layout; quit: () => void }) {
 
 type Confirming = "cancel" | "quit" | "quitting" | null;
 
-function Screens({ cwd, sources, runSources, task, runner, start, runId: startRun }: Omit<AppProps, "theme">) {
+function Screens({ cwd, sources, runSources, task, runner, start, runId: startRun, startTask }: Omit<AppProps, "theme">) {
   const { exit } = useApp();
   const { columns, rows } = useWindowSize();
   const layout = layoutOf(columns, rows);
@@ -79,6 +81,7 @@ function Screens({ cwd, sources, runSources, task, runner, start, runId: startRu
   const [session, setSession] = useState<TaskSession>(freshSession());
   const [access, setAccess] = useState<readonly OpenCodeAccess[] | null>(null);
   const [asked, setAsked] = useState<{ text: string; nonce: number } | null>(null);
+  // A task given on the command line that the summary could not open on (first open or a repository to fix comes first) waits in the prompt.
   const [prefill, setPrefill] = useState<{ id: number; text: string } | null>(null);
   const [confirm, setConfirm] = useState<Confirming>(null);
 
@@ -89,7 +92,14 @@ function Screens({ cwd, sources, runSources, task, runner, start, runId: startRu
       ({ firstOpenDone, repository: found }) => {
         if (!live) return;
         setRepository(found);
-        setRouter(startAt(!firstOpenDone ? "welcome" : found.kind === "ready" ? "home" : "ready"));
+        const first = !firstOpenDone ? "welcome" : found.kind === "ready" ? "home" : "ready";
+        if (startTask !== undefined && first === "home") {
+          setAsked({ text: startTask, nonce: 1 });
+          setRouter(startAt("summary"));
+        } else {
+          if (startTask !== undefined) setPrefill({ id: 1, text: startTask });
+          setRouter(startAt(first));
+        }
         setBooted(true);
       },
       () => live && setBooted(true),

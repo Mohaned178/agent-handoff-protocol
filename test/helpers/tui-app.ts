@@ -52,11 +52,11 @@ export function closeApps(): void {
 /** Forgets the saved settings, as on a machine where ahp was never opened. */
 export const forgetSettings = (): void => rmSync(settingsPath(), { force: true });
 
-export function openApp(options: { repo: string; env: NodeJS.ProcessEnv; runner?: TaskRunner; columns?: number; rows?: number; now?: () => number; tasks?: (given: TaskSources) => TaskSources }): OpenedApp {
+export function openApp(options: { repo: string; env: NodeJS.ProcessEnv; startTask?: string; runner?: TaskRunner; columns?: number; rows?: number; now?: () => number; tasks?: (given: TaskSources) => TaskSources }): OpenedApp {
   const given = taskSources(options.repo, options.env);
   const tasks = options.tasks ? options.tasks(given) : given;
   const sources = { ...homeSources(options.repo, options.env, tasks.tools), ...(options.now ? { now: options.now } : {}) };
-  const tui = renderTui(h(App, { cwd: options.repo, theme: themeFor("truecolor"), sources, task: tasks, ...(options.runner ? { runner: options.runner } : {}) }), { columns: options.columns ?? 120, rows: options.rows ?? 34 });
+  const tui = renderTui(h(App, { cwd: options.repo, theme: themeFor("truecolor"), sources, task: tasks, ...(options.startTask !== undefined ? { startTask: options.startTask } : {}), ...(options.runner ? { runner: options.runner } : {}) }), { columns: options.columns ?? 120, rows: options.rows ?? 34 });
   opened.push(tui);
   return { tui, tasks };
 }

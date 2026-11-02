@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { formatBriefReceipt, formatReceipt } from "../src/cli/receipt.ts";
+import { formatBriefReceipt, formatReceipt } from "../src/commands/receipt-text.ts";
 import { receiptOf } from "../src/commands/receipt.ts";
 import { defineWorkflow, mock, readRunEvents, runWorkflow, type MockAttemptScript } from "../src/index.ts";
 import { replay } from "../src/ledger/replay.ts";

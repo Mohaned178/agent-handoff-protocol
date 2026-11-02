@@ -438,10 +438,18 @@ describe("the alternate screen", () => {
   });
 });
 
-describe("node src/tui/dev.ts", () => {
-  it("opens only on a terminal, and says so otherwise", () => {
-    const result = spawnSync(process.execPath, [fileURLToPath(new URL("../src/tui/dev.ts", import.meta.url))], { encoding: "utf8", windowsHide: true, timeout: 30_000 });
-    expect(result.status).toBe(2);
-    expect(result.stderr).toContain("ahp's app needs a terminal");
+describe("plain `ahp` without a terminal", () => {
+  it("prints the usage instead of opening the app", () => {
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL("../src/cli/bin.ts", import.meta.url))], { encoding: "utf8", windowsHide: true, timeout: 30_000 });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("usage");
+  });
+
+  it("answers `ahp setup`, `settings` and `init` with where they went", () => {
+    for (const command of ["setup", "settings", "init"]) {
+      const result = spawnSync(process.execPath, [fileURLToPath(new URL("../src/cli/bin.ts", import.meta.url)), command], { encoding: "utf8", windowsHide: true, timeout: 30_000 });
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain(`\`ahp ${command}\` has moved into the app: run \`ahp\``);
+    }
   });
 });

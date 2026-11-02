@@ -1,7 +1,7 @@
 // The receipt of a run, as data: what AHP's checks caught that an agent alone would not have said, read from the run's
 // state and nothing else. An agent's report is a claim, so the receipt counts the times an agent "reported done", never
 // that work "was done"; and it holds only what the ledger records: no "would have", no estimate of time or money saved.
-// The old terminal layer (`src/cli/receipt.ts`) and the app's run screen both render it.
+// The plain commands (`receipt-text.ts`) and the app's run screen both render it.
 
 import { reviewVerdictOf, THIS_REPOSITORY, type AttemptView, type ChangedPath, type EvidenceItem, type FailureClass, type RunState, type RunView, type StepView } from "../protocol/index.ts";
 import { TOOLS } from "../doctor/tools.ts";

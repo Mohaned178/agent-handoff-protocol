@@ -1,7 +1,8 @@
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { main } from "../src/cli/main.ts";
-import { formatBriefReceipt, formatReceipt, nextStepOf } from "../src/cli/receipt.ts";
+import { main } from "../src/commands/main.ts";
+import { nextStepOf } from "../src/commands/receipt.ts";
+import { formatBriefReceipt, formatReceipt } from "../src/commands/receipt-text.ts";
 import { defineWorkflow, mock, runWorkflow, type MockAttemptScript, type StepDefinition } from "../src/index.ts";
 import { createTempRepo, removeTempRepos, VERIFY_GREETING } from "./helpers/repo.ts";
 import { goodbye, hello, retryWorkflow } from "./helpers/retry.ts";
@@ -119,7 +120,7 @@ describe("the run receipt", () => {
 });
 
 describe("the receipt in the CLI", () => {
-  it("is printed at a run's end and at the top of ahp inspect", async () => {
+  it("is summarised at a run's end and printed in full at the top of ahp inspect", async () => {
     const dir = createTempRepo({
       "verify.mjs": VERIFY_GREETING,
       "workflow.mjs": `export default ${JSON.stringify({ name: "retry", steps: [{ id: "implement", agent: { adapter: "mock", options: { attempts: [goodbye, hello] } }, verification: { command: "node verify.mjs" } }] })};\n`,
@@ -134,7 +135,7 @@ describe("the receipt in the CLI", () => {
 
     expect(run.code, run.stdout).toBe(0);
     const receipt = `${HEADING}\n  implement: verified: \`node verify.mjs\` passed in a clean copy\n  implement: the agent reported done once before its check passed:\n    attempt 1: greeting missing or wrong`;
-    expect(run.stdout.indexOf(receipt)).toBeGreaterThan(run.stdout.search(/run run_[a-z0-9]+: succeeded/));
+    expect(run.stdout).toContain("✓ implement: `node verify.mjs` passed · after one failed attempt");
     const runId = /run (run_[a-z0-9]+): succeeded/.exec(run.stdout)![1]!;
 
     const inspect = await ahpHere(["inspect", runId]);

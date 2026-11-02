@@ -1,7 +1,7 @@
 import { appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { formatReceipt } from "../src/cli/receipt.ts";
+import { formatReceipt } from "../src/commands/receipt-text.ts";
 import { runWorkflow, type MockAttemptScript, type RunView } from "../src/index.ts";
 import type { ActivityEntry } from "../src/protocol/index.ts";
 import { activityLogPath, locateRepo } from "../src/runtime/paths.ts";
