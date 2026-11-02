@@ -7,8 +7,9 @@ what gets in the way is fixed.
 
 **Blocked by:** 09
 
-**Status:** in progress (2026-11-02): Windows run and fixes done by Claude with the maintainer's leave; the WSL2 run and
-the conhost look are left for the maintainer (see "Run by Claude" below)
+**Status:** done (2026-11-02), with two checks not made: the maintainer chose to merge without the WSL2 run and the
+conhost look ("skip checks, merge"). The app is untested on Linux and in conhost; the two unticked boxes below say so,
+and they are the first thing to do if either matters.
 
 - [ ] The maintainer, on Windows Terminal, with real tools logged in: first open from a fresh `AHP_HOME`; three real
       tasks in a real project (one that passes, one where the check fails at first, one rejected at the gate); one run

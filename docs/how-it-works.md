@@ -84,6 +84,8 @@ Agents are started without a shell: AHP resolves the tool's real executable on P
 - **The sidebar** (110 columns or wider; `u` toggles it over the timeline below that) shows, per tool, the tokens and cost as that tool reported them so far, and the limits it reports (Claude Code's plan-limit status, OpenCode's context window used of its size); "not reported" is shown where a tool said nothing, never 0, and tools are never added together. Below those are AHP's own limits: the attempt's time and idle limits and the retry budget used.
 - **`/runs`, `/tools`, `/settings`, `/clean`** list every run (filter by typing), show each tool's version, login and capability levels, keep your defaults per step, and remove the worktrees of ended runs (nothing is removed until Enter).
 - A run played by the mock says so on every screen and in the receipt: its output is no evidence.
+- The app has been used on Windows only. It is untested on Linux, on macOS and in the old Windows console (conhost);
+  the plain commands (`ahp run`, `ahp "<task>" --yes`) do not depend on the terminal.
 
 ## What a run's end says
 
