@@ -285,11 +285,12 @@ AHP also measures whether its checks and handoffs help, and reports the answer w
 - a single agent, alone (C0) and with the same check-and-retry loop AHP gives (C0V)
 - a plain-text pipeline (C1), and one with structured fields but no checks (C2)
 - implement → review with the check, retry and send-back (C3min), and the full workflow with a plan step (C3)
+- the full workflow with a byte budget on what each step hands on, which verification enforces (C3c), and with a reflect step before review (C3r)
 - a baseline: one agent given as many attempts as the full workflow used
 
-Trials are repeated in a seeded random order, and each one is scored by independent validators with hidden tests that no agent sees. **No result yet**: the [pilot suite](docs/pilot.md) is written but has not been run, so nothing here claims that handoffs beat a single agent. A negative result is a legitimate outcome. See [docs/evaluation.md](docs/evaluation.md).
+Trials are repeated in a seeded random order, and each one is scored by independent validators with hidden tests that no agent sees. **No usable result yet**: the [pilot suite](docs/pilot.md) has run only once, on a small local model that made no tool calls (0 of 30 trials verified, in every condition), so it says nothing for or against handoffs, and nothing here claims that handoffs beat a single agent. A negative result is a legitimate outcome. See [docs/evaluation.md](docs/evaluation.md).
 
-`ahp bench` compares local inference engines on one model, and `ahp eval` can run the pilot through OpenCode on each of them. **First result** (2026-11-02: Ollama, vLLM and SGLang benched, no engine made a valid tool call, Ollama evaluated: 0 verified): see [docs/results/inference-evaluation-2026-11-02.md](docs/results/inference-evaluation-2026-11-02.md). Setup and how to read a report: [docs/inference-evaluation.md](docs/inference-evaluation.md).
+`ahp bench` compares local inference engines on one model, and `ahp eval` can run the pilot through OpenCode on each of them. **First result** (2026-11-02, RTX 4060, Qwen2.5-Coder-7B int4: Ollama, vLLM and SGLang benched on speed, quality and tool calls; no engine made a valid tool call; only Ollama was evaluated): see [docs/results/inference-evaluation-2026-11-02.md](docs/results/inference-evaluation-2026-11-02.md). Setup and how to read a report: [docs/inference-evaluation.md](docs/inference-evaluation.md).
 
 ## Versions and support
 
